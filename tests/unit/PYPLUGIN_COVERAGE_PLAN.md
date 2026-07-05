@@ -72,12 +72,23 @@ Ordered most-valuable first. Percentages are current host coverage.
    dedup + ifin-not-reached YAML on teardown (drives `on_exec` directly; the
    execve syscall handler just feeds it).
 6. **`loggers/`** — `exec_logger.py` ✅ done (`test_exec_logger.py`, via a `DB`
-   double). Remaining: `db.py` (18%), `rw_logger.py` (20%) — pair with the
-   record/replay seam (same trace feeds the logger and the strace/ltrace work).
+   double); `db.py` ✅ done (`test_db.py`, 18→96% — real SQLite round-trip:
+   add_event → uninit flush/join → read back with SQLAlchemy, incl. the
+   polymorphic split-insert and unsigned-address sanitization). Remaining:
+   `rw_logger.py` (20%) — its `read`/`write` are **portal generators** reaching
+   `plugins.mem`/`plugins.OSI` + `self.panda.ffi.cast`, so it needs the
+   portal-read pump (see target 9 / harness gaps) before it's a clean target.
 7. **`interventions/`** — `mount.py` ✅ done (`test_mount.py`, the exec-driven
-   log path). Remaining: `nvram2.py` (18%), `lifeguard.py` (20%), `kmods.py`
-   (21%) — each needs the host-decidable vs guest-round-trip scope call. Note the
-   syscall-return hooks (e.g. mount's `post_mount`) are portal **generators**,
+   log path); `kmods.py` ✅ done (`test_kmods.py`, 21→46% — name extraction,
+   allow/deny classification, modules.log writer); `lifeguard.py` ✅ done
+   (`test_lifeguard.py`, 20→51% — signal classification syscall-only vs delivery,
+   delivery-drop + CSV, no-subscription case). Their remaining misses are the
+   syscall-send **generator** handlers (out of scope). `nvram2.py` (18%) is
+   **not** a cheap target: its `__init__` compiles lib_inject via `clang-20`
+   (subprocess, needs the toolchain image), so it can't be loaded host-side
+   without either the toolchain or a manual bypass-`__init__` construction — the
+   pure `on_nvram_*`/`log_write` handlers are testable but only after that. Note
+   the syscall-return hooks (e.g. mount's `post_mount`) are portal **generators**,
    still out of scope until the harness gains a portal-read pump.
 8. **Sibling Phase-0 plugins** as they land on this branch: `crashes.yaml`
    (draft 01) and `summary.json` (draft 02) aggregation — the harness is their
