@@ -12,6 +12,7 @@ from .harness import (
     NullPanda,
     RecorderStub,
     drive,
+    install_fake_enums,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "NullPanda",
     "RecorderStub",
     "drive",
+    "install_fake_enums",
 ]

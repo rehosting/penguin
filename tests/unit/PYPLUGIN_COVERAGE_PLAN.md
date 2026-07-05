@@ -135,26 +135,29 @@ Ordered most-valuable first. Percentages are current host coverage.
 8. **Sibling Phase-0 plugins** as they land on this branch: `crashes.yaml`
    (draft 01) and `summary.json` (draft 02) aggregation — the harness is their
    natural host-side test.
-9. **`analysis/interfaces.py` + the `apis.syscalls`-importing class** — ⚠️ **past
-   the cheap boundary; separate follow-on.** `from apis.syscalls import
-   ValueFilter` transitively imports the API/portal stack: `apis/__init__` →
-   `hyper.portal` → `hyper.consts` (builds enums from
-   `plugins.kffi.get_enum_dict(...)` at import) and `wrappers.ptregs_wrap` →
-   `dwarffi`. Loading it needs (a) `dwarffi` installed and (b) a `kffi` double
-   returning the **real** `value_filter_type` enum members
-   (`ValueFilter.__init__` reads `vft.SYSCALLS_HC_FILTER_EXACT` as a default-arg
-   at class-definition time). Faking those faithfully = maintaining the C enum
-   tables. Unlock the whole class together: a checked-in enum-table fixture (or a
-   lightweight real-kffi shim) as a `kffi` double + the API-layer deps in `[test]`.
-   **Finding (investigated):** the loader *does* make a `kffi` double reachable at
-   import (`_exec_plugin_module` swaps `penguin.plugins` to our null manager, so
-   `hyper.consts`' module-body `plugins.kffi.get_enum_dict(name)` would hit it).
-   The real blocker is the **source of truth**: those 7 enums (`HYPER_OP`,
-   `value_filter_type`, `hyperfs_ops`, …) are defined in the kernel/igloo_driver
-   DWARF, *not* anywhere in this repo — so a hand-authored fixture is unverifiable
-   guesswork that bit-rots against the kernel. Do this only with a capture step
-   that dumps the live enum dicts from a real run into a checked-in JSON fixture
-   (regenerable), not by hardcoding values. Deferred until that capture exists.
+9. **`analysis/interfaces.py` + the `apis.syscalls`-importing class** ✅ done
+   (`test_interfaces.py`, `analysis/interfaces.py` 4→93%) — the FFI-enum boundary,
+   crossed with the **`fake_enums=True`** load mode. `from apis.syscalls import
+   ValueFilter` transitively imports `apis/__init__` → `hyper.portal` →
+   `hyper.consts` (builds enums from `plugins.kffi.get_enum_dict(...)` and wraps
+   them in `ConstDictWrapper`, which *eagerly* materializes members) and
+   `wrappers.ptregs_wrap` → `dwarffi` (now in the `[test]` extra).
+
+   **What actually works (and why the obvious fix doesn't):** faking
+   `get_enum_dict` alone is defeated by `ConstDictWrapper.__init__`'s
+   `self.__dict__.update(data)` — it copies the keys present at construction, with
+   no `__getattr__` fallback, so an auto-vivifying dict yields `AttributeError` on
+   any unseen member. The seam is one level up: `install_fake_enums()` inserts a
+   fake `hyper.consts` module (PEP-562 `__getattr__`) whose every enum is an
+   `_AutoIntEnum` returning a stable auto-int for any member. Real `hyper.portal`/
+   `apis.syscalls`/`ValueFilter` then import against it. The enum **values are
+   bogus**, so any `PortalCmd` built from them carries a meaningless command number
+   — fine in the null backend (nothing is sent to a guest), and enough to import
+   the plugin and exercise its host-side logic (interfaces' name validation/dedup,
+   the ip/ifconfig exec parser, and the `after_ioctl` generator via the pump + a
+   `mem.read_str` double). Use it only for logic that doesn't depend on real enum
+   constants; for those, a live enum-dict capture → checked-in fixture is still the
+   right (deferred) answer.
 
 ### Harness capabilities (as landed)
 
@@ -184,6 +187,13 @@ way: instantiate the model, `drive()` its generator method, resolve
 `plugins.kffi`/`plugins.mem` against doubles. It force-sets `module.plugins` after
 import so a module already cached by an earlier test still resolves against the
 current doubles.
+
+**Fake enums (landed).** `install_fake_enums()` — also `load_pyplugin(...,
+fake_enums=True)` / `load_module(..., fake_enums=True)` — inserts an auto-int fake
+`hyper.consts` into `sys.modules` so plugins behind the FFI-enum boundary import
+host-side. Any enum member resolves to a stable but **meaningless** int, so use it
+only for logic that doesn't depend on real enum values (portal command numbers
+built from them are bogus). Proven on `analysis/interfaces` (4→93%).
 
 ## Sequencing
 

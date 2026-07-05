@@ -226,6 +226,83 @@ def drive(gen: Any, responses: Optional[List[Any]] = None) -> Any:
         return e.value
 
 
+class _AutoIntEnum:
+    """Stand-in for one ``hyper.consts`` enum (``HYPER_OP``, ``value_filter_type``,
+    …). Returns a stable, auto-assigned int for *any* member name, by attribute or
+    item access, so code that reads enum constants at import/class-definition time
+    (e.g. ``ValueFilter.__init__``'s ``vft.SYSCALLS_HC_FILTER_EXACT`` default arg)
+    or builds ``PortalCmd(hop.SOMETHING, …)`` gets an int and does not crash.
+
+    The values are meaningless (assignment order), so any portal command built
+    from them is bogus — fine in the null backend, where nothing is sent to a
+    real guest. This trades correctness of the enum *values* for the ability to
+    import and exercise the plugin logic that sits behind the FFI-enum boundary.
+    """
+
+    def __init__(self, name: str):
+        object.__setattr__(self, "_name", name)
+        object.__setattr__(self, "_vals", {})
+
+    def _get(self, member: str) -> int:
+        vals = object.__getattribute__(self, "_vals")
+        if member not in vals:
+            vals[member] = len(vals) + 1
+        return vals[member]
+
+    def __getattr__(self, member: str) -> int:
+        if member.startswith("_"):
+            raise AttributeError(member)
+        return self._get(member)
+
+    def __getitem__(self, member: str) -> int:
+        return self._get(member)
+
+    def items(self):
+        return list(object.__getattribute__(self, "_vals").items())
+
+    def to_dict(self):
+        return dict(object.__getattribute__(self, "_vals"))
+
+
+def install_fake_enums():
+    """Install an auto-int fake ``hyper.consts`` into ``sys.modules`` (idempotent).
+
+    ``hyper.consts`` builds its enum tables at import from
+    ``plugins.kffi.get_enum_dict(...)`` and wraps them in ``ConstDictWrapper``,
+    which *eagerly* materializes members — so faking ``get_enum_dict`` alone can't
+    work (unknown members raise ``AttributeError``). Instead we replace the module
+    with one whose every enum is an :class:`_AutoIntEnum`. The real
+    ``hyper.portal`` / ``apis.syscalls`` then import against it, so plugins behind
+    the enum boundary (``analysis/interfaces``, syscall-analysis plugins, …) load
+    and their host-side logic can be exercised. Enum *values* are bogus; portal
+    command numbers built from them are meaningless (never sent host-side).
+
+    Returns the fake module. Safe to call repeatedly.
+    """
+    import sys
+    import types
+
+    existing = sys.modules.get("hyper.consts")
+    if existing is not None and getattr(existing, "_penguin_fake_enums", False):
+        return existing
+
+    mod = types.ModuleType("hyper.consts")
+    mod._penguin_fake_enums = True
+    _enums: Dict[str, _AutoIntEnum] = {}
+
+    def _module_getattr(name: str):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        if name not in _enums:
+            _enums[name] = _AutoIntEnum(name)
+        return _enums[name]
+
+    mod.__getattr__ = _module_getattr  # PEP 562: resolves `from hyper.consts import X`
+    mod.enum_names = []
+    sys.modules["hyper.consts"] = mod
+    return mod
+
+
 class NullManager:
     """Null backend standing in for ``IGLOOPluginManager``.
 
@@ -393,6 +470,7 @@ def load_pyplugin(
     endianness: str = "little",
     pyplugins_dir: Optional[str] = None,
     call_init: bool = True,
+    fake_enums: bool = False,
 ) -> LoadedPlugin:
     """Load and construct a pyplugin against a null backend, ready to drive.
 
@@ -417,7 +495,14 @@ def load_pyplugin(
         class-body ``@subscribe``/``@syscall`` decorators register), the instance
         is ``__new__``/``__preinit__``-wired, and the test sets the handful of
         attributes the handlers need before driving them.
+    fake_enums : install an auto-int fake ``hyper.consts`` before import (see
+        :func:`install_fake_enums`) so plugins behind the FFI-enum boundary — those
+        importing ``apis.syscalls``/``hyper`` (e.g. ``analysis/interfaces``) — load
+        host-side. Enum values are bogus; only use it for logic that doesn't depend
+        on real enum constants.
     """
+    if fake_enums:
+        install_fake_enums()
     args = dict(args or {})
     if outdir is not None:
         args["outdir"] = str(outdir)
@@ -466,7 +551,8 @@ def _resolve_path(path_or_name: str, pyplugins_dir: Optional[str]) -> str:
 
 def load_module(path_or_name: str, *, doubles: Optional[Dict[str, Any]] = None,
                 pyplugins_dir: Optional[str] = None,
-                endianness: str = "little") -> Tuple[Any, "NullManager"]:
+                endianness: str = "little",
+                fake_enums: bool = False) -> Tuple[Any, "NullManager"]:
     """Import a pyplugin *module* (not necessarily a ``Plugin`` subclass) with a
     null ``plugins`` bound, and return ``(module, manager)``.
 
@@ -483,6 +569,8 @@ def load_module(path_or_name: str, *, doubles: Optional[Dict[str, Any]] = None,
     import importlib
     import penguin
 
+    if fake_enums:
+        install_fake_enums()
     doubles = dict(doubles or {})
     path = _resolve_path(path_or_name, pyplugins_dir)
     root = pyplugins_dir or _pyplugins_root(path)
