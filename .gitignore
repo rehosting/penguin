@@ -3,6 +3,8 @@
 *.sw*
 __pycache__/
 *.json
+# Checked-in test fixture (real hyper.consts enum values); see gen_hyper_enums.py.
+!src/penguin/testing/hyper_enums.json
 *.pkl
 *.tar.gz
 fws/

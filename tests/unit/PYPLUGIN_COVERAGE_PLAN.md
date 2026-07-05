@@ -188,12 +188,19 @@ way: instantiate the model, `drive()` its generator method, resolve
 import so a module already cached by an earlier test still resolves against the
 current doubles.
 
-**Fake enums (landed).** `install_fake_enums()` — also `load_pyplugin(...,
-fake_enums=True)` / `load_module(..., fake_enums=True)` — inserts an auto-int fake
-`hyper.consts` into `sys.modules` so plugins behind the FFI-enum boundary import
-host-side. Any enum member resolves to a stable but **meaningless** int, so use it
-only for logic that doesn't depend on real enum values (portal command numbers
-built from them are bogus). Proven on `analysis/interfaces` (4→93%).
+**Fake enums (landed, now with REAL values).** `install_fake_enums()` — also
+`load_pyplugin(..., fake_enums=True)` / `load_module(..., fake_enums=True)` —
+inserts a stand-in `hyper.consts` into `sys.modules` so plugins behind the
+FFI-enum boundary import host-side. Each enum is **seeded with the real captured
+values** from `src/penguin/testing/hyper_enums.json`, extracted from the published
+kernel/driver ISF (`igloo.ko.<arch>.json.xz` + `cosi.<arch>.json.xz`) — the same
+source `apis.kffi` reads at runtime — via
+`python -m penguin.testing.gen_hyper_enums`. So a portal command built from a
+captured member (e.g. `HYPER_OP_DEVFS_CREATE_OR_LOOKUP_DIR == 43`) carries its
+**real** op number; only members absent from the capture fall back to a bogus
+auto-int (above the real range, so no collision). The fixture is small (~5 KB),
+arch-invariant (C enum values), regenerable, and shipped in the wheel. Proven on
+`analysis/interfaces` (4→93%), `core/scope` (7→93%), `hyperfile/devfs` (3→45%).
 
 ## Sequencing
 
