@@ -66,10 +66,30 @@ Ordered most-valuable first. Percentages are current host coverage.
 3. **Pseudofile ranking/suggest** — `init/pseudofile_patches.py` (78%) and
    `hyperfile/models/*` are partly covered by `test_pseudofile_models.py`; extend
    to the ranking/`suggest` heuristics written into `pseudofiles_failures.yaml`.
-4. **`analysis/health.py`** (73, 18%), **`analysis/interfaces.py`**,
-   **`analysis/ficd.py`** — event → file writers. `interfaces` uses a
-   `@plugins.syscalls.syscall` generator + `plugins.mem.read_str`, so it needs a
-   `mem` double (see netbinds IPv6) and exercises the portalcall/syscall path.
+4. **`analysis/health.py`** (73, 18%), **`analysis/ficd.py`** — event → file
+   writers that don't import the `apis.syscalls`/portal layer; good next targets.
+5. **`analysis/interfaces.py`** — ⚠️ **past the cheap boundary.** It does
+   `from apis.syscalls import ValueFilter`, which transitively imports the whole
+   API/portal stack: `apis/__init__` → `hyper.portal` → `hyper.consts` (builds
+   enums from `plugins.kffi.get_enum_dict(...)` at import) and
+   `wrappers.ptregs_wrap` → `dwarffi`. Loading it needs (a) `dwarffi` installed
+   and (b) a `kffi` double returning the **real** `value_filter_type` enum
+   members (`ValueFilter.__init__` reads `vft.SYSCALLS_HC_FILTER_EXACT` as a
+   default-arg at class-definition time). Faking those faithfully = maintaining
+   the C enum tables. Treat this whole class of `apis.syscalls`-importing
+   analyses as a **separate follow-on**: build a checked-in enum-table fixture
+   (or a lightweight real-kffi shim) as a `kffi` double, add the API-layer deps
+   to the `[test]` extra, then these unlock together.
+
+### Harness capabilities (as landed)
+
+`load_pyplugin` currently handles: module/class-body decorators
+(`@plugins.portalcall`, `@plugins.subscribe(pub, event)` decorator form), sibling
+test doubles via `doubles={name: obj}` (e.g. `mem`, `kffi`), sibling-package
+imports (`from apis import ...` — pyplugins root goes on `sys.path`), and binding
+class-body-subscribed handlers to the instance on `dispatch`. Not yet handled:
+driving a `@plugins.syscalls.syscall` **generator** handler (needs a portal-read
+pump), and faithful FFI enums at import (the interfaces boundary above).
 4. **`loggers/`** (`db.py` 18%, `rw_logger.py` 20%, `exec_logger.py` 26%) —
    pairs with the record/replay seam (same trace feeds both the logger and the
    `core.strace`/`core.ltrace` replacement work).

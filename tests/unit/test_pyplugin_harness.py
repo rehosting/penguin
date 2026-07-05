@@ -7,6 +7,7 @@ stubbing: a plugin is loaded where it lives, fed events, and asserted on by the
 file it writes.
 """
 import socket
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -60,6 +61,49 @@ def test_dispatch_unknown_event_raises():
     lp = load_pyplugin(str(NETBINDS), outdir="/tmp", args={"shutdown_on_www": False})
     with pytest.raises(KeyError):
         lp.dispatch("no_such_event")
+
+
+def test_class_body_subscribe_is_bound_and_dispatched(tmp_path):
+    # `@plugins.subscribe(pub, event)` in a class body records the *unbound*
+    # function; the harness must accept the decorator form and bind it to the
+    # constructed instance on dispatch.
+    plug = tmp_path / "tiny.py"
+    plug.write_text(textwrap.dedent("""
+        from penguin import plugins, Plugin
+
+        class Tiny(Plugin):
+            @plugins.subscribe(plugins.Events, "on_thing")
+            def handle(self, x):
+                self.seen.append(x)
+
+            def __init__(self):
+                self.seen = []
+    """))
+    lp = load_pyplugin(str(plug))
+    assert "on_thing" in {ev for (_p, ev, _c) in lp.subscriptions}
+    lp.dispatch("on_thing", 42)
+    assert lp.plugin.seen == [42]  # bound to the instance, self supplied
+
+
+def test_sibling_package_import_resolved(tmp_path):
+    # A plugin under .../pyplugins/<cat>/ that imports a sibling package must
+    # resolve, because the harness puts the pyplugins root on sys.path (the way
+    # runtime discovery does).
+    root = tmp_path / "pyplugins"
+    (root / "sib").mkdir(parents=True)
+    (root / "sib" / "__init__.py").write_text("VALUE = 7\n")
+    (root / "cat").mkdir()
+    plug = root / "cat" / "plug.py"
+    plug.write_text(textwrap.dedent("""
+        from penguin import Plugin
+        from sib import VALUE
+
+        class P(Plugin):
+            def __init__(self):
+                self.value = VALUE
+    """))
+    lp = load_pyplugin(str(plug))
+    assert lp.plugin.value == 7
 
 
 # --------------------------------------------------------------------------- #
