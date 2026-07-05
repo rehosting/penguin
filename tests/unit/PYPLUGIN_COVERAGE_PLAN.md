@@ -82,6 +82,23 @@ Ordered most-valuable first. Percentages are current host coverage.
    `pseudofiles_failures.yaml` ranking/`suggest` heuristics in
    `init/pseudofile_patches.py` (78%, provenance already covered by
    `test_pseudofile_models.py`) remain as a smaller follow-on.
+
+   **Composition + registration** ✅ done — `test_pseudofile_composition.py`
+   (`hyperfile/pseudofiles.py` 14→54%). Two layers above the models:
+   *composition* — `_create_dynamic_class` assembles the right model mixins into
+   one class (asserted on the resulting MRO) with the right kwargs, plus the
+   per-domain resolvers (`_resolve_mixin`, `_create_ioctl_handler`,
+   `_translate_kwargs`, `_normalize_ioctl_conf`, `_resolve_known_size`); and
+   *passing to the kernel* — `_populate_hf_config` routes each path prefix
+   (`/dev`→devfs, `/proc`→procfs, `/proc/sys`→sysctl, `/sys`→sysfs) to the correct
+   subsystem registrar with the composed instance, and defers `/dev/mtd*`·
+   `/proc/mtd` to the native MTD subsystem. Loaded with the new `call_init=False`
+   seam (the plugin's `__init__` inits the tracker + reads config); routing is
+   verified with recording registrar doubles. This deliberately asserts *structure*
+   (which mixins compose, which registrar fires) — the model *behavior* is already
+   covered by the four `test_*_models.py`, so the layers stay separately tested.
+   Remaining pseudofiles.py misses are the plugin-backing (`file:Class`) import
+   path and the `from_plugin` style-detection (both guest/plugin-graph concerns).
 5. ✅ **`analysis/ficd.py`** — done (`test_ficd.py`): Levenshtein unique/not-unique
    dedup + ifin-not-reached YAML on teardown (drives `on_exec` directly; the
    execve syscall handler just feeds it).
