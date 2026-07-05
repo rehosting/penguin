@@ -86,7 +86,13 @@ ARCH_ABI_INFO = dict(
                 m_flags=dict(),
             ),
             ppc64le=dict(
-                musl_arch_name="powerpc64le",
+                # musl has no separate little-endian ppc64 header set: its
+                # arch/powerpc64 headers serve both endiannesses, and the image
+                # ships musl-headers/powerpc64 (not powerpc64le). Pointing this
+                # at powerpc64le makes -isystem reference a nonexistent dir, so
+                # lib_inject fails to build ("fcntl.h/dirent.h/stdbool.h not
+                # found") and the run aborts before boot.
+                musl_arch_name="powerpc64",
                 m_flags=dict(),
             ),
         ),

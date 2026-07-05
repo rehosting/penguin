@@ -187,11 +187,15 @@ _SPECS = (
     ArchSpec(
         canonical="powerpc64le",
         aliases=("ppc64le", "powerpc64el", "ppc64el"),
-        arch_subdir="powerpc64",
+        # LE ppc64 has its own endian-specific guest utils, kernel modules and
+        # kernel; they are distinct binaries from the big-endian powerpc64 set,
+        # so this must NOT reuse the powerpc64 subdir.
+        arch_subdir="powerpc64le",
         dylib_subdir="powerpc64le",
         qemu_arch="ppc64",
         qemu_machine="pseries",
         cpu="power9",
+        _kernel_whole="vmlinux.powerpc64le",
         serial=(229, 1),
         console_replacement=("console=ttyS0", "console=hvc0 console=ttyS0"),
         endianness="little",
