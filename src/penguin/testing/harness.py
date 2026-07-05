@@ -59,7 +59,7 @@ import inspect
 import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from penguin.plugin_manager import Plugin, _exec_plugin_module
+from penguin.plugin_manager import Plugin, _exec_plugin_module, _plugin_root_on_path
 
 
 class RecorderStub:
@@ -140,7 +140,15 @@ class NullManager:
         self.plugins: Dict[str, Plugin] = {}
 
     # --- manager surface a plugin's __init__ touches ---------------------- #
-    def subscribe(self, publisher: Any, event: str, callback: Callable, *a, **k) -> None:
+    def subscribe(self, publisher: Any, event: str, callback: Callable = None, *a, **k):
+        """Record a subscription. Mirrors the real manager: with no ``callback``
+        it returns a decorator (the class-body ``@plugins.subscribe(pub, event)``
+        form), otherwise it records directly."""
+        if callback is None:
+            def decorator(cb):
+                self.subscriptions.append((publisher, event, cb))
+                return cb
+            return decorator
         self.subscriptions.append((publisher, event, callback))
 
     def register(self, plugin: Any, event: str, *a, **k) -> None:
@@ -217,7 +225,21 @@ class LoadedPlugin:
         if not handlers:
             known = sorted({ev for (_p, ev, _c) in self.manager.subscriptions})
             raise KeyError(f"no handler subscribed to {event!r}; known events: {known}")
-        return [cb(*args, **kwargs) for cb in handlers]
+        return [self._bind(cb)(*args, **kwargs) for cb in handlers]
+
+    def _bind(self, handler: Callable) -> Callable:
+        """Bind a class-body-subscribed handler to the constructed instance.
+
+        ``@plugins.subscribe(...)`` in a class body records the *unbound*
+        function (the instance doesn't exist yet). If it belongs to this plugin's
+        class, bind it so ``self`` is supplied — mirroring what the real manager's
+        publish() does via resolve_bound_method_from_class.
+        """
+        if inspect.isfunction(handler) and not hasattr(handler, "__self__"):
+            owner = getattr(type(self.plugin), handler.__name__, None)
+            if owner is handler:
+                return handler.__get__(self.plugin, type(self.plugin))
+        return handler
 
     def finalize(self) -> None:
         """Run the plugin's teardown (``uninit``) if it has one — many plugins
@@ -268,12 +290,15 @@ def load_pyplugin(
     # expected by some manager paths); per-plugin args are passed at __preinit__.
     manager = NullManager(args={"plugins": {}}, doubles=doubles, panda=panda, log=log)
 
-    # Ride the real loader: bind our null manager as `plugins` during import so
-    # class/module-body decorators resolve against it, and return the classes.
-    classes = dict(_exec_plugin_module(path, manager, panda))
-    cls = _pick_class(classes, class_name, path)
-
-    plugin = _construct(cls, manager, panda, args)
+    # Put the pyplugins root on sys.path so sibling-package imports in the target
+    # (`from apis.syscalls import ...`, `import hyper`) resolve the same way they
+    # do at runtime, then ride the real loader (binds our null manager as
+    # `plugins` during import so class/module-body decorators resolve against it).
+    root = pyplugins_dir or _pyplugins_root(path)
+    with _plugin_root_on_path(root):
+        classes = dict(_exec_plugin_module(path, manager, panda))
+        cls = _pick_class(classes, class_name, path)
+        plugin = _construct(cls, manager, panda, args)
     manager.plugins[cls.__name__] = plugin
     doubles.setdefault(cls.__name__, plugin)
     return LoadedPlugin(plugin, manager, panda, log)
@@ -296,6 +321,18 @@ def _resolve_path(path_or_name: str, pyplugins_dir: Optional[str]) -> str:
         raise ValueError(f"expected exactly one {path_or_name}.py under "
                          f"{pyplugins_dir}, found {matches}")
     return matches[0]
+
+
+def _pyplugins_root(path: str) -> Optional[str]:
+    """Find the ``pyplugins`` root above a plugin file so sibling packages
+    (``apis``, ``hyper``, …) import. Returns the ancestor dir named ``pyplugins``,
+    else None (a bare path with no such ancestor needs pyplugins_dir=)."""
+    p = os.path.dirname(os.path.realpath(path))
+    while p and os.path.dirname(p) != p:
+        if os.path.basename(p) == "pyplugins":
+            return p
+        p = os.path.dirname(p)
+    return None
 
 
 def _pick_class(classes: Dict[str, type], class_name: Optional[str], path: str) -> type:
