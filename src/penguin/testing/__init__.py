@@ -6,6 +6,7 @@ See :mod:`penguin.testing.harness` for the design. Public API:
 """
 from .harness import (
     load_pyplugin,
+    load_module,
     LoadedPlugin,
     NullManager,
     NullPanda,
@@ -15,6 +16,7 @@ from .harness import (
 
 __all__ = [
     "load_pyplugin",
+    "load_module",
     "LoadedPlugin",
     "NullManager",
     "NullPanda",

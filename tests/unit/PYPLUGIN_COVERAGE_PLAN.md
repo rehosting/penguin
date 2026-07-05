@@ -65,9 +65,23 @@ Ordered most-valuable first. Percentages are current host coverage.
    tracking, config-known filtering, uboot capture via strstr, YAML on teardown.
 3. ✅ **`analysis/health.py`** — done (`test_health.py`): distinct bind/exec/
    device-open tallies to health_final.yaml + device/proc lists.
-4. **Pseudofile ranking/suggest** — `init/pseudofile_patches.py` (78%) and
-   `hyperfile/models/*` are partly covered by `test_pseudofile_models.py`; extend
-   to the ranking/`suggest` heuristics written into `pseudofiles_failures.yaml`.
+4. **Pseudofile models** ✅ done — the `hyperfile/models/*` read/write/seek/ioctl
+   models (what backs `read/write/ioctl/lseek: {model: ...}` and decides the bytes
+   a modelled `/dev`·`/proc`·`/sys` file serves — the host-side logic a huge share
+   of the guest-boot matrix ultimately exercises). Covered via the new
+   `load_module` seam (these are plain mixin classes, not `Plugin` subclasses) +
+   the pump with `kffi`/`mem` doubles: `test_read_models.py` (const/zero/one/empty,
+   cycle, sequence advance+hold+wrap, stateful, const-map, default → read 19→59%),
+   `test_write_models.py` (discard/return-const/unhandled, record overwrite +
+   gap-pad, default → write 26→44%), `test_seek_models.py` (SEEK_SET/CUR/END,
+   clamp/EINVAL, unsupported/ESPIPE → seek 43→66%), `test_ioctl_models.py`
+   (zero/unhandled/return-const, write-data-arg, dispatcher exact/string/wildcard/
+   ENOTTY, compat dispatcher → ioctl 33→76%). Remaining misses are the
+   External{VFS,Legacy}/FromPlugin adapters (they call *other* plugins — a
+   guest-round-trip/plugin-graph concern) and file-backed variants. The
+   `pseudofiles_failures.yaml` ranking/`suggest` heuristics in
+   `init/pseudofile_patches.py` (78%, provenance already covered by
+   `test_pseudofile_models.py`) remain as a smaller follow-on.
 5. ✅ **`analysis/ficd.py`** — done (`test_ficd.py`): Levenshtein unique/not-unique
    dedup + ifin-not-reached YAML on teardown (drives `on_exec` directly; the
    execve syscall handler just feeds it).
@@ -142,8 +156,17 @@ satisfied by generator *doubles* that `yield from ()` and `return` a canned
 value; `panda.ffi.cast` is modelled as identity so `int(cast("target_long", fd))`
 works. Proven on `rw_logger` (read/write) and `kmods`
 (init_module/finit_module). Not yet handled: faithful FFI enums at import (the
-`apis.syscalls` interfaces boundary above), and a `proto` double rich enough for
-`proto.arg_value(...)` (lifeguard's syscall-send arg extraction).
+`apis.syscalls` interfaces boundary above).
+
+**Module loader (landed).** `penguin.testing.load_module(path, doubles=…)` imports
+a pyplugin *module* (under its real dotted name so `from .base import …` resolves)
+with the null manager bound as `plugins`, and returns `(module, manager)`. Use it
+for testable logic that lives in plain classes/functions rather than a `Plugin`
+subclass — the `hyperfile/models/*` read/write/seek/ioctl mixins are driven this
+way: instantiate the model, `drive()` its generator method, resolve
+`plugins.kffi`/`plugins.mem` against doubles. It force-sets `module.plugins` after
+import so a module already cached by an earlier test still resolves against the
+current doubles.
 
 ## Sequencing
 
