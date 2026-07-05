@@ -95,6 +95,12 @@ Ordered most-valuable first. Percentages are current host coverage.
    `tests/integration/` fixture). Note the syscall-**return** hooks (e.g. mount's
    `post_mount`) also run through the pump now via `dispatch_syscall(...,
    on_return=True)`.
+   **Core/actuation also covered** (not originally listed, done opportunistically
+   as clean non-boundary wins): `core/readiness.py` ✅ (`test_readiness.py`,
+   26→100% — igloo_init/netbind marker files + single-publish dedup) and
+   `actuation/nmap.py` ✅ (`test_nmap.py`, 27→88% — UDP short-circuit, scan-command
+   construction incl. the custom-nmap redirect branch, subprocess cleanup, via a
+   patched `subprocess.Popen`).
 8. **Sibling Phase-0 plugins** as they land on this branch: `crashes.yaml`
    (draft 01) and `summary.json` (draft 02) aggregation — the harness is their
    natural host-side test.
@@ -109,6 +115,15 @@ Ordered most-valuable first. Percentages are current host coverage.
    at class-definition time). Faking those faithfully = maintaining the C enum
    tables. Unlock the whole class together: a checked-in enum-table fixture (or a
    lightweight real-kffi shim) as a `kffi` double + the API-layer deps in `[test]`.
+   **Finding (investigated):** the loader *does* make a `kffi` double reachable at
+   import (`_exec_plugin_module` swaps `penguin.plugins` to our null manager, so
+   `hyper.consts`' module-body `plugins.kffi.get_enum_dict(name)` would hit it).
+   The real blocker is the **source of truth**: those 7 enums (`HYPER_OP`,
+   `value_filter_type`, `hyperfs_ops`, …) are defined in the kernel/igloo_driver
+   DWARF, *not* anywhere in this repo — so a hand-authored fixture is unverifiable
+   guesswork that bit-rots against the kernel. Do this only with a capture step
+   that dumps the live enum dicts from a real run into a checked-in JSON fixture
+   (regenerable), not by hardcoding values. Deferred until that capture exists.
 
 ### Harness capabilities (as landed)
 
