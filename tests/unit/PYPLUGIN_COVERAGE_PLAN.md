@@ -74,16 +74,19 @@ Ordered most-valuable first. Percentages are current host coverage.
 6. **`loggers/`** — `exec_logger.py` ✅ done (`test_exec_logger.py`, via a `DB`
    double); `db.py` ✅ done (`test_db.py`, 18→96% — real SQLite round-trip:
    add_event → uninit flush/join → read back with SQLAlchemy, incl. the
-   polymorphic split-insert and unsigned-address sanitization). Remaining:
-   `rw_logger.py` (20%) — its `read`/`write` are **portal generators** reaching
-   `plugins.mem`/`plugins.OSI` + `self.panda.ffi.cast`, so it needs the
-   portal-read pump (see target 9 / harness gaps) before it's a clean target.
+   polymorphic split-insert and unsigned-address sanitization); `rw_logger.py`
+   ✅ done (`test_rw_logger.py`, 20→83%) — the first **portal-generator** plugin
+   driven through the harness's syscall pump (see "syscall pump" below): its
+   `read`/`write` `yield from` `plugins.mem`/`plugins.OSI`, satisfied by generator
+   doubles, with `panda.ffi.cast` modelled as identity.
 7. **`interventions/`** — `mount.py` ✅ done (`test_mount.py`, the exec-driven
-   log path); `kmods.py` ✅ done (`test_kmods.py`, 21→46% — name extraction,
-   allow/deny classification, modules.log writer); `lifeguard.py` ✅ done
-   (`test_lifeguard.py`, 20→51% — signal classification syscall-only vs delivery,
-   delivery-drop + CSV, no-subscription case). Their remaining misses are the
-   syscall-send **generator** handlers (out of scope). `nvram2.py` (18%) is
+   log path); `kmods.py` ✅ done (`test_kmods.py`, 21→75% — name/allow/deny +
+   modules.log, plus the `init_module`/`finit_module` **generator** handlers via
+   the syscall pump); `lifeguard.py` ✅ done (`test_lifeguard.py`, 20→51% —
+   signal classification syscall-only vs delivery, delivery-drop + CSV,
+   no-subscription case). Lifeguard's remaining misses are its `_cstr`/proto
+   arg-parsing on the syscall-send path (needs a `proto` double). `nvram2.py`
+   (18%) is
    **not** a cheap target: its `__init__` compiles lib_inject via `clang-20`
    (subprocess, needs the toolchain image), so it can't be loaded host-side
    without either the toolchain or a manual bypass-`__init__` construction — the
@@ -111,9 +114,19 @@ Ordered most-valuable first. Percentages are current host coverage.
 (`@plugins.portalcall`, `@plugins.subscribe(pub, event)` decorator form), sibling
 test doubles via `doubles={name: obj}` (e.g. `mem`, `kffi`), sibling-package
 imports (`from apis import ...` — pyplugins root goes on `sys.path`), and binding
-class-body-subscribed handlers to the instance on `dispatch`. Not yet handled:
-driving a `@plugins.syscalls.syscall` **generator** handler (needs a portal-read
-pump), and faithful FFI enums at import (the interfaces boundary above).
+class-body-subscribed handlers to the instance on `dispatch`.
+
+**Syscall pump (landed).** `@plugins.syscalls.syscall(...)` registrations are now
+recorded (`NullManager.syscalls` / `.syscall_hooks`), and
+`LoadedPlugin.dispatch_syscall(name, *args, on_return=…)` finds the matching hook
+and runs its **generator** to completion via `penguin.testing.drive`. Sibling
+API calls the generator makes (`plugins.mem.read_bytes`, `plugins.osi.*`) are
+satisfied by generator *doubles* that `yield from ()` and `return` a canned
+value; `panda.ffi.cast` is modelled as identity so `int(cast("target_long", fd))`
+works. Proven on `rw_logger` (read/write) and `kmods`
+(init_module/finit_module). Not yet handled: faithful FFI enums at import (the
+`apis.syscalls` interfaces boundary above), and a `proto` double rich enough for
+`proto.arg_value(...)` (lifeguard's syscall-send arg extraction).
 
 ## Sequencing
 
