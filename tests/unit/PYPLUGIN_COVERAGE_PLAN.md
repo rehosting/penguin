@@ -200,9 +200,16 @@ current doubles.
    `unit_tests` job (no matrix, no emulation). For siblings a plugin talks to
    (e.g. netbinds' `plugins.mem` on the IPv6 path), register a small hand-written
    double via `load_pyplugin(..., doubles={...})`.
-5. **Retire `test_selects_kvm`'s xfail** — the harness's null manager is the
-   mechanism that unblocks importing `apis.hypercall` standalone; revisit that
-   test once the harness handles the hypercall import path.
+5. ✅ **Retired `test_selects_kvm`'s xfail** — done, but *not* by importing
+   `apis.hypercall` host-side (that still needs the target-9 enum capture).
+   Instead `test_kvm_runner_final.py` drives the real `run_config` through backend
+   selection + QEMU-argv assembly and stops deterministically at
+   `plugins.initialize` (the first post-selection step) via a sentinel exception,
+   *before* the `from apis.hypercall import Hypercall` boundary. It asserts the
+   real outputs — `KVMQemu.from_installation("kvm", arch)` called, `-accel kvm` in
+   the argv, `"system"` mode + no accel for qemu/default, panda rejected — so we
+   get confidence the KVM path is wired without launching KVM or crossing the
+   boundary. 1 xfail → 4 passing tests.
 
 ## Open questions
 
