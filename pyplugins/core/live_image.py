@@ -773,10 +773,27 @@ class LiveImage(Plugin):
                     "overlaps another patch to this file"))
                 failed = True
                 continue
+            # Bounds-check the write against the actual buffer before touching
+            # it. bytearray slice-assignment silently misplaces bytes when the
+            # start is past the end (appends) or negative (writes from the far
+            # end), so an offset beyond the real window — e.g. a short read
+            # because the guest file was smaller than declared, or a negative
+            # offset — would corrupt the file instead of failing. In the normal
+            # windowed case pos is in [0, len) by construction, so this never
+            # false-trips; it only fires on those degenerate reads.
+            pos = entry["file_offset"] - base_offset
+            if pos < 0 or pos + len(patch_bytes) > len(original_content):
+                off = entry["file_offset"]
+                records.append(self._patch_record(
+                    entry, "failed",
+                    f"offset {off:#x} (window position {pos}) is outside the "
+                    f"{len(original_content)}-byte target window — bad offset "
+                    "or the file is shorter than the patch expects"))
+                failed = True
+                continue
             status, detail = self._verify_entry(
                 original_content, entry, patch_bytes, base_offset)
             if status == "applied":
-                pos = entry["file_offset"] - base_offset
                 buf[pos:pos + len(patch_bytes)] = patch_bytes
             elif status == "failed":
                 failed = True

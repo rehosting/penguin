@@ -1230,7 +1230,7 @@ class BinaryPatchEntry(PartialModelMixin, BaseModel):
 
     model_config = ConfigDict(title="Binary patch entry", extra="forbid")
 
-    file_offset: Annotated[int, Field(title="File offset (integer)")]
+    file_offset: Annotated[int, Field(title="File offset (integer)", ge=0)]
     hex_bytes: Annotated[
         Optional[HexStr],
         Field(default=None, title="Bytes to write at offset (hex string)",
@@ -1394,6 +1394,7 @@ StaticFileAction = _union(
                     Optional[int],
                     Field(
                         default=None,
+                        ge=0,
                         title="File offset (integer) — for a single inline edit; omit when using 'patches'",
                     ),
                 ),

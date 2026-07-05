@@ -325,6 +325,34 @@ def test_apply_contained_overlap_rejected(li):
     assert by_off["0x14"] == "applied"  # the disjoint one is not falsely flagged
 
 
+def test_apply_offset_past_end_fails_not_corrupts(li):
+    # an offset past the end of the buffer must fail cleanly rather than let
+    # bytearray slice-assignment silently append the patch at the wrong place
+    orig = b"\x00\x01"
+    new, recs, failed = li._apply_binary_patch(
+        orig, {"file_offset": 5, "hex_bytes": "aabb"})
+    assert failed and new is None
+    assert "outside" in recs[0]["detail"]
+
+
+def test_apply_short_window_fails_not_corrupts(li):
+    # the guest may return a shorter window than declared (file smaller than
+    # the patch expected + no expect guard); the edit at the far end must fail,
+    # not land appended at the end of the short read
+    window = b"AB"                       # declared window was longer
+    new, recs, failed = li._apply_binary_patch(
+        window, {"patches": [{"file_offset": 8, "hex_bytes": "cc"}]},
+        base_offset=8)                   # pos 0 within a 1-byte-short read? no: len 2, pos 0 ok
+    # offset 8, base 8 -> pos 0, patch len 1, needs len>=1; buffer len 2 -> ok, applies
+    assert not failed
+    # now a far offset within the same declared window but past the short read
+    new2, recs2, failed2 = li._apply_binary_patch(
+        window, {"patches": [{"file_offset": 16, "hex_bytes": "cc"}]},
+        base_offset=8)                   # pos 8 into a 2-byte buffer -> out of range
+    assert failed2 and new2 is None
+    assert "outside" in recs2[0]["detail"]
+
+
 def test_apply_one_failed_policy_aborts_whole_file(li):
     orig = b"\x00" * 16
     new, recs, failed = li._apply_binary_patch(orig, {"patches": [
