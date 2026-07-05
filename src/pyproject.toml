@@ -55,6 +55,9 @@ test = [
     "bs4",
     "lxml",
     "Levenshtein",
+    # dwarffi backs the kernel-pointer types the hyperfile models import via
+    # wrappers.ptregs_wrap (matches the Dockerfile's dwarffi>=0.0.35 pin).
+    "dwarffi>=0.0.35",
     "pytest",
 ]
 
