@@ -203,7 +203,8 @@ class _SyscallRegistry:
         return RecorderStub(f"plugins.syscalls.{name}", self._log)
 
 
-def drive(gen: Any, responses: Optional[List[Any]] = None) -> Any:
+def drive(gen: Any, responses: Optional[List[Any]] = None,
+          collect: bool = False) -> Any:
     """Run a portal-style generator handler to completion and return its value.
 
     Penguin's syscall-return / OSI / mem handlers are generators that ``yield
@@ -212,18 +213,26 @@ def drive(gen: Any, responses: Optional[List[Any]] = None) -> Any:
     Host-side, the sibling *doubles* are themselves generators that yield nothing
     and ``return`` a canned value, so ``yield from`` resolves immediately and this
     pump just exhausts the outer generator (running its side effects) and returns
-    its final value. ``responses`` (optional) is fed in order to any bare yields a
-    handler makes directly (rare); exhausted responses send ``None``.
+    its final value. ``responses`` (optional) is fed in order to the values the
+    generator yields (in order); exhausted responses send ``None``.
+
+    With ``collect=True`` returns ``(return_value, yielded)`` where ``yielded`` is
+    the list of values the generator yielded — e.g. the ``PortalCmd``\\ s a handler
+    emits — so a test can assert the plugin issues the *right* portal command
+    (compare ``cmd.op`` against the same enum member) with the right args, even
+    though the fake enum's numeric value is meaningless.
     """
+    yielded: List[Any] = []
     if not inspect.isgenerator(gen):
-        return gen
+        return (gen, yielded) if collect else gen
     resp_iter = iter(responses or [])
     try:
-        gen.send(None)  # prime; StopIteration immediately if it yields nothing
+        y = gen.send(None)  # prime; StopIteration immediately if it yields nothing
         while True:
-            gen.send(next(resp_iter, None))
+            yielded.append(y)
+            y = gen.send(next(resp_iter, None))
     except StopIteration as e:
-        return e.value
+        return (e.value, yielded) if collect else e.value
 
 
 class _AutoIntEnum:
