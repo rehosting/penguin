@@ -10,6 +10,7 @@ from .harness import (
     NullManager,
     NullPanda,
     RecorderStub,
+    drive,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "NullManager",
     "NullPanda",
     "RecorderStub",
+    "drive",
 ]

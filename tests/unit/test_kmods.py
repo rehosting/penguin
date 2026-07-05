@@ -44,3 +44,68 @@ def test_defaults_empty_lists(tmp_path):
     lp = load_pyplugin(str(KMODS), outdir=tmp_path)
     assert lp.plugin.allowlist == [] and lp.plugin.denylist == []
     assert lp.plugin.is_allowed("/lib/anything.ko") is False
+
+
+# --- generator syscall handlers, driven through the harness pump --------------
+
+class _OSI:
+    """Generator doubles for the sibling ``plugins.osi`` calls kmods makes."""
+    def __init__(self, args=None, fd_name=None):
+        self._args = args or []
+        self._fd_name = fd_name
+
+    def get_args(self, pid=None):
+        yield from ()
+        return list(self._args)
+
+    def get_fds(self):
+        yield from ()
+        return []
+
+    def get_fd_name(self, fd):
+        yield from ()
+        return self._fd_name
+
+
+class _Sys:
+    def __init__(self):
+        self.retval = None
+        self.skip_syscall = False
+
+
+def test_init_module_blocks_unlisted_module_by_default(tmp_path):
+    osi = _OSI(args=["insmod", "/lib/modules/foo.ko"])
+    lp = load_pyplugin(str(KMODS), outdir=tmp_path, doubles={"osi": osi})
+    sc = _Sys()
+    lp.dispatch_syscall("init_module", None, None, sc, 0, 0, 0, on_return=False)
+    assert sc.skip_syscall is True and sc.retval == 0
+    assert (tmp_path / "modules.log").read_text().splitlines() == ["/lib/modules/foo.ko"]
+
+
+def test_init_module_allows_allowlisted_module(tmp_path):
+    osi = _OSI(args=["insmod", "/lib/wireguard.ko"])
+    lp = load_pyplugin(str(KMODS), outdir=tmp_path,
+                       args={"allowlist": ["wireguard"]}, doubles={"osi": osi})
+    sc = _Sys()
+    lp.dispatch_syscall("init_module", None, None, sc, 0, 0, 0, on_return=False)
+    assert sc.skip_syscall is False  # allowed to load
+    assert (tmp_path / "modules.log").read_text().splitlines() == ["/lib/wireguard.ko"]
+
+
+def test_init_module_passes_through_igloo_ko(tmp_path):
+    osi = _OSI(args=["/igloo/utils/busybox", "insmod", "/igloo/boot/igloo.ko"])
+    lp = load_pyplugin(str(KMODS), outdir=tmp_path, doubles={"osi": osi})
+    sc = _Sys()
+    lp.dispatch_syscall("init_module", None, None, sc, 0, 0, 0, on_return=False)
+    assert sc.skip_syscall is False               # our own module loads
+    assert not (tmp_path / "modules.log").exists()  # and isn't tracked
+
+
+def test_finit_module_blocks_denied_module(tmp_path):
+    osi = _OSI(fd_name="/lib/evil.ko")
+    lp = load_pyplugin(str(KMODS), outdir=tmp_path,
+                       args={"denylist": ["evil"]}, doubles={"osi": osi})
+    sc = _Sys()
+    lp.dispatch_syscall("finit_module", None, None, sc, 5, 0, 0, on_return=False)
+    assert sc.skip_syscall is True and sc.retval == 0
+    assert (tmp_path / "modules.log").read_text().splitlines() == ["/lib/evil.ko"]

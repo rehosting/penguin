@@ -106,17 +106,124 @@ class RecorderStub:
         return f"<RecorderStub {self._path}>"
 
 
+class _NullFFI:
+    """Minimal stand-in for ``panda.ffi`` (a cffi FFI object).
+
+    Syscall/logger handlers routinely call ``self.panda.ffi.cast("target_long",
+    fd)`` to reinterpret an unsigned register as signed, then ``int(...)`` it.
+    A :class:`RecorderStub` can't be ``int()``-ed, so model the two operations
+    plugins actually use — ``cast`` (identity: the value is already a Python int
+    host-side) and ``string`` — and record anything else.
+    """
+
+    NULL = object()
+
+    def __init__(self, log: List[Tuple]):
+        object.__setattr__(self, "_log", log)
+
+    def cast(self, ctype: Any, value: Any) -> Any:
+        return value
+
+    def string(self, value: Any) -> bytes:
+        return value if isinstance(value, bytes) else str(value).encode()
+
+    def __getattr__(self, name: str) -> RecorderStub:
+        return RecorderStub(f"panda.ffi.{name}", self._log)
+
+
 class NullPanda:
     """Stand-in for ``self.panda``: records callback registrations, exposes a
-    configurable ``endianness``. Any other attribute is a :class:`RecorderStub`.
+    configurable ``endianness`` and a minimal ``ffi``. Any other attribute is a
+    :class:`RecorderStub`.
     """
 
     def __init__(self, endianness: str = "little", log: Optional[List[Tuple]] = None):
         object.__setattr__(self, "endianness", endianness)
         object.__setattr__(self, "_log", log if log is not None else [])
+        object.__setattr__(self, "ffi", _NullFFI(self._log))
 
     def __getattr__(self, name: str) -> RecorderStub:
         return RecorderStub(f"panda.{name}", self._log)
+
+
+def _clean_syscall_name(name: str) -> str:
+    """Strip ``compat_`` / ``sys_`` prefixes and leading underscores, mirroring
+    ``apis.syscalls.Syscalls._clean_syscall_name`` so hook names match by their
+    bare syscall name (``sys_kill`` / ``kill`` / ``__x64_sys_kill`` all → ``kill``)."""
+    if name.startswith("compat_"):
+        name = name[7:]
+    if name.startswith("sys_"):
+        name = name[4:]
+    return name.lstrip("_")
+
+
+def _parse_syscall_pattern(name_or_pattern: Optional[str], on_enter, on_return):
+    """Resolve a ``@syscalls.syscall(...)`` registration to (cleaned_name,
+    on_enter, on_return). Handles the two forms the built-in plugins use:
+    the hsyscall pattern ``on_sys_<name>_enter``/``_return`` and a plain
+    ``sys_<name>`` / ``<name>`` with explicit ``on_enter``/``on_return`` kwargs.
+    """
+    name = name_or_pattern or ""
+    oe, orr = on_enter, on_return
+    if name.startswith("on_"):
+        parts = name.split("_")
+        if len(parts) >= 4 and parts[1] == "sys":
+            phase = parts[-1]
+            name = "_".join(parts[2:-1])
+            oe = phase == "enter"
+            orr = phase == "return"
+    return _clean_syscall_name(name), oe, orr
+
+
+class _SyscallRegistry:
+    """Stand-in for ``plugins.syscalls``: records ``@syscall(...)`` registrations
+    into a shared hook list so :meth:`LoadedPlugin.dispatch_syscall` can find and
+    drive them. Exposes ``_clean_syscall_name`` because some plugins call it."""
+
+    def __init__(self, hooks: List[dict], log: List[Tuple]):
+        self._hooks = hooks
+        self._log = log
+
+    def syscall(self, name_or_pattern: Optional[str] = None, on_enter=None,
+                on_return=None, **kwargs) -> Callable:
+        def decorator(func):
+            name, oe, orr = _parse_syscall_pattern(name_or_pattern, on_enter, on_return)
+            self._hooks.append({"name": name, "on_enter": oe, "on_return": orr,
+                                "handler": func, "pattern": name_or_pattern})
+            return func
+        return decorator
+
+    def unregister(self, target: Callable) -> None:
+        self._hooks[:] = [h for h in self._hooks if h["handler"] is not target]
+
+    def _clean_syscall_name(self, name: str) -> str:
+        return _clean_syscall_name(name)
+
+    def __getattr__(self, name: str) -> RecorderStub:
+        return RecorderStub(f"plugins.syscalls.{name}", self._log)
+
+
+def drive(gen: Any, responses: Optional[List[Any]] = None) -> Any:
+    """Run a portal-style generator handler to completion and return its value.
+
+    Penguin's syscall-return / OSI / mem handlers are generators that ``yield
+    from`` sibling API calls (``plugins.mem.read_bytes``, ``plugins.osi.*``); at
+    runtime the portal fulfils each yielded request and resumes the generator.
+    Host-side, the sibling *doubles* are themselves generators that yield nothing
+    and ``return`` a canned value, so ``yield from`` resolves immediately and this
+    pump just exhausts the outer generator (running its side effects) and returns
+    its final value. ``responses`` (optional) is fed in order to any bare yields a
+    handler makes directly (rare); exhausted responses send ``None``.
+    """
+    if not inspect.isgenerator(gen):
+        return gen
+    resp_iter = iter(responses or [])
+    try:
+        gen.send(None)  # prime; StopIteration immediately if it yields nothing
+        while True:
+            gen.send(next(resp_iter, None))
+    except StopIteration as e:
+        return e.value
 
 
 class NullManager:
@@ -138,6 +245,10 @@ class NullManager:
         self.registrations: List[Tuple[Any, str, tuple, dict]] = []
         self.published: List[Tuple[Any, str, tuple, dict]] = []
         self.plugins: Dict[str, Plugin] = {}
+        # Syscall-hook registry: @plugins.syscalls.syscall(...) records here so
+        # LoadedPlugin.dispatch_syscall can find and drive the generator handler.
+        self.syscall_hooks: List[dict] = []
+        self.syscalls = _SyscallRegistry(self.syscall_hooks, log)
 
     # --- manager surface a plugin's __init__ touches ---------------------- #
     def subscribe(self, publisher: Any, event: str, callback: Callable = None, *a, **k):
@@ -226,6 +337,29 @@ class LoadedPlugin:
             known = sorted({ev for (_p, ev, _c) in self.manager.subscriptions})
             raise KeyError(f"no handler subscribed to {event!r}; known events: {known}")
         return [self._bind(cb)(*args, **kwargs) for cb in handlers]
+
+    def dispatch_syscall(self, name: str, *args: Any,
+                         on_return: Optional[bool] = None,
+                         responses: Optional[List[Any]] = None) -> List[Any]:
+        """Invoke every ``@plugins.syscalls.syscall(...)`` hook registered for
+        ``name`` and drive each (they are portal generators) to completion.
+
+        ``name`` matches by bare syscall name (``sys_kill``/``kill``/
+        ``on_sys_kill_enter`` all select ``kill``). Pass ``on_return=True/False``
+        to disambiguate enter vs return hooks. Returns each handler's final value.
+        Raises if no hook matches. The handler args are the syscall-callback args
+        (``regs, proto, syscall, *syscall_args``); sibling API calls the handler
+        makes (``plugins.mem``/``plugins.osi``) must be satisfied by generator
+        ``doubles``.
+        """
+        clean = _clean_syscall_name(name)
+        matches = [h for h in self.manager.syscall_hooks
+                   if h["name"] == clean
+                   and (on_return is None or bool(h["on_return"]) == on_return)]
+        if not matches:
+            known = sorted({h["name"] for h in self.manager.syscall_hooks})
+            raise KeyError(f"no syscall hook for {name!r}; known: {known}")
+        return [drive(self._bind(h["handler"])(*args), responses) for h in matches]
 
     def _bind(self, handler: Callable) -> Callable:
         """Bind a class-body-subscribed handler to the constructed instance.
