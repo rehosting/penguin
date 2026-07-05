@@ -464,6 +464,54 @@ def _resolve_path(path_or_name: str, pyplugins_dir: Optional[str]) -> str:
     return matches[0]
 
 
+def load_module(path_or_name: str, *, doubles: Optional[Dict[str, Any]] = None,
+                pyplugins_dir: Optional[str] = None,
+                endianness: str = "little") -> Tuple[Any, "NullManager"]:
+    """Import a pyplugin *module* (not necessarily a ``Plugin`` subclass) with a
+    null ``plugins`` bound, and return ``(module, manager)``.
+
+    Use this for modules whose testable logic lives in plain classes/functions
+    rather than a ``Plugin`` (e.g. the ``hyperfile/models/*`` read/write mixins):
+    import once, then instantiate the classes directly and drive their generator
+    methods with :func:`drive`, resolving ``plugins.<name>`` against ``doubles``.
+
+    The module is imported under its real dotted name (``hyperfile.models.read``)
+    so intra-package ``from .base import …`` resolves; ``penguin.plugins`` is set
+    to the null manager for the duration of the import so module-body /
+    ``from penguin import plugins`` bindings resolve against it.
+    """
+    import importlib
+    import penguin
+
+    doubles = dict(doubles or {})
+    path = _resolve_path(path_or_name, pyplugins_dir)
+    root = pyplugins_dir or _pyplugins_root(path)
+    if root is None:
+        raise ValueError(f"no pyplugins root above {path}; pass pyplugins_dir=")
+
+    rel = os.path.relpath(os.path.realpath(path), os.path.realpath(root))
+    dotted = rel[:-3].replace(os.sep, ".") if rel.endswith(".py") else rel
+
+    log: List[Tuple] = []
+    panda = NullPanda(endianness=endianness, log=log)
+    manager = NullManager(args={"plugins": {}}, doubles=doubles, panda=panda, log=log)
+
+    saved = getattr(penguin, "plugins", None)
+    penguin.plugins = manager
+    try:
+        with _plugin_root_on_path(root):
+            module = importlib.import_module(dotted)
+    finally:
+        penguin.plugins = saved
+    # import_module returns the *cached* module if a prior test already imported
+    # it — in which case its module-global `plugins` is bound to whatever was
+    # active then (often the real singleton), not our manager. Force it, so the
+    # module's functions/methods resolve `plugins.<name>` against our doubles at
+    # call time regardless of who imported the module first.
+    module.plugins = manager
+    return module, manager
+
+
 def _pyplugins_root(path: str) -> Optional[str]:
     """Find the ``pyplugins`` root above a plugin file so sibling packages
     (``apis``, ``hyper``, …) import. Returns the ancestor dir named ``pyplugins``,
