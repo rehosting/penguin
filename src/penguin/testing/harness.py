@@ -56,6 +56,7 @@ Example
 from __future__ import annotations
 
 import inspect
+import json
 import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -237,25 +238,33 @@ def drive(gen: Any, responses: Optional[List[Any]] = None,
 
 class _AutoIntEnum:
     """Stand-in for one ``hyper.consts`` enum (``HYPER_OP``, ``value_filter_type``,
-    …). Returns a stable, auto-assigned int for *any* member name, by attribute or
-    item access, so code that reads enum constants at import/class-definition time
-    (e.g. ``ValueFilter.__init__``'s ``vft.SYSCALLS_HC_FILTER_EXACT`` default arg)
-    or builds ``PortalCmd(hop.SOMETHING, …)`` gets an int and does not crash.
+    …). Members resolve to an int by attribute or item access, so code that reads
+    enum constants at import/class-definition time (e.g. ``ValueFilter.__init__``'s
+    ``vft.SYSCALLS_HC_FILTER_EXACT`` default arg) or builds ``PortalCmd(hop.X, …)``
+    works and does not crash.
 
-    The values are meaningless (assignment order), so any portal command built
-    from them is bogus — fine in the null backend, where nothing is sent to a
-    real guest. This trades correctness of the enum *values* for the ability to
-    import and exercise the plugin logic that sits behind the FFI-enum boundary.
+    Seeded from the real captured values (``hyper_enums.json``, extracted from the
+    published kernel/driver ISF) so members present in the capture return their
+    **real** value — a portal command built from them carries the true op number.
+    A member *not* in the capture (e.g. added to the driver after the last capture)
+    falls back to a stable auto-assigned int past the real range, so the plugin
+    still imports/runs; that value is meaningless. Regenerate the capture with
+    ``python -m penguin.testing.gen_hyper_enums`` when the driver's enums change.
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, seed: Optional[Dict[str, int]] = None):
         object.__setattr__(self, "_name", name)
-        object.__setattr__(self, "_vals", {})
+        object.__setattr__(self, "_vals", dict(seed or {}))
+        # Auto-assign unknown members above the real range so they never collide
+        # with a captured value.
+        base = max(object.__getattribute__(self, "_vals").values(), default=0)
+        object.__setattr__(self, "_next", base + 1)
 
     def _get(self, member: str) -> int:
         vals = object.__getattribute__(self, "_vals")
         if member not in vals:
-            vals[member] = len(vals) + 1
+            vals[member] = object.__getattribute__(self, "_next")
+            object.__setattr__(self, "_next", vals[member] + 1)
         return vals[member]
 
     def __getattr__(self, member: str) -> int:
@@ -273,20 +282,37 @@ class _AutoIntEnum:
         return dict(object.__getattribute__(self, "_vals"))
 
 
+_ENUM_FIXTURE = os.path.join(os.path.dirname(__file__), "hyper_enums.json")
+
+
+def _load_enum_fixture() -> Dict[str, Dict[str, int]]:
+    """Load the captured real enum values (``hyper_enums.json``). Missing/broken
+    fixture → empty (stub degrades to pure auto-int), so tests still run."""
+    try:
+        with open(_ENUM_FIXTURE) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in data.items() if not k.startswith("_")}
+
+
 def install_fake_enums():
-    """Install an auto-int fake ``hyper.consts`` into ``sys.modules`` (idempotent).
+    """Install a stand-in ``hyper.consts`` into ``sys.modules`` (idempotent).
 
     ``hyper.consts`` builds its enum tables at import from
     ``plugins.kffi.get_enum_dict(...)`` and wraps them in ``ConstDictWrapper``,
     which *eagerly* materializes members — so faking ``get_enum_dict`` alone can't
     work (unknown members raise ``AttributeError``). Instead we replace the module
-    with one whose every enum is an :class:`_AutoIntEnum`. The real
+    with one whose every enum is an :class:`_AutoIntEnum`, **seeded with the real
+    captured values** from ``hyper_enums.json`` (extracted from the published
+    kernel/driver ISF — the same source ``apis.kffi`` reads at runtime). The real
     ``hyper.portal`` / ``apis.syscalls`` then import against it, so plugins behind
-    the enum boundary (``analysis/interfaces``, syscall-analysis plugins, …) load
-    and their host-side logic can be exercised. Enum *values* are bogus; portal
-    command numbers built from them are meaningless (never sent host-side).
+    the enum boundary (``analysis/interfaces``, ``core/scope``, the hyperfile
+    registrars, …) load and their host-side logic can be exercised — and a portal
+    command built from a captured member carries its **real** op number. Members
+    absent from the capture fall back to a bogus auto-int (see :class:`_AutoIntEnum`).
 
-    Returns the fake module. Safe to call repeatedly.
+    Returns the module. Safe to call repeatedly.
     """
     import sys
     import types
@@ -295,6 +321,7 @@ def install_fake_enums():
     if existing is not None and getattr(existing, "_penguin_fake_enums", False):
         return existing
 
+    fixture = _load_enum_fixture()
     mod = types.ModuleType("hyper.consts")
     mod._penguin_fake_enums = True
     _enums: Dict[str, _AutoIntEnum] = {}
@@ -303,11 +330,11 @@ def install_fake_enums():
         if name.startswith("_"):
             raise AttributeError(name)
         if name not in _enums:
-            _enums[name] = _AutoIntEnum(name)
+            _enums[name] = _AutoIntEnum(name, seed=fixture.get(name))
         return _enums[name]
 
     mod.__getattr__ = _module_getattr  # PEP 562: resolves `from hyper.consts import X`
-    mod.enum_names = []
+    mod.enum_names = list(fixture)
     sys.modules["hyper.consts"] = mod
     return mod
 

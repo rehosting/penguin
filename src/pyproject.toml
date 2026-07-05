@@ -77,3 +77,5 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 penguin = ["scripts/*.sh", "resources/*"]
+# Captured real hyper.consts enum values used by penguin.testing.install_fake_enums.
+"penguin.testing" = ["hyper_enums.json"]
