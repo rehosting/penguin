@@ -18,10 +18,10 @@ Schema (``schema_version`` 1)
   number written to ``score.txt``).
 - ``scores`` (dict): the per-metric dict from ``calculate_score``, verbatim.
 - ``binds`` (list): one entry per working service bind from ``netbinds.csv``:
-  ``{proc, proto, ipvn, ip, port, time}`` plus ``{state, pid, closed_time}``
-  when the CSV carries lifecycle columns. Only ``listening``/``closed``
-  sockets are included — ``pending``/``transient`` binds are not working
-  services and are excluded.
+  ``{proc, proto, ipvn, ip, port, time}`` plus ``pid`` when the CSV carries a
+  pid column and ``{state, closed_time}`` when it carries lifecycle columns.
+  Only ``listening``/``closed`` sockets are included — ``pending``/
+  ``transient`` binds are not working services and are excluded.
 - ``crashes`` (list): entries from ``crashes.yaml`` when present, else ``[]``.
 - ``unmodeled_pseudofiles`` (int|null): number of distinct paths in
   ``pseudofiles_failures.yaml``; ``null`` if the tracker didn't run.
@@ -78,8 +78,8 @@ def _load_yaml(path):
 def _load_binds(result_dir: str) -> list[dict]:
     """Read first-seen binds from netbinds.csv (written by the netbinds plugin).
 
-    Base columns: procname,ipvn,domain,guest_ip,guest_port,time. The lifecycle
-    rework adds pid,state,closed_time, where state is one of
+    Base columns: procname,ipvn,domain,guest_ip,guest_port,[pid,]time. The
+    lifecycle rework adds state,closed_time, where state is one of
     pending|listening|transient|closed. Per the lifecycle contract a
     pending/transient socket must not read as a working service, so those rows
     are excluded from ``binds``; listening and (cleanly) closed sockets are
@@ -102,10 +102,11 @@ def _load_binds(result_dir: str) -> list[dict]:
                         "port": int(row["guest_port"]),
                         "time": float(row["time"]),
                     }
+                    pid = row.get("pid")
+                    if pid:
+                        bind["pid"] = int(pid)
                     if state is not None:
                         bind["state"] = state
-                        pid = row.get("pid")
-                        bind["pid"] = int(pid) if pid else None
                         closed_time = row.get("closed_time")
                         bind["closed_time"] = float(closed_time) if closed_time else None
                     binds.append(bind)

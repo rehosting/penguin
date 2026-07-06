@@ -164,8 +164,17 @@ Ordered most-valuable first. Percentages are current host coverage.
      with the crashes.yaml join. Guest round-trip (real ENOENT delivery,
      crash → crashes.yaml production) stays in `tests/integration/` fixtures
      (`pseudofile_missing`/`pseudofile_ioctl`/`pseudofile_ext_ops`).
-   - `summary.json` (draft 02) aggregation — the harness is its natural
-     host-side test as it lands.
+   - ✅ **`summary.json`** (draft 02, `src/penguin/run_summary.py`) — done
+     (`test_run_summary.py`). Not a pyplugin — the post-run host aggregator —
+     so the harness's role is the *producer* side: the real
+     `analysis/netbinds.py` is loaded with `load_pyplugin`, driven with bind
+     events, finalized, and `write_run_summary` aggregates the directory the
+     plugin actually wrote (so CSV-shape drift breaks the test, not just the
+     fixture). Direct fixtures cover the artifact shapes (draft 01
+     `crashes.yaml`, draft 03 ranked `pseudofiles_failures.yaml`) and the
+     formats main doesn't produce yet — draft 05 lifecycle columns
+     (transient/pending excluded from `binds`), draft 06 `waitgraph.yaml` —
+     plus absent-producer null semantics and malformed-row tolerance.
 9. **`analysis/interfaces.py` + the `apis.syscalls`-importing class** ✅ done
    (`test_interfaces.py`, `analysis/interfaces.py` 4→93%) — the FFI-enum boundary,
    crossed with the **`real_isf=`** load mode. `from apis.syscalls import
