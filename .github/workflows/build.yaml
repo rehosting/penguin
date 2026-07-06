@@ -122,6 +122,10 @@ jobs:
           key: igloo-ko-isf-${{ hashFiles('Dockerfile') }}
       - name: Run host-side unit tests
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        env:
+          # Point the harness's ISF download at the cached path above (its default
+          # is inside the package tree, which the cache step does not save).
+          PENGUIN_TEST_ISF_CACHE: tests/unit/.isf_cache
         run: |
           python3 -m pytest tests/unit/ pengutils/ \
             --junitxml=unit-test-results.xml -q
