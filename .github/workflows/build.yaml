@@ -54,9 +54,14 @@ jobs:
               - '**/*.py'
             # Changes that should re-run the guest-test matrix even though the
             # `code` filter excludes .github/**: the test workflow and fixtures.
+            # NOTE: predicate-quantifier is `every` (required for the `code`
+            # filter's negations), which means a filter listing multiple
+            # positive patterns requires a file to match *all* of them — so a
+            # two-pattern testci was silently always-false and this filter never
+            # fired. Express the alternatives as a single brace pattern so
+            # `every` is satisfied when a file matches either one.
             testci:
-              - '.github/workflows/build.yaml'
-              - 'tests/**'
+              - '{.github/workflows/build.yaml,tests/**}'
   lint:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: rehosting-arc
