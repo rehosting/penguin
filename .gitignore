@@ -26,5 +26,6 @@ local_packages/*
 !local_packages/.gitkeep
 # Downloaded ISF cache for the host test suite (penguin.testing.resolve_igloo_ko_isf)
 tests/unit/.isf_cache/
+src/penguin/testing/.isf_cache/
 # coverage.py data
 .coverage
