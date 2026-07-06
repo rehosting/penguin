@@ -99,6 +99,15 @@ Ordered most-valuable first. Percentages are current host coverage.
    covered by the four `test_*_models.py`, so the layers stay separately tested.
    Remaining pseudofiles.py misses are the plugin-backing (`file:Class`) import
    path and the `from_plugin` style-detection (both guest/plugin-graph concerns).
+
+   **Registrars** ✅ done — the subsystem registrars `_populate_hf_config` routes
+   to are now covered directly: `hyperfile/procfs.py` (2→82%, `test_procfs.py`),
+   `hyperfile/sysfs.py` (2→85%, `test_sysfs.py`), `hyperfile/sysctl.py` (2→74%,
+   `test_sysctl.py`), alongside the pre-existing `test_devfs.py`. Each asserts the
+   queue/dedup/validation of `register_*`, the dir/file `PortalCmd`s emitted by
+   `_get_or_create_*_dir` / `_register_*` (real op numbers via `real_isf=`), and
+   the install-budget drain of the interrupt handler. See the "Real ISF enums"
+   note below for the shared shape.
 5. ✅ **`analysis/ficd.py`** — done (`test_ficd.py`): Levenshtein unique/not-unique
    dedup + ifin-not-reached YAML on teardown (drives `on_exec` directly; the
    execve syscall handler just feeds it).
@@ -198,7 +207,17 @@ cache → **download `igloo_driver.tar.gz` for the Dockerfile-pinned
 driver ISF (`igloo_base_hypercalls`) is supplied by `RealKffi` as a single
 ABI-fixed constant. Enums/most driver types are arch-invariant, so one arch
 (`armel`) suffices. Proven on `analysis/interfaces` (4→93%), `core/scope` (7→93%),
-`hyperfile/devfs` (3→45%), plus `test_real_consts.py` for the mechanism.
+and the four pseudofile **registrars** (the kernel-facing half of the pseudofile
+stack) — `hyperfile/devfs` (3→45%), `hyperfile/procfs` (2→82%,
+`test_procfs.py`), `hyperfile/sysfs` (2→85%, `test_sysfs.py`), `hyperfile/sysctl`
+(2→74%, `test_sysctl.py`) — plus `test_real_consts.py` for the mechanism. The
+registrar tests all follow the devfs shape: a duck-typed `*File` double (so the
+fops/ops-struct callback build stays a no-op — that path is a guest concern), a
+`RealKffi` subclass whose `new` returns a fixed request blob, and assertions that
+`_get_or_create_*_dir` / `_register_*` emit the **right** `PortalCmd` op (real op
+number) with the request bytes as payload. `test_sysctl.py` additionally guards
+`_reject_reason` — the `/proc/sys/fs/binfmt_misc` panic guard that must not
+regress.
 
 ## Sequencing
 
