@@ -707,6 +707,23 @@ false
 true
 ```
 
+### `core.allow_reboot` Allow the guest to reboot
+
+|||
+|-|-|
+|__Type__|boolean|
+|__Default__|`false`|
+
+If False (default), QEMU is launched with '-no-reboot' so a guest-initiated reboot terminates the emulation (one boot per run). If True, '-no-reboot' is omitted so QEMU resets the machine in place and the guest reboots within the same run. Persistent drives and host-file-backed MTD devices survive the reset; stateful plugins must tolerate a second guest init.
+
+```yaml
+false
+```
+
+```yaml
+true
+```
+
 ### `core.startup_script` Inline guest startup script
 
 |||

@@ -553,7 +553,11 @@ def run_config(
     if q_config["arch"] == "loongarch64":
         args += ["-bios", "/usr/local/share/qemu/edk2-loongarch64-code.fd"]
 
-    args += ["-no-reboot"]
+    if not conf["core"].get("allow_reboot", False):
+        # Default: a guest-initiated reboot terminates the VM (one boot per run).
+        # With core.allow_reboot=True we omit -no-reboot so QEMU resets in place
+        # and the guest reboots within the run (drives + backing files persist).
+        args += ["-no-reboot"]
 
     if snapshot_enabled and snapshot_boot_from:
         # Restore device + RAM state from the named internal snapshot at boot.
