@@ -91,7 +91,9 @@ jobs:
     # image build) so it is a genuine fast lane.
     needs: changes
     runs-on: rehosting-arc
-    if: ${{ !github.event.pull_request.draft }}
+    # Job-level gate (not just per-step): skip allocating an ephemeral rehosting-arc
+    # runner entirely on docs-only PRs, instead of spinning one up to skip every step.
+    if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
     steps:
       - name: Checkout code
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
@@ -140,7 +142,9 @@ jobs:
   build_container:
     runs-on: rehosting-arc
     needs: [changes, lint]
-    if: ${{ !github.event.pull_request.draft }}
+    # Job-level gate: don't build/push the image on docs-only PRs. lint stays
+    # ungated (this job needs it), so skipping here never cascade-skips via lint.
+    if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
     steps:
       - name: Checkout code
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
@@ -198,7 +202,9 @@ jobs:
   run_tests:
     needs: [changes, build_container]
     runs-on: rehosting-arc
-    if: ${{ !github.event.pull_request.draft }}
+    # Job-level gate: on docs-only PRs, don't allocate the 10-arch matrix of
+    # ephemeral runners just to skip every step.
+    if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -211,7 +217,9 @@ jobs:
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          # Shallow: this job only needs the tree at the PR head to run tests,
+          # not full history (×10 arch runners).
+          fetch-depth: 1
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       # Acquire the prebuilt image with a plain `docker pull` via the shared
@@ -271,61 +279,38 @@ jobs:
     # the per-arch matrix instead of multiplying CI cost by 10.
     needs: [changes, build_container]
     runs-on: rehosting-arc
-    if: ${{ !github.event.pull_request.draft }}
+    # Job-level gate: skip the runner entirely on docs-only PRs.
+    if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
     steps:
-      - name: Set up Python
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.10.12"
-      - name: Install dependencies
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: pip install click pyyaml
       - name: Checkout code
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
-      - name: Trust Harbor's self-signed certificate
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: |
-          echo "Fetching certificate from ${{ env.REGISTRY }}"
-          openssl s_client -showcerts -connect ${{ env.REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
-          sudo update-ca-certificates
-
-      - name: Set up Docker Buildx
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            network=host
-          buildkitd-config-inline: |
-            [registry."${{ env.REGISTRY }}"]
-              insecure = true
-              http = true
-
-      - name: Log in to Rehosting Arc Registry
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: docker/login-action@v3
+      # Acquire the prebuilt image with a plain `docker pull` via the shared org
+      # action (same as run_tests), replacing the old `buildx build --load`
+      # heredoc that cost ~5-6 min/job of GB export/import. install-python
+      # provides the click/pyyaml the compose test needs; install-cert is off
+      # because the rehosting-arc dind daemon already trusts Harbor's CA.
+      - name: Set up penguin image
+        uses: rehosting/ci/actions/pull-image@v1
         with:
           registry: ${{ env.REGISTRY }}
+          target: ${{ env.TARGET }}
+          image: rehosting/penguin
+          tag: ${{ github.sha }}
+          local-tag: rehosting/penguin:latest
           username: ${{ env.USER }}
           password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
-
-      - name: Pull image via Buildx and Load to Daemon
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: |
-          echo "FROM ${{ env.TARGET }}/rehosting/penguin:${{ github.sha }}" | \
-          docker buildx build -t rehosting/penguin:latest --load -
+          install-python: "true"
+          install-cert: "false"
 
       - name: Compose test (armel)
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
         run: timeout 8m python3 $GITHUB_WORKSPACE/tests/integration/compose/test.py --arch armel
 
       - name: Compose debug info
-        if: ${{ needs.changes.outputs.run_tests == 'true' && failure() }}
+        if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
           name: compose-artifacts
