@@ -15,7 +15,7 @@ static_files:
       set -eux
       bb=/igloo/utils/busybox
 
-      expected='/igloo/shared/core_dumps/core_%e.%p'
+      expected='/igloo/core_dumps/core_%e.%p'
 
       initial=$($bb cat /proc/sys/kernel/core_pattern)
       if [ "$initial" != "$expected" ]; then

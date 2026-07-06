@@ -226,6 +226,92 @@ class Snapshot(PartialModelMixin, BaseModel):
     ]
 
 
+class SharedDir(PartialModelMixin, BaseModel):
+    """Host<->guest shared directory (9p) configuration.
+
+    Accepted in ``core.shared_dir`` as ``true`` (enable with defaults), a string
+    (shorthand for ``path``), or this object. Core dumps ride the same single
+    mount (see ``core.core_dumps``); they do not need this feature enabled.
+    """
+
+    model_config = ConfigDict(title="Shared directory configuration", extra="forbid")
+
+    path: Annotated[
+        str,
+        Field(
+            "shared",
+            title="Results-relative share directory",
+            description=(
+                "Directory shared into the guest at /igloo/shared. Resolved under "
+                "the run's results dir unless core.shared_dir.host_path is set."
+            ),
+            examples=["shared", "my_shared_directory"],
+        ),
+    ]
+    host_path: Annotated[
+        Optional[str],
+        Field(
+            None,
+            title="Absolute host directory to share",
+            description=(
+                "If set, share this absolute host directory instead of a "
+                "results-relative one (path is ignored)."
+            ),
+            examples=["/data/fixtures"],
+        ),
+    ]
+    msize: Annotated[
+        Optional[int],
+        Field(
+            None,
+            title="9p msize override",
+            description=(
+                "Override the 9p transport buffer size. Unset uses the default "
+                "8MB with an automatic fallback to 128KB on memory-tight guests."
+            ),
+            examples=[8192000, 131072],
+        ),
+    ]
+
+
+class CoreDumps(PartialModelMixin, BaseModel):
+    """Guest core-dump capture configuration.
+
+    Accepted in ``core.core_dumps`` as ``true`` (enable with defaults), a string
+    (shorthand for ``pattern``), or this object. When enabled, penguin points
+    core_pattern at /igloo/core_dumps (a symlink into the shared mount) and
+    brings that mount up even when core.shared_dir is unset.
+    """
+
+    model_config = ConfigDict(title="Core dump configuration", extra="forbid")
+
+    lock: Annotated[
+        bool,
+        Field(
+            True,
+            title="Lock core_pattern",
+            description=(
+                "Install a sysctl pseudofile that eats guest writes to "
+                "core_pattern so dumps can't be redirected. Set false to let "
+                "the guest firmware keep its own core_pattern."
+            ),
+            examples=[True, False],
+        ),
+    ]
+    pattern: Annotated[
+        Optional[str],
+        Field(
+            None,
+            title="core_pattern override",
+            description=(
+                "Override the core_pattern string. Unset uses "
+                "/igloo/core_dumps/core_%e.%p."
+            ),
+            examples=["/igloo/core_dumps/core_%e.%p.%t"],
+        ),
+    ]
+
+
 class Core(PartialModelMixin, BaseModel):
     """Core configuration options for this rehosting"""
 
@@ -396,12 +482,32 @@ class Core(PartialModelMixin, BaseModel):
         ),
     ]
     shared_dir: Annotated[
-        Optional[str],
+        Optional[Union[bool, str, SharedDir]],
         Field(
             None,
-            title="Project-relative path of shared directory",
-            description="Share this directory as /igloo/shared in the guest.",
-            examples=["my_shared_directory"],
+            title="Shared directory",
+            description=(
+                "Share a directory as /igloo/shared in the guest. Accepts true "
+                "(enable with defaults), a project-relative path string, or a "
+                "SharedDir object."
+            ),
+            examples=[True, "my_shared_directory", {"path": "shared", "msize": 131072}],
+        ),
+    ]
+    core_dumps: Annotated[
+        Optional[Union[bool, str, CoreDumps]],
+        Field(
+            None,
+            title="Core dump capture",
+            description=(
+                "Capture guest core dumps to /igloo/core_dumps (a symlink into "
+                "the shared mount). Accepts true (enable with defaults), a "
+                "core_pattern string, or a CoreDumps object. Independent of "
+                "core.shared_dir. When core.core_dumps is unset but "
+                "core.shared_dir is set, core dumps are enabled for backward "
+                "compatibility (deprecated)."
+            ),
+            examples=[True, "/igloo/core_dumps/core_%e.%p", {"lock": False}],
         ),
     ]
     version: Annotated[
@@ -521,6 +627,30 @@ class Core(PartialModelMixin, BaseModel):
             examples=["ip link set eth0 up\nudhcpc -i eth0\n"],
         ),
     ]
+
+    @field_validator("shared_dir", mode="before")
+    @classmethod
+    def _norm_shared_dir(cls, v):
+        # Normalize bool/str shorthands to a SharedDir dict; false/None disable.
+        if v is None or v is False:
+            return None
+        if v is True:
+            return {}
+        if isinstance(v, str):
+            return {"path": v}
+        return v
+
+    @field_validator("core_dumps", mode="before")
+    @classmethod
+    def _norm_core_dumps(cls, v):
+        # Normalize bool/str shorthands to a CoreDumps dict; false/None disable.
+        if v is None or v is False:
+            return None
+        if v is True:
+            return {}
+        if isinstance(v, str):
+            return {"pattern": v}
+        return v
 
 
 EnvVal = _newtype(

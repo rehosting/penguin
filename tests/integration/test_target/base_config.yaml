@@ -7,6 +7,9 @@ core:
   version: 2
   force_www: false
   shared_dir: ./shared
+  # Core dumps are now an independent feature (not implied by shared_dir);
+  # enable them explicitly so the core_dumps / core_pattern_guard tests run.
+  core_dumps: true
   # Run with the default firmware scoping on so the default path stays covered.
   # netbinds always reports (so the gdbserver bind check still passes) and shell
   # coverage self-gates in busybox via IGLOO_NO_SHELL_COV.

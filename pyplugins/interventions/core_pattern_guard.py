@@ -15,11 +15,11 @@ global. The driver's sysctl mutation repoints ctl_table.data to our buffer
 but never writes through to the original .data target, so the global keeps
 the value the init script put there.
 
-Dormant when core.shared_dir is unset: the init script only fires the
-hypercall when SHARED_DIR is in the guest env. We subscribe unconditionally
-anyway so a stray core_pattern_lock (e.g. env.SHARED_DIR set by hand without
-core.shared_dir) is honored instead of tripping send_hypercall's
-"Unregistered send_hypercall command" error.
+Dormant when core dumps are disabled or core.core_dumps.lock is false: the
+init script only fires the hypercall when both CORE_DUMPS and CORE_DUMPS_LOCK
+are in the guest env (set by core.py from core.core_dumps). We subscribe
+unconditionally anyway so a stray core_pattern_lock is honored instead of
+tripping send_hypercall's "Unregistered send_hypercall command" error.
 """
 
 from penguin import Plugin, plugins
@@ -48,7 +48,7 @@ class CorePatternSysctl(SysctlFile):
                 payload = f"<unreadable: {e}>"
             self._owner.logger.info(
                 f"guest tried to set core_pattern to {payload!r}; "
-                f"keeping {self._pattern_bytes.decode()!r} so dumps land in /igloo/shared/core_dumps"
+                f"keeping penguin's locked pattern {self._pattern_bytes.decode()!r}"
             )
             yield from plugins.mem.write(ppos_ptr, int(size))
             ptregs.retval = 0
