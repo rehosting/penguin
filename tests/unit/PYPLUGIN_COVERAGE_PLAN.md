@@ -219,6 +219,16 @@ Ordered most-valuable first. Percentages are current host coverage.
     assembly (a native-toolchain concern; `import keystone` is soft so the
     plugin still loads host-side, and `_gen_asm_patch_bytes` guards on it).
 
+10. **`apis/net.py` — netdev auto-registration decision** ✅ done
+    (`test_net.py`, `real_isf=` load — net.py imports `hyper.portal` →
+    `hyper.consts`). Covers `ensure_netdev_from_path()` /
+    `_is_runtime_created_iface()`: firmware-built bridges/bonds/VLANs (incl. dotted
+    sub-interfaces and VLAN-over-bond) get **no** auto-created stub, ordinary NICs
+    still do (across every conf/neigh/sysfs path family), the explicit `netdevs`
+    config bypasses suppression (escape hatch), and the special-name/invalid-name/
+    non-network-path/idempotency edges. This is the host-side reproduction of the
+    all-arch guest failure that motivated PR #872's fix.
+
 ### Harness capabilities (as landed)
 
 `load_pyplugin` currently handles: module/class-body decorators

@@ -24,24 +24,34 @@ static_files:
       set -ex
       bb="/igloo/utils/busybox"
 
-      # 1. Check _eth0 (registered explicitly in netdevs list)
+      # 1. _eth0 (registered explicitly in netdevs list; leading-underscore name)
       if ! $bb ip link show dev _eth0; then
         echo "_eth0 registration failed"
         exit 1
       fi
 
-      # 2. Check eth0.0 (registered explicitly in netdevs list)
+      # 2. eth0.0 (a dotted VLAN name, but registered EXPLICITLY in the netdevs
+      #    list). The netdevs list is the escape hatch: it calls register_netdev
+      #    directly, so even a runtime-created-family name is honoured when the
+      #    user asks for it by hand.
       if ! $bb ip link show dev eth0.0; then
-        echo "eth0.0 registration failed"
+        echo "explicit eth0.0 registration failed"
         exit 1
       fi
 
-      # 3. Trigger auto-registration of eth0.1 via sysctl access
-      $bb cat /proc/sys/net/ipv4/conf/eth0.1/forwarding
+      # 3. eth0.1 is referenced ONLY by a pseudofile (it is NOT in the netdevs
+      #    list). It is a dotted VLAN sub-interface -- a device the firmware
+      #    builds itself at runtime -- so penguin must NOT auto-create a stub
+      #    netdev for it. The pseudofile is still served regardless.
+      val=$($bb cat /proc/sys/net/ipv4/conf/eth0.1/forwarding)
+      if [ "$val" != "0" ]; then
+        echo "eth0.1 pseudofile not served (got '$val')"
+        exit 1
+      fi
 
-      # 4. Check if eth0.1 exists now
-      if ! $bb ip link show dev eth0.1; then
-        echo "eth0.1 auto-registration failed"
+      # 4. Confirm eth0.1 was NOT auto-registered as a netdev.
+      if $bb ip link show dev eth0.1 2>/dev/null; then
+        echo "eth0.1 should not be auto-registered (runtime-created VLAN)"
         exit 1
       fi
 

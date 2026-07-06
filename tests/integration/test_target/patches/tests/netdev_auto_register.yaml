@@ -7,6 +7,16 @@ plugins:
         string: "/tests/netdev_auto.sh PASS"
 
 pseudofiles:
+  # An ordinary NIC name referenced only by a pseudofile: penguin auto-creates a
+  # stub netdev for it (and it must be deletable).
+  /proc/sys/net/ipv4/conf/netauto0/proxy_arp:
+    read:
+      model: zero
+    write:
+      model: discard
+  # A bridge name referenced by a pseudofile: penguin must NOT auto-create a stub
+  # netdev -- the firmware builds br0 itself, and a stub would make its creation
+  # fail (EEXIST) and every bridge-management ioctl return EOPNOTSUPP.
   /proc/sys/net/ipv4/conf/br0/proxy_arp:
     read:
       model: zero
@@ -22,20 +32,30 @@ static_files:
 
       bb="/igloo/utils/busybox"
 
-      # 1. Check that br0 was auto-created due to the pseudofile
-      link_info=$($bb ip link show dev br0)
+      # 1. netauto0 is an ordinary interface name referenced only by a pseudofile,
+      #    so penguin auto-registers a stub netdev for it.
+      link_info=$($bb ip link show dev netauto0)
       if [ -z "$link_info" ]; then
-        echo "Expected auto-registered interface br0 not found"
+        echo "Expected auto-registered interface netauto0 not found"
         exit 1
       fi
 
-      # 2. Attempt to delete br0. This should now succeed.
-      $bb ip link del br0
+      # 2. An auto-registered stub is deletable.
+      $bb ip link del netauto0
 
-      # 3. Verify it is gone
-      link_info_after=$($bb ip link show dev br0 || true)
+      # 3. Verify it is gone.
+      link_info_after=$($bb ip link show dev netauto0 || true)
       if [ -n "$link_info_after" ]; then
-        echo "Interface br0 still exists! It should have been deleted."
+        echo "Interface netauto0 still exists! It should have been deleted."
+        exit 1
+      fi
+
+      # 4. br0 is referenced by a pseudofile too, but it is a bridge -- a device
+      #    the firmware builds at runtime -- so penguin must NOT pre-create a
+      #    stub netdev for it. Reading the pseudofile still works regardless.
+      $bb cat /proc/sys/net/ipv4/conf/br0/proxy_arp >/dev/null
+      if $bb ip link show dev br0 2>/dev/null; then
+        echo "br0 should NOT be auto-registered (firmware-built bridge)"
         exit 1
       fi
 
