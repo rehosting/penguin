@@ -134,6 +134,7 @@ For additional help, you can run any of the `penguin` subcommands with a `--help
 * Playbook:                   [docs/playbook.md](docs/playbook.md) - describes strategies to use for rehosting firmware that don't work out of the box.
 * Plugin documentation:       [docs/plugins.md](docs/plugins.md) - describes each of the dynamic analysis plugins.
 * Config file documentation:  [docs/schema_doc.md](docs/schema_doc.md) - describes the configuration file format.
+* Testing pyplugins:          [docs/testing.md](docs/testing.md) - how to test a plugin's host-side logic with no guest boot.
 
 ## Disclaimer
 

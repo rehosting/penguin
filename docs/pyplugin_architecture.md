@@ -232,3 +232,12 @@ directories), and execute concurrently. Shared analyses are exposed as
 `@cached_analysis` attributes that compute once on first access.
 
 See `pyplugins/init/README.md` for the full authoring guide.
+
+## Testing a plugin
+
+A plugin's host-side logic — the files it writes, the events it emits, the
+portal commands it issues — can be unit-tested with **no PANDA and no guest**
+using the `penguin.testing` harness, which stands up a null backend and drives
+your plugin where it lives. When you add or change a plugin, add a host test.
+See [testing.md](testing.md) for the harness API (`load_pyplugin`, `drive`,
+`load_module`, the `real_isf=` FFI-enum path) and the in/out-of-scope rule.
