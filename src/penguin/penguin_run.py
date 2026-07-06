@@ -635,11 +635,17 @@ def run_config(
             "-display", "none",
         ]  # ttyS0: guest console output
 
-    if "shared_dir" in conf["core"]:
-        shared_dir = conf["core"]["shared_dir"]
-        if shared_dir[0] == "/":
-            shared_dir = shared_dir[1:]  # Ensure it's relative path to proj_dir
-        shared_dir = os.path.join(out_dir, shared_dir)
+    # Shared directory and core dumps both ride a single 9p mount at
+    # /igloo/shared, so provision it when either is configured. shared_dir is
+    # normalized to a dict (or absent) by the config schema.
+    shared_dir_conf = conf["core"].get("shared_dir")
+    if shared_dir_conf or conf["core"].get("core_dumps"):
+        host_path = shared_dir_conf.get("host_path") if isinstance(shared_dir_conf, dict) else None
+        if host_path:
+            shared_dir = host_path
+        else:
+            rel = shared_dir_conf.get("path", "shared") if isinstance(shared_dir_conf, dict) else "shared"
+            shared_dir = os.path.join(out_dir, rel.lstrip("/"))
         os.makedirs(shared_dir, exist_ok=True)
         args += [
             "-virtfs",

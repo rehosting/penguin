@@ -42,6 +42,43 @@ from penguin import Plugin, yaml, plugins, common
 from penguin.defaults import vnc_password
 
 
+def shared_dir_and_core_dump_env(shared_dir, core_dumps):
+    """Map the (normalized) core.shared_dir / core.core_dumps config to guest
+    env vars consumed by source.d/40_mount_shared_dir.sh.
+
+    Both features ride the single /igloo/shared 9p mount but are independent.
+    Returns ``(env_updates, deprecated_implicit)`` where ``deprecated_implicit``
+    is True when core dumps were enabled only because shared_dir was set (the
+    pre-split legacy behavior), so the caller can emit a deprecation warning.
+
+    ``shared_dir``/``core_dumps`` are the config values after schema
+    normalization: a dict when enabled, or falsy when disabled.
+    """
+    env = {}
+
+    # Legacy: setting core.shared_dir used to implicitly enable core dumps.
+    # Preserve that when core.core_dumps is unset, but an explicit value wins.
+    deprecated_implicit = False
+    if core_dumps is None and shared_dir:
+        core_dumps = {"lock": True}
+        deprecated_implicit = True
+
+    if shared_dir or core_dumps:
+        env["SHARED_DIR"] = "1"
+        if isinstance(shared_dir, dict) and shared_dir.get("msize"):
+            env["SHARED_MSIZE"] = str(shared_dir["msize"])
+
+    if core_dumps:
+        env["CORE_DUMPS"] = "1"
+        cd = core_dumps if isinstance(core_dumps, dict) else {}
+        if cd.get("lock", True):
+            env["CORE_DUMPS_LOCK"] = "1"
+        if cd.get("pattern"):
+            env["CORE_DUMP_PATTERN"] = cd["pattern"]
+
+    return env, deprecated_implicit
+
+
 class Core(Plugin):
     """
     Core plugin for PyPlugins.
@@ -141,9 +178,17 @@ class Core(Plugin):
                     f"VNC @ {container_ip}:5900 with password '{vnc_password}'"
                 )
 
-        # Same thing, but for a shared directory
-        if conf["core"].get("shared_dir", False):
-            conf["env"]["SHARED_DIR"] = "1"
+        # Shared directory and core dumps both ride the single /igloo/shared 9p
+        # mount, but are independent features (see the helper for the mapping).
+        cd_env, deprecated_implicit = shared_dir_and_core_dump_env(
+            conf["core"].get("shared_dir"), conf["core"].get("core_dumps")
+        )
+        if deprecated_implicit:
+            self.logger.warning(
+                "core.shared_dir implicitly enabled core dumps; this is "
+                "deprecated. Set core.core_dumps explicitly (true/false)."
+            )
+        conf["env"].update(cd_env)
 
         if conf["core"].get("strace", False) is True:
             conf["env"]["STRACE"] = "1"

@@ -390,17 +390,133 @@ false
 true
 ```
 
-### `core.shared_dir` Project-relative path of shared directory
+### `core.shared_dir` Shared directory configuration
+
+|||
+|-|-|
+|__Default__|`null`|
+
+Host<->guest shared directory (9p) configuration.
+
+    Accepted in ``core.shared_dir`` as ``true`` (enable with defaults), a string
+    (shorthand for ``path``), or this object. Core dumps ride the same single
+    mount (see ``core.core_dumps``); they do not need this feature enabled.
+    
+
+```yaml
+true
+```
+
+```yaml
+my_shared_directory
+```
+
+```yaml
+msize: 131072
+path: shared
+```
+
+#### `core.shared_dir.path` Results-relative share directory
+
+|||
+|-|-|
+|__Type__|string|
+|__Default__|`shared`|
+
+Directory shared into the guest at /igloo/shared. Resolved under the run's results dir unless core.shared_dir.host_path is set.
+
+```yaml
+shared
+```
+
+```yaml
+my_shared_directory
+```
+
+#### `core.shared_dir.host_path` Absolute host directory to share
 
 |||
 |-|-|
 |__Type__|string or null|
 |__Default__|`null`|
 
-Share this directory as /igloo/shared in the guest.
+If set, share this absolute host directory instead of a results-relative one (path is ignored).
 
 ```yaml
-my_shared_directory
+/data/fixtures
+```
+
+#### `core.shared_dir.msize` 9p msize override
+
+|||
+|-|-|
+|__Type__|integer or null|
+|__Default__|`null`|
+
+Override the 9p transport buffer size. Unset uses the default 8MB with an automatic fallback to 128KB on memory-tight guests.
+
+```yaml
+8192000
+```
+
+```yaml
+131072
+```
+
+### `core.core_dumps` Core dump configuration
+
+|||
+|-|-|
+|__Default__|`null`|
+
+Guest core-dump capture configuration.
+
+    Accepted in ``core.core_dumps`` as ``true`` (enable with defaults), a string
+    (shorthand for ``pattern``), or this object. When enabled, penguin points
+    core_pattern at /igloo/core_dumps (a symlink into the shared mount) and
+    brings that mount up even when core.shared_dir is unset.
+    
+
+```yaml
+true
+```
+
+```yaml
+/igloo/core_dumps/core_%e.%p
+```
+
+```yaml
+lock: false
+```
+
+#### `core.core_dumps.lock` Lock core_pattern
+
+|||
+|-|-|
+|__Type__|boolean|
+|__Default__|`true`|
+
+Install a sysctl pseudofile that eats guest writes to core_pattern so dumps can't be redirected. Set false to let the guest firmware keep its own core_pattern.
+
+```yaml
+true
+```
+
+```yaml
+false
+```
+
+#### `core.core_dumps.pattern` core_pattern override
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Override the core_pattern string. Unset uses /igloo/core_dumps/core_%e.%p.
+
+```yaml
+/igloo/core_dumps/core_%e.%p.%t
 ```
 
 ### `core.version` Config format version
