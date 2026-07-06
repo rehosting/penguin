@@ -436,11 +436,12 @@ class NullManager:
         self.published.append((plugin, event, args, kwargs))
         return iter(())
 
-    def portalcall(self, *a, **k):
-        """Identity decorator factory: ``@plugins.portalcall(magic)``."""
-        def decorator(func):
-            return func
-        return decorator
+    # NB: no ``portalcall`` method — ``portalcall`` is itself a sibling *plugin*
+    # (apis/portalcall.py), and the real decorator form is
+    # ``@plugins.portalcall.portalcall(magic)``. Letting the name fall through to
+    # ``__getattr__`` resolves it to a RecorderStub, which supports both that
+    # double form and the shorthand ``@plugins.portalcall(magic)`` as an identity
+    # decorator (a RecorderStub returns the decorated function unchanged).
 
     def get_plugin_by_name(self, name: str) -> Optional[Any]:
         return self._doubles.get(name) or self._doubles.get(name.lower())

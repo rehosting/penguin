@@ -1,111 +1,63 @@
-"""Host-side unit tests for the binary_patch applier in the LiveImage plugin.
+"""Host-side unit tests for the ``binary_patch`` logic in the LiveImage plugin,
+driven through the ``penguin.testing`` harness — no PANDA, no guest, no per-arch
+boot.
 
-These exercise the byte-level patch logic directly, without booting a guest:
-expect/on_mismatch policy, idempotent re-runs, length-mismatch and past-EOF
-verification, multi-patch-per-file application with overlap detection, hex
-parsing (0x prefix / spaces), and the fail-policy *abort contract* — that a
-mismatched ``expect`` under the default ``fail`` policy makes the batch
-hypercall return -1 (which, via send_portalcall's exit code and run_or_report,
-halts the image build) and records the offending patch's tag/why.
+This file was the original hand-rolled ``sys.modules``-stub hack that motivated
+the harness; it now loads the real plugin in place via ``load_pyplugin`` and
+controls the one sibling it touches (``static_fs``) with a ``doubles=`` entry.
 
-Importing the pyplugin standalone requires stubbing the plugin framework and
-keystone, which is done below before the module is loaded.
+Scope (per ``docs/testing.md``): the host-side patch *logic* is what runs on the
+host — hex parsing, ``expect``/``on_mismatch`` verification, idempotent re-runs,
+multi-edit application with overlap + bounds rejection, the windowed-transfer
+offset math, provenance records, and the batch-hypercall handler's abort
+contract against a pre-staged window. The guest round-trip itself (the real
+``hyp_file_op --range`` transport) and keystone ``asm`` assembly stay
+``tests/integration`` fixtures (``live_image.yaml``): they need the guest / a
+native toolchain, which the harness cannot fake faithfully.
 """
-import importlib.util
-import os
-import sys
-import types
+from pathlib import Path
 
 import pytest
 import yaml
 
-_HERE = os.path.dirname(__file__)
-_LIVE_IMAGE = os.path.abspath(
-    os.path.join(_HERE, "../../pyplugins/core/live_image.py"))
+from penguin.testing import load_pyplugin
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+LIVE_IMAGE = REPO_ROOT / "pyplugins" / "core" / "live_image.py"
+
+ORIG = b"\x01\x02\x03\x04rest"
 
 
-def _load_live_image():
-    """Load pyplugins/core/live_image.py with the plugin framework stubbed.
-
-    The module decorates methods with ``@plugins.portalcall.portalcall(...)``
-    and imports keystone at top level; neither is available (or wanted) for a
-    pure host-side unit test, so we stub them before executing the module.
-    """
-    class _Portalcall:
-        def portalcall(self, magic):
-            return lambda f: f  # identity: leave the method directly callable
-
-    class _Plugins:
-        portalcall = _Portalcall()
-
-    class _Plugin:
-        def __init_subclass__(cls, **kw):
-            pass
-
-    penguin_stub = types.ModuleType("penguin")
-    penguin_stub.Plugin = _Plugin
-    penguin_stub.plugins = _Plugins()
-    penguin_stub.yaml = yaml
-
-    pm = types.ModuleType("penguin.plugin_manager")
-    pm.resolve_bound_method_from_class = lambda x: x
-    defaults = types.ModuleType("penguin.defaults")
-    defaults.static_dir = "/nonexistent"
-    utils = types.ModuleType("penguin.utils")
-    utils.get_arch_subdir = lambda c: "x86_64"
-    boot_env = types.ModuleType("penguin.boot_env")
-    boot_env.partition_boot_env = lambda *a, **k: ({}, {})
-    boot_env.render_env_blob = lambda *a, **k: b""
-
-    # live_image imports normalize_hex_string from the schema module; load the
-    # real one (it only needs pydantic, not the full penguin package).
-    pc_pkg = types.ModuleType("penguin.penguin_config")
-    sspec = importlib.util.spec_from_file_location(
-        "penguin.penguin_config.structure",
-        os.path.abspath(os.path.join(_HERE, "../../src/penguin/penguin_config/structure.py")))
-    structure = importlib.util.module_from_spec(sspec)
-
-    saved = {k: sys.modules.get(k) for k in
-             ("penguin", "penguin.plugin_manager", "penguin.defaults",
-              "penguin.utils", "penguin.boot_env", "penguin.penguin_config",
-              "penguin.penguin_config.structure", "keystone")}
-    sys.modules["penguin"] = penguin_stub
-    sys.modules["penguin.plugin_manager"] = pm
-    sys.modules["penguin.defaults"] = defaults
-    sys.modules["penguin.utils"] = utils
-    sys.modules["penguin.boot_env"] = boot_env
-    sys.modules["penguin.penguin_config"] = pc_pkg
-    sys.modules["penguin.penguin_config.structure"] = structure
-    sspec.loader.exec_module(structure)
-    sys.modules.setdefault("keystone", types.ModuleType("keystone"))
-    try:
-        spec = importlib.util.spec_from_file_location("live_image_mod", _LIVE_IMAGE)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        return mod
-    finally:
-        for k, v in saved.items():
-            if v is None:
-                sys.modules.pop(k, None)
-            else:
-                sys.modules[k] = v
-
-
-_MOD = _load_live_image()
-LI = _MOD.LiveImage
+def _load(tmp_path, conf=None, doubles=None):
+    """Construct a real LiveImage via the harness. ``proj_dir``/``conf`` satisfy
+    ``__init__``; ``outdir`` (wired into ``get_arg('outdir')``) is where the
+    provenance report lands."""
+    return load_pyplugin(
+        str(LIVE_IMAGE),
+        outdir=tmp_path,
+        args={"proj_dir": str(tmp_path), "conf": conf or {}},
+        doubles=doubles or {},
+    )
 
 
 @pytest.fixture
-def li():
-    """A bare LiveImage instance with a stub logger, bypassing __init__."""
-    inst = object.__new__(LI)
-    inst.logger = types.SimpleNamespace(
-        info=lambda *a, **k: None, warning=lambda *a, **k: None,
-        error=lambda *a, **k: None, debug=lambda *a, **k: None)
-    return inst
+def li(tmp_path):
+    """A real, harness-constructed LiveImage instance (no framework stubbing)."""
+    return _load(tmp_path).plugin
 
 
-ORIG = b"\x01\x02\x03\x04rest"
+class _FakeStaticFs:
+    """Double for the one sibling ``_check_patch_within_file`` calls. ``size``
+    is what ``get_size`` returns; if it is an Exception instance, raising it
+    models the defensive 'size can't be determined' path."""
+
+    def __init__(self, size):
+        self._size = size
+
+    def get_size(self, path, transparent=frozenset()):
+        if isinstance(self._size, Exception):
+            raise self._size
+        return self._size
 
 
 # --- _parse_hex -----------------------------------------------------------
@@ -219,13 +171,13 @@ def test_normalize_inline_keeps_all_fields(li):
     assert "type" not in e and e["on_mismatch"] == "warn" and e["why"] == "w"
 
 
-# --- _synth_file_patch_action (Option B: patch a placed file) -------------
+# --- _synth_file_patch_action (compose: patch a placed file) --------------
 def test_synth_none_without_patches(li):
     # a plain host_file/inline_file with no patches produces nothing to queue
-    assert li._synth_file_patch_action("/foo", {"type": "host_file",
-                                                 "host_path": "x"}) is None
-    assert li._synth_file_patch_action("/foo", {"type": "inline_file",
-                                                 "contents": "x"}) is None
+    assert li._synth_file_patch_action(
+        "/foo", {"type": "host_file", "host_path": "x"}) is None
+    assert li._synth_file_patch_action(
+        "/foo", {"type": "inline_file", "contents": "x"}) is None
 
 
 def test_synth_builds_binary_patch_action(li):
@@ -342,8 +294,7 @@ def test_apply_short_window_fails_not_corrupts(li):
     window = b"AB"                       # declared window was longer
     new, recs, failed = li._apply_binary_patch(
         window, {"patches": [{"file_offset": 8, "hex_bytes": "cc"}]},
-        base_offset=8)                   # pos 0 within a 1-byte-short read? no: len 2, pos 0 ok
-    # offset 8, base 8 -> pos 0, patch len 1, needs len>=1; buffer len 2 -> ok, applies
+        base_offset=8)                   # offset 8, base 8 -> pos 0, fits len-2 buffer
     assert not failed
     # now a far offset within the same declared window but past the short read
     new2, recs2, failed2 = li._apply_binary_patch(
@@ -374,20 +325,21 @@ def test_apply_skip_leaves_region_untouched_but_applies_others(li):
     assert recs[0]["result"] == "skipped"
 
 
-# --- abort contract at the hypercall handler (#2) -------------------------
-def _prep_handler(li, tmp_path, queue, base_offsets=None):
-    li.staged_dir = str(tmp_path)
-    li.patch_queue = queue
-    li._patch_base_offset = base_offsets or {}
-    li.get_arg = lambda k: str(tmp_path) if k == "outdir" else None
-    for i, (path, action, content) in enumerate(queue_files(queue)):
-        (tmp_path / f"patch_{i}").write_bytes(content)
+def test_apply_with_base_offset(li):
+    # original_content is only the window starting at base_offset=0x100
+    window = b"\xde\xad"
+    new, recs, failed = li._apply_binary_patch(
+        window, {"file_offset": 0x100, "hex_bytes": "aabb", "expect": "dead",
+                 "tag": "t", "why": "w"}, base_offset=0x100)
+    assert not failed and new == b"\xaa\xbb"
+    assert recs[0]["file_offset"] == "0x100"   # provenance offset stays absolute
 
 
-def queue_files(queue):
-    # helper: yield (path, action, staged-content) using the action's own seed
-    for path, action in queue:
-        yield path, action, action.pop("_content")
+def test_verify_with_base_offset(li):
+    window = b"\x01\x02\x03\x04"
+    st, _ = li._verify_entry(window, {"file_offset": 0x1000, "expect": "0304"},
+                             b"\xff\xff", base_offset=0x1000 - 2)
+    assert st == "applied"  # expect '0304' checked at window pos 2
 
 
 # --- windowed transfer (ranged hyp_file_op) -------------------------------
@@ -414,7 +366,7 @@ def test_patch_window_raises_on_bad_edit(li):
         li._patch_window({"file_offset": 0, "hex_bytes": "aa", "asm": "nop"})
 
 
-# --- bounds check against the static filesystem ---------------------------
+# --- bounds check against the static filesystem (static_fs double) --------
 @pytest.mark.parametrize("base,win,size,expected", [
     (0, 4, None, False),   # unknown size -> never flagged
     (0, 4, 4, False),      # exactly fits
@@ -422,52 +374,51 @@ def test_patch_window_raises_on_bad_edit(li):
     (0x10, 4, 0x13, True),  # window 0x10..0x14 exceeds size 0x13
     (0x10, 4, 0x14, False),  # window 0x10..0x14 exactly fits size 0x14
 ])
-def test_window_exceeds_size(base, win, size, expected):
-    assert LI._window_exceeds_size(base, win, size) is expected
+def test_window_exceeds_size(li, base, win, size, expected):
+    assert li._window_exceeds_size(base, win, size) is expected
 
 
-def test_check_within_file_raises_when_out_of_bounds(li, monkeypatch):
-    monkeypatch.setattr(_MOD.plugins, "static_fs",
-                        types.SimpleNamespace(get_size=lambda p, transparent=None: 3),
-                        raising=False)
+def test_check_within_file_raises_when_out_of_bounds(tmp_path):
+    li = _load(tmp_path, doubles={"static_fs": _FakeStaticFs(3)}).plugin
     with pytest.raises(ValueError, match="exceeds file size"):
         li._check_patch_within_file("/bin/foo", 0, 4)
 
 
-def test_check_within_file_ok_when_fits(li, monkeypatch):
-    monkeypatch.setattr(_MOD.plugins, "static_fs",
-                        types.SimpleNamespace(get_size=lambda p, transparent=None: 64),
-                        raising=False)
+def test_check_within_file_ok_when_fits(tmp_path):
+    li = _load(tmp_path, doubles={"static_fs": _FakeStaticFs(64)}).plugin
     li._check_patch_within_file("/bin/foo", 0x10, 4)  # no raise
 
 
-def test_check_within_file_skips_when_size_unknown(li, monkeypatch):
-    monkeypatch.setattr(_MOD.plugins, "static_fs",
-                        types.SimpleNamespace(get_size=lambda p, transparent=None: None),
-                        raising=False)
+def test_check_within_file_skips_when_size_unknown(tmp_path):
+    li = _load(tmp_path, doubles={"static_fs": _FakeStaticFs(None)}).plugin
     li._check_patch_within_file("/bin/foo", 0, 999999)  # None -> skipped, no raise
 
 
-def test_check_within_file_skips_when_static_fs_unavailable(li):
-    # default stub _Plugins has no static_fs -> AttributeError caught -> skip
+def test_check_within_file_skips_when_get_size_raises(tmp_path):
+    # the defensive path: if the size can't be determined (static_fs errors),
+    # skip the check rather than fail the build
+    li = _load(tmp_path,
+               doubles={"static_fs": _FakeStaticFs(RuntimeError("no fs"))}).plugin
     li._check_patch_within_file("/bin/foo", 0, 999999)  # no raise
 
 
-def test_apply_with_base_offset(li):
-    # original_content is only the window starting at base_offset=0x100
-    window = b"\xde\xad"
-    new, recs, failed = li._apply_binary_patch(
-        window, {"file_offset": 0x100, "hex_bytes": "aabb", "expect": "dead",
-                 "tag": "t", "why": "w"}, base_offset=0x100)
-    assert not failed and new == b"\xaa\xbb"
-    assert recs[0]["file_offset"] == "0x100"   # provenance offset stays absolute
+# --- batch-hypercall handler: apply staged window + write provenance ------
+def _prep_handler(li, tmp_path, queue, base_offsets=None):
+    """Stage each queued patch's ``_content`` as ``patch_<i>`` under a staged
+    dir the handler reads, and point the plugin at it. ``outdir`` (where the
+    report lands) is already wired to ``tmp_path`` by the harness."""
+    li.staged_dir = str(tmp_path)
+    li.patch_queue = [(path, action) for path, action, _ in _queue_files(queue)]
+    li._patch_base_offset = base_offsets or {}
+    for i, (_path, _action, content) in enumerate(_queue_files(queue)):
+        (tmp_path / f"patch_{i}").write_bytes(content)
 
 
-def test_verify_with_base_offset(li):
-    window = b"\x01\x02\x03\x04"
-    st, _ = li._verify_entry(window, {"file_offset": 0x1000, "expect": "0304"},
-                             b"\xff\xff", base_offset=0x1000 - 2)
-    assert st == "applied"  # expect '0304' checked at window pos 2
+def _queue_files(queue):
+    # yield (path, action-without-_content, staged-content) from the seeded queue
+    for path, action in queue:
+        action = dict(action)
+        yield path, action, action.pop("_content")
 
 
 def test_handler_windowed_roundtrip(li, tmp_path):
@@ -509,7 +460,3 @@ def test_handler_fail_policy_aborts_and_names_patch(li, tmp_path):
     report = yaml.safe_load((tmp_path / "binary_patches.yaml").read_text())
     assert report[0]["result"] == "failed"
     assert report[0]["tag"] == "secureboot" and report[0]["why"] == "nop the check"
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-v"]))

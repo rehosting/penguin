@@ -163,6 +163,30 @@ Ordered most-valuable first. Percentages are current host coverage.
    plugins work too. The one enum with no host-reachable ISF home
    (`igloo_base_hypercalls`, defined in igloo_base) is supplied by `RealKffi` as a
    single ABI-fixed constant.
+10. ✅ **`core/live_image.py` — `binary_patch` logic** — done
+    (`test_binary_patch.py`). The host-side half of the `static_files`
+    `binary_patch` action (Phase-0 draft 04: `expect`/`on_mismatch` verify,
+    idempotent re-runs, `why`/`tag` provenance, multi-edit `patches`, and
+    composing patches onto a placed `host_file`/`inline_file`). Loaded in place
+    with `load_pyplugin` (`proj_dir`/`conf` args + `outdir`), controlling the
+    one sibling it calls, `static_fs`, with a `doubles={"static_fs": …}` entry
+    for the out-of-bounds size check. Covers hex parsing (0x/space forms),
+    `_verify_entry` policy matrix incl. length-mismatch/past-EOF/`base_offset`,
+    `_normalize_patch_entries`, `_synth_file_patch_action` (compose + glob
+    rejection), `_apply_binary_patch` (disjoint/overlap/contained-overlap +
+    out-of-window & negative-offset rejection), the `_patch_window` windowed
+    offset math, `_check_patch_within_file` bounds check (fits/exceeds/unknown/
+    errors→skip), and the `_on_batch_patch_hypercall` handler's success,
+    windowed round-trip, and **fail→return-`-1` abort contract** (asserts the
+    staged window is left untouched and the tag/why land in
+    `binary_patches.yaml`). This replaces the file's original hand-rolled
+    `sys.modules`-stub loader — the case that motivated the harness.
+
+    **Out of scope — stays a `tests/integration/` fixture (`live_image.yaml`):**
+    the real guest round-trip (the batch hypercall's `hyp_file_op --range`
+    transport, whose reply drives the write-back) and keystone `asm`
+    assembly (a native-toolchain concern; `import keystone` is soft so the
+    plugin still loads host-side, and `_gen_asm_patch_bytes` guards on it).
 
 ### Harness capabilities (as landed)
 
