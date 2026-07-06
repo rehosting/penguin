@@ -25,6 +25,7 @@ permissions:
   contents: write   # attach PDF/docs.tar.gz assets to the release
   pages: write
   id-token: write
+  actions: write    # delete stale github-pages artifacts left by prior re-run attempts
 
 concurrency:
   group: "docs"
@@ -175,6 +176,23 @@ jobs:
         run: |
           mkdir html_content
           tar -xvf docs.tar.gz -C html_content
+      # A re-run (workflow or just this job) does NOT clear artifacts uploaded by
+      # a prior attempt. upload-pages-artifact always names its artifact
+      # "github-pages", so a re-run leaves 2+ identically-named artifacts in the
+      # run and deploy-pages@v4 aborts with "Multiple artifacts named
+      # github-pages were unexpectedly found". Delete any stale one first so
+      # exactly one exists at deploy time.
+      - name: Delete stale github-pages artifacts from prior attempts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ids=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+            --paginate --jq '.artifacts[] | select(.name=="github-pages") | .id')
+          for id in $ids; do
+            echo "Deleting stale github-pages artifact $id"
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}" || true
+          done
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
