@@ -3,11 +3,11 @@
 
 This plugin sits *behind the FFI-enum boundary*: it does
 ``from apis.syscalls import ValueFilter``, which transitively builds the
-``hyper.consts`` enum tables at import. We load it with ``fake_enums=True`` — an
-auto-int stand-in for ``hyper.consts`` — so the import succeeds and the plugin's
-host-side logic (interface-name validation/dedup, the exec parser for ip/ifconfig,
-and the ioctl-return generator handler) can be exercised. The enum *values* are
-bogus, but this plugin's logic doesn't depend on them.
+``hyper.consts`` enum tables at import. We load it with ``real_isf=`` — the real
+published driver ISF read through ``dwarffi`` — so the import succeeds against real
+enum values and the plugin's host-side logic (interface-name validation/dedup, the
+exec parser for ip/ifconfig, and the ioctl-return generator handler) can be
+exercised.
 """
 from pathlib import Path
 
@@ -32,9 +32,9 @@ class _Sys:
         self.retval = retval
 
 
-def _load(tmp_path, netdevs=None, mem=None):
+def _load(tmp_path, isf, netdevs=None, mem=None):
     return load_pyplugin(
-        INTERFACES, outdir=tmp_path, fake_enums=True,
+        INTERFACES, outdir=tmp_path, real_isf=isf,
         args={"conf": {"netdevs": netdevs or []}},
         doubles={"mem": mem or _Mem()},
     )
@@ -45,8 +45,8 @@ def _lines(path):
 
 
 # --- the plugin imports at all (boundary crossed) --------------------------- #
-def test_plugin_loads_behind_enum_boundary(tmp_path):
-    lp = _load(tmp_path)
+def test_plugin_loads_behind_enum_boundary(tmp_path, igloo_ko_isf):
+    lp = _load(tmp_path, igloo_ko_isf)
     assert type(lp.plugin).__name__ == "Interfaces"
     # both log files are created empty at init
     assert (tmp_path / "iface.log").exists()
@@ -54,15 +54,15 @@ def test_plugin_loads_behind_enum_boundary(tmp_path):
 
 
 # --- handle_interface: validation + dedup + logging ------------------------- #
-def test_handle_interface_logs_new_valid_iface(tmp_path):
-    lp = _load(tmp_path)
+def test_handle_interface_logs_new_valid_iface(tmp_path, igloo_ko_isf):
+    lp = _load(tmp_path, igloo_ko_isf)
     lp.plugin.handle_interface("eth0")
     lp.plugin.handle_interface("eth0")           # dedup
     assert _lines(tmp_path / "iface.log") == ["eth0"]
 
 
-def test_handle_interface_skips_known_and_ignored(tmp_path):
-    lp = _load(tmp_path, netdevs=["eth1"])
+def test_handle_interface_skips_known_and_ignored(tmp_path, igloo_ko_isf):
+    lp = _load(tmp_path, igloo_ko_isf, netdevs=["eth1"])
     lp.plugin.handle_interface("eth1")           # already an added netdev
     lp.plugin.handle_interface("lo")             # ignored
     lp.plugin.handle_interface("")               # empty
@@ -71,16 +71,16 @@ def test_handle_interface_skips_known_and_ignored(tmp_path):
 
 
 # --- failing_ioctl: dedup + logging ----------------------------------------- #
-def test_failing_ioctl_logs_and_dedupes(tmp_path):
-    lp = _load(tmp_path)
+def test_failing_ioctl_logs_and_dedupes(tmp_path, igloo_ko_isf):
+    lp = _load(tmp_path, igloo_ko_isf)
     lp.plugin.failing_ioctl(0x8910, "eth0", -19)
     lp.plugin.failing_ioctl(0x8910, "eth0", -19)   # dedup on (ioctl, iface)
     assert _lines(tmp_path / "iface_ioctl.log") == ["0x8910,eth0,-19"]
 
 
 # --- exec parser: ip / ifconfig --------------------------------------------- #
-def test_exec_parses_ip_dev_and_ifconfig(tmp_path):
-    lp = _load(tmp_path)
+def test_exec_parses_ip_dev_and_ifconfig(tmp_path, igloo_ko_isf):
+    lp = _load(tmp_path, igloo_ko_isf)
     lp.dispatch("exec_event", {"procname": "/sbin/ip",
                                "argv": ["ip", "link", "set", "dev", "eth2", "up"]})
     lp.dispatch("exec_event", {"procname": "/sbin/ifconfig",
@@ -92,9 +92,9 @@ def test_exec_parses_ip_dev_and_ifconfig(tmp_path):
 
 
 # --- after_ioctl: the portal-generator syscall handler ---------------------- #
-def test_after_ioctl_missing_interface(tmp_path):
+def test_after_ioctl_missing_interface(tmp_path, igloo_ko_isf):
     mem = _Mem("eth4")
-    lp = _load(tmp_path, mem=mem)
+    lp = _load(tmp_path, igloo_ko_isf, mem=mem)
     # rv == -ENODEV -> a missing interface is recorded, and the ioctl is logged
     lp.dispatch_syscall("ioctl", None, None, _Sys(retval=-19), 3, 0x8910, 0x1000,
                         on_return=True)
