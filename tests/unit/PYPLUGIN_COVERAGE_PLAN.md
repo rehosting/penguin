@@ -144,6 +144,19 @@ Ordered most-valuable first. Percentages are current host coverage.
 8. **Sibling Phase-0 plugins** as they land on this branch: `crashes.yaml`
    (draft 01) and `summary.json` (draft 02) aggregation — the harness is their
    natural host-side test.
+   - ✅ **`hyperfile/pseudofile_tracker.py`** (draft 03, PR #879) — done
+     (`test_pseudofile_tracker.py`, behind the FFI-enum boundary via
+     `real_isf=`): the -ENOENT open/stat and -ENOTTY ioctl **generator**
+     handlers via the syscall pump with `mem`/`osi` doubles (caller
+     attribution, O_ACCMODE intent, relative-dfd resolution, `/proc/PID`
+     collapse, TTY/proc ioctl filters), the pure ranking/suggest helpers
+     (`impact_score` tiers, `suggest_models`, `load_crashes` tolerance,
+     `count_crashing_callers` exact-vs-by-name), `record_default_hit`
+     provenance (the Pseudofiles `default_hit_cb` contract), the eager flush
+     (#175 durability), and end-to-end `pseudofiles_failures.yaml` ranking
+     with the crashes.yaml join. Guest round-trip (real ENOENT delivery,
+     crash → crashes.yaml production) stays in `tests/integration/` fixtures
+     (`pseudofile_missing`/`pseudofile_ioctl`/`pseudofile_ext_ops`).
 9. **`analysis/interfaces.py` + the `apis.syscalls`-importing class** ✅ done
    (`test_interfaces.py`, `analysis/interfaces.py` 4→93%) — the FFI-enum boundary,
    crossed with the **`real_isf=`** load mode. `from apis.syscalls import
