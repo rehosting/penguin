@@ -11,6 +11,7 @@ Everything here runs without a rootfs, kernel, or container.
 import pytest
 
 from penguin.boot_env import (
+    KERNEL_CMDLINE_KNOBS,
     PENGUIN_INTERNAL_ENV,
     is_penguin_internal_env,
     partition_boot_env,
@@ -19,7 +20,7 @@ from penguin.boot_env import (
 
 
 @pytest.mark.parametrize("key", [
-    "igloo_init", "igloo_task_size",          # lowercase igloo_ prefix
+    "igloo_init",                              # lowercase igloo_ prefix
     "IGLOO_LTRACE", "IGLOO_CGROUP_MODE",       # uppercase IGLOO_ prefix
     "IGLOO_OWN_IFACES", "IGLOO_EXT_MAC",       # newer prefixed knobs (no edit needed)
     "ROOT_SHELL", "SHARED_DIR", "WWW", "CID",  # un-prefixed knobs
@@ -34,6 +35,18 @@ def test_internal_keys_recognized(key):
 ])
 def test_external_keys_not_internal(key):
     assert not is_penguin_internal_env(key)
+
+
+@pytest.mark.parametrize("key", sorted(KERNEL_CMDLINE_KNOBS))
+def test_kernel_cmdline_knobs_stay_on_cmdline(key):
+    # Kernel-parsed knobs carry the igloo_ prefix but must NOT be diverted to the
+    # blob -- the kernel reads them from /proc/cmdline at boot, before the blob is
+    # sourced in preinit.sh. Regression guard for the ros6 VM-split break
+    # (igloo_task_size diverted off the cmdline -> wrong guest address-space split).
+    assert not is_penguin_internal_env(key)
+    cmdline_env, blob_env = partition_boot_env({key: "0x7f000000"})
+    assert key not in blob_env
+    assert cmdline_env == {key: "0x7f000000"}
 
 
 def test_explicit_set_is_a_subset_of_recognized():

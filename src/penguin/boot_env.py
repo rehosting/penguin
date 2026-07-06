@@ -4,15 +4,22 @@ penguin.boot_env
 
 Partitioning and delivery of penguin's boot-time guest environment.
 
-Penguin's internal env knobs (``ROOT_SHELL``, ``igloo_init``, the ``IGLOO_*``
-family, ...) are consumed only by guest *userspace* -- the ``source.d`` boot
-scripts, ``/igloo/init``, and ``LD_PRELOAD`` constructors -- and only after
-``igloo.ko`` has been inserted. None of them is read by the kernel or the
-module at boot. So rather than smuggling them on the kernel command line (which
-is capped at ``COMMAND_LINE_SIZE`` -- as low as 256B on MIPS, where it silently
-truncates), we deliver them in an early-boot env blob that ``preinit.sh``
-sources into PID1's environment, whence they propagate to the whole guest
-process tree exactly as cmdline env did.
+Most of Penguin's internal env knobs (``ROOT_SHELL``, ``igloo_init``, the
+``IGLOO_*`` family, ...) are consumed only by guest *userspace* -- the
+``source.d`` boot scripts, ``/igloo/init``, and ``LD_PRELOAD`` constructors --
+and only after ``igloo.ko`` has been inserted. So rather than smuggling them on
+the kernel command line (which is capped at ``COMMAND_LINE_SIZE`` -- as low as
+256B on MIPS, where it silently truncates), we deliver them in an early-boot env
+blob that ``preinit.sh`` sources into PID1's environment, whence they propagate
+to the whole guest process tree exactly as cmdline env did.
+
+A few knobs are the exception: they are read by the *kernel* itself at boot,
+before any userspace runs, so they MUST reach ``/proc/cmdline`` and cannot be
+diverted to the blob (which is fetched over the portal and sourced only after
+``insmod``). These are listed in :data:`KERNEL_CMDLINE_KNOBS` and always stay on
+the cmdline. ``igloo_task_size`` (the user/kernel VM-split boundary the igloo
+kernel parses to size the guest address space) is one such knob -- diverting it
+silently gave targets that rely on it the wrong VM split.
 
 The kernel command line then carries only what must be there: ``root=``,
 ``init=``, ``panic=``, ``console=``, ``rw``, plus any *firmware-expected*
@@ -45,13 +52,30 @@ PENGUIN_INTERNAL_ENV: frozenset = frozenset({
 })
 
 
+# Knobs the KERNEL parses from the command line at boot (before userspace, and
+# before the env blob is fetched/sourced in preinit.sh). These carry the
+# ``igloo_`` prefix but are NOT userspace env, so they must never be diverted to
+# the blob -- they have to reach /proc/cmdline like any real kernel parameter.
+#   * igloo_task_size -- user/kernel VM-split boundary (0xBF/0x7F/0x3F000000);
+#     the igloo kernel reads it to size the guest address space. Firmware built
+#     for an older VM split (e.g. RouterOS 6 on a 3.x kernel) boots wrong -- or
+#     crashes marginally, layout-dependent -- if this doesn't reach the kernel.
+KERNEL_CMDLINE_KNOBS: frozenset = frozenset({
+    "igloo_task_size",
+})
+
+
 def is_penguin_internal_env(key: str) -> bool:
     """Return True if ``key`` is a penguin-internal knob delivered via the
     boot env blob (off the kernel cmdline).
 
     Matches the ``igloo_``/``IGLOO_`` namespace plus the small set of
-    historically un-prefixed knobs in :data:`PENGUIN_INTERNAL_ENV`.
+    historically un-prefixed knobs in :data:`PENGUIN_INTERNAL_ENV` -- EXCEPT the
+    kernel-parsed knobs in :data:`KERNEL_CMDLINE_KNOBS`, which are read by the
+    kernel at boot and must stay on the cmdline.
     """
+    if key in KERNEL_CMDLINE_KNOBS:
+        return False
     return key in PENGUIN_INTERNAL_ENV or key.lower().startswith("igloo_")
 
 
