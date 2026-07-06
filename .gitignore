@@ -3,8 +3,6 @@
 *.sw*
 __pycache__/
 *.json
-# Checked-in test fixture (real hyper.consts enum values); see gen_hyper_enums.py.
-!src/penguin/testing/hyper_enums.json
 *.pkl
 *.tar.gz
 fws/
@@ -26,5 +24,7 @@ db/events.*
 local_packages/*
 # keep the dir present so `COPY ./local_package[s]` works under podman/buildah
 !local_packages/.gitkeep
+# Downloaded ISF cache for the host test suite (penguin.testing.resolve_igloo_ko_isf)
+tests/unit/.isf_cache/
 # coverage.py data
 .coverage

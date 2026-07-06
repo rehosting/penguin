@@ -56,7 +56,6 @@ Example
 from __future__ import annotations
 
 import inspect
-import json
 import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -236,107 +235,159 @@ def drive(gen: Any, responses: Optional[List[Any]] = None,
         return (e.value, yielded) if collect else e.value
 
 
-class _AutoIntEnum:
-    """Stand-in for one ``hyper.consts`` enum (``HYPER_OP``, ``value_filter_type``,
-    …). Members resolve to an int by attribute or item access, so code that reads
-    enum constants at import/class-definition time (e.g. ``ValueFilter.__init__``'s
-    ``vft.SYSCALLS_HC_FILTER_EXACT`` default arg) or builds ``PortalCmd(hop.X, …)``
-    works and does not crash.
+# --- real ISF path: load the published driver ISF through dwarffi ----------- #
+#
+# Instead of stand-in enums, load
+# the *real* igloo.ko ISF (the same artifact apis.kffi reads at runtime) through
+# dwarffi and let the genuine hyper.consts build against it. This exercises
+# dwarffi for real, exposes the whole driver type universe (not just 7 enums),
+# and can't drift — the ISF is pinned to the driver release, not a checked-in
+# copy. See RealKffi / install_real_consts.
+#
+# The ISF is pulled for the exact IGLOO_DRIVER_VERSION pinned in the Dockerfile
+# (not :latest), so host tests see the same enums the built image would.
+_ISF_ARCH = "armel"     # enums/most driver types are arch-invariant; one suffices
+_ISF_KVER = "6.13"      # kernel tree inside the driver tarball
 
-    Seeded from the real captured values (``hyper_enums.json``, extracted from the
-    published kernel/driver ISF) so members present in the capture return their
-    **real** value — a portal command built from them carries the true op number.
-    A member *not* in the capture (e.g. added to the driver after the last capture)
-    falls back to a stable auto-assigned int past the real range, so the plugin
-    still imports/runs; that value is meaningless. Regenerate the capture with
-    ``python -m penguin.testing.gen_hyper_enums`` when the driver's enums change.
+
+class RealKffi:
+    """A real ``dwarffi``-backed stand-in for the ``kffi`` plugin, exposing just
+    the enum/type surface ``hyper.consts`` and type-reading plugins need. Built
+    from one or more real ISF paths; ``get_enum_dict``/``get_type`` mirror
+    ``apis/kffi.py`` so the genuine ``hyper.consts`` imports against real values.
+
+    ``igloo_base_hypercalls`` is defined in igloo_base and is not emitted into the
+    driver ISF (and the kernel ``cosi`` ISF that used to carry it is being retired),
+    so its single ABI-fixed member is supplied here — the one enum with no
+    host-reachable ISF home.
     """
 
-    def __init__(self, name: str, seed: Optional[Dict[str, int]] = None):
-        object.__setattr__(self, "_name", name)
-        object.__setattr__(self, "_vals", dict(seed or {}))
-        # Auto-assign unknown members above the real range so they never collide
-        # with a captured value.
-        base = max(object.__getattribute__(self, "_vals").values(), default=0)
-        object.__setattr__(self, "_next", base + 1)
+    _SUPPLEMENT = {"igloo_base_hypercalls": {"IGLOO_HYP_SETUP_SYSCALL": 0x1337}}
 
-    def _get(self, member: str) -> int:
-        vals = object.__getattribute__(self, "_vals")
-        if member not in vals:
-            vals[member] = object.__getattribute__(self, "_next")
-            object.__setattr__(self, "_next", vals[member] + 1)
-        return vals[member]
+    def __init__(self, isf_paths):
+        from dwarffi.dffi import DFFI
+        self.ffi = DFFI(list(isf_paths))
 
-    def __getattr__(self, member: str) -> int:
-        if member.startswith("_"):
-            raise AttributeError(member)
-        return self._get(member)
+    def get_enum_dict(self, name: str) -> Dict[str, int]:
+        if name in self._SUPPLEMENT:
+            return dict(self._SUPPLEMENT[name])
+        t = self.ffi.get_type(name)
+        consts = getattr(t, "constants", None) if t else None
+        return dict(consts) if consts else {}
 
-    def __getitem__(self, member: str) -> int:
-        return self._get(member)
-
-    def items(self):
-        return list(object.__getattribute__(self, "_vals").items())
-
-    def to_dict(self):
-        return dict(object.__getattribute__(self, "_vals"))
+    def get_type(self, name):
+        return self.ffi.get_type(name)
 
 
-_ENUM_FIXTURE = os.path.join(os.path.dirname(__file__), "hyper_enums.json")
-
-
-def _load_enum_fixture() -> Dict[str, Dict[str, int]]:
-    """Load the captured real enum values (``hyper_enums.json``). Missing/broken
-    fixture → empty (stub degrades to pure auto-int), so tests still run."""
+def _pinned_driver_version() -> Optional[str]:
+    """Read ``IGLOO_DRIVER_VERSION`` from the repo Dockerfile so the ISF pull is
+    pinned to the same release the image uses (not :latest). None if unreadable."""
+    # harness.py -> testing/ -> penguin/ -> src/ -> repo root
+    dockerfile = os.path.join(
+        os.path.dirname(__file__), "..", "..", "..", "Dockerfile")
     try:
-        with open(_ENUM_FIXTURE) as f:
-            data = json.load(f)
-    except (OSError, ValueError):
-        return {}
-    return {k: v for k, v in data.items() if not k.startswith("_")}
+        with open(os.path.realpath(dockerfile)) as f:
+            text = f.read()
+    except OSError:
+        return None
+    import re
+    m = re.search(r'^ARG\s+IGLOO_DRIVER_VERSION="?([^"\s]+)"?', text, re.M)
+    return m.group(1) if m else None
 
 
-def install_fake_enums():
-    """Install a stand-in ``hyper.consts`` into ``sys.modules`` (idempotent).
+def _isf_cache_dir() -> str:
+    return os.environ.get(
+        "PENGUIN_TEST_ISF_CACHE",
+        os.path.join(os.path.dirname(__file__), ".isf_cache"))
 
-    ``hyper.consts`` builds its enum tables at import from
-    ``plugins.kffi.get_enum_dict(...)`` and wraps them in ``ConstDictWrapper``,
-    which *eagerly* materializes members — so faking ``get_enum_dict`` alone can't
-    work (unknown members raise ``AttributeError``). Instead we replace the module
-    with one whose every enum is an :class:`_AutoIntEnum`, **seeded with the real
-    captured values** from ``hyper_enums.json`` (extracted from the published
-    kernel/driver ISF — the same source ``apis.kffi`` reads at runtime). The real
-    ``hyper.portal`` / ``apis.syscalls`` then import against it, so plugins behind
-    the enum boundary (``analysis/interfaces``, ``core/scope``, the hyperfile
-    registrars, …) load and their host-side logic can be exercised — and a portal
-    command built from a captured member carries its **real** op number. Members
-    absent from the capture fall back to a bogus auto-int (see :class:`_AutoIntEnum`).
 
-    Returns the module. Safe to call repeatedly.
+def resolve_igloo_ko_isf(arch: str = _ISF_ARCH,
+                         version: Optional[str] = None) -> Optional[str]:
+    """Locate an ``igloo.ko.<arch>.json.xz`` ISF, or return None if unavailable.
+
+    Resolution order:
+      1. ``PENGUIN_TEST_IGLOO_KO_ISF`` env var (explicit path).
+      2. The local cache (a prior download).
+      3. Download ``igloo_driver.tar.gz`` for the Dockerfile-pinned
+         ``IGLOO_DRIVER_VERSION`` (or ``version``) and extract the one ISF.
+      4. The nix store (dev machines).
+
+    Returns None (rather than raising) when offline with nothing cached, so tests
+    can ``skip`` cleanly.
     """
+    env = os.environ.get("PENGUIN_TEST_IGLOO_KO_ISF")
+    if env and os.path.isfile(env):
+        return env
+
+    member = f"kernels/{_ISF_KVER}/igloo.ko.{arch}.json.xz"
+    cache = os.path.join(_isf_cache_dir(), f"igloo.ko.{arch}.json.xz")
+    if os.path.isfile(cache):
+        return cache
+
+    version = version or _pinned_driver_version()
+    if version:
+        tag = "v" + version.lstrip("v")
+        url = ("https://github.com/rehosting/igloo_driver/releases/download/"
+               f"{tag}/igloo_driver.tar.gz")
+        try:
+            import io
+            import tarfile
+            import urllib.request
+            with urllib.request.urlopen(url, timeout=120) as resp:
+                buf = io.BytesIO(resp.read())
+            with tarfile.open(fileobj=buf, mode="r:gz") as tf:
+                src = tf.extractfile(member)
+                if src is not None:
+                    os.makedirs(os.path.dirname(cache), exist_ok=True)
+                    with open(cache, "wb") as out:
+                        out.write(src.read())
+                    return cache
+        except Exception:  # noqa: BLE001 - offline / missing asset -> fall through
+            pass
+
+    import glob
+    hits = glob.glob(
+        f"/nix/store/**/igloo.ko.{arch}.json.xz", recursive=True)
+    return sorted(hits)[0] if hits else None
+
+
+def _clear_hyper_consts_cache() -> None:
+    """Drop any cached ``hyper.consts`` (and modules that import enums from it) so
+    a subsequent import rebuilds against whatever ``plugins.kffi`` is now bound —
+    e.g. after a prior load cached a ``hyper.consts`` bound to different values."""
     import sys
-    import types
+    for name in list(sys.modules):
+        if name == "hyper.consts" or name.startswith("hyper.") \
+                or name.startswith("apis."):
+            sys.modules.pop(name, None)
 
-    existing = sys.modules.get("hyper.consts")
-    if existing is not None and getattr(existing, "_penguin_fake_enums", False):
-        return existing
 
-    fixture = _load_enum_fixture()
-    mod = types.ModuleType("hyper.consts")
-    mod._penguin_fake_enums = True
-    _enums: Dict[str, _AutoIntEnum] = {}
+def install_real_consts(isf_paths) -> RealKffi:
+    """Build a real ``dwarffi``-backed :class:`RealKffi` from ``isf_paths`` and
+    clear cached ``hyper.consts`` so the genuine module rebuilds against it.
 
-    def _module_getattr(name: str):
-        if name.startswith("_"):
-            raise AttributeError(name)
-        if name not in _enums:
-            _enums[name] = _AutoIntEnum(name, seed=fixture.get(name))
-        return _enums[name]
+    Register the returned object as the ``kffi`` double (``load_pyplugin`` does
+    this for you via ``real_isf=``): the real ``hyper.consts`` then imports through
+    the normal loader with real enum values.
+    """
+    _clear_hyper_consts_cache()
+    return RealKffi(isf_paths if isinstance(isf_paths, (list, tuple))
+                    else [isf_paths])
 
-    mod.__getattr__ = _module_getattr  # PEP 562: resolves `from hyper.consts import X`
-    mod.enum_names = list(fixture)
-    sys.modules["hyper.consts"] = mod
-    return mod
+
+def _resolve_real_isf(real_isf):
+    """Normalize the ``real_isf`` argument to a list of ISF paths. ``"auto"``
+    resolves via :func:`resolve_igloo_ko_isf`; a missing auto-resolution raises
+    (callers wanting a soft skip should resolve + skip themselves, then pass the
+    path explicitly)."""
+    if real_isf == "auto":
+        path = resolve_igloo_ko_isf()
+        if not path:
+            raise FileNotFoundError(
+                "could not resolve an igloo.ko ISF (offline with nothing cached? "
+                "set PENGUIN_TEST_IGLOO_KO_ISF)")
+        return [path]
+    return list(real_isf) if isinstance(real_isf, (list, tuple)) else [real_isf]
 
 
 class NullManager:
@@ -506,7 +557,7 @@ def load_pyplugin(
     endianness: str = "little",
     pyplugins_dir: Optional[str] = None,
     call_init: bool = True,
-    fake_enums: bool = False,
+    real_isf=None,
 ) -> LoadedPlugin:
     """Load and construct a pyplugin against a null backend, ready to drive.
 
@@ -531,18 +582,25 @@ def load_pyplugin(
         class-body ``@subscribe``/``@syscall`` decorators register), the instance
         is ``__new__``/``__preinit__``-wired, and the test sets the handful of
         attributes the handlers need before driving them.
-    fake_enums : install an auto-int fake ``hyper.consts`` before import (see
-        :func:`install_fake_enums`) so plugins behind the FFI-enum boundary — those
-        importing ``apis.syscalls``/``hyper`` (e.g. ``analysis/interfaces``) — load
-        host-side. Enum values are bogus; only use it for logic that doesn't depend
-        on real enum constants.
+    real_isf : path (or list of paths, or ``"auto"``) to a real ``igloo.ko`` ISF,
+        for plugins behind the FFI-enum boundary (those importing
+        ``apis.syscalls``/``hyper``, e.g. ``analysis/interfaces``). Registers a real
+        ``dwarffi``-backed ``kffi`` double so the genuine ``hyper.consts`` builds
+        against **real** enum values (see :func:`install_real_consts`). ``"auto"``
+        resolves via :func:`resolve_igloo_ko_isf`.
     """
-    if fake_enums:
-        install_fake_enums()
     args = dict(args or {})
     if outdir is not None:
         args["outdir"] = str(outdir)
     doubles = dict(doubles or {})
+
+    if real_isf is not None:
+        paths = _resolve_real_isf(real_isf)
+        _clear_hyper_consts_cache()
+        # A caller-supplied kffi double wins (e.g. one that also stubs .new); it
+        # just has to resolve enums too (subclass RealKffi). Otherwise default to
+        # a plain dwarffi-backed RealKffi.
+        doubles.setdefault("kffi", RealKffi(paths))
 
     path = _resolve_path(path_or_name, pyplugins_dir)
 
@@ -588,7 +646,7 @@ def _resolve_path(path_or_name: str, pyplugins_dir: Optional[str]) -> str:
 def load_module(path_or_name: str, *, doubles: Optional[Dict[str, Any]] = None,
                 pyplugins_dir: Optional[str] = None,
                 endianness: str = "little",
-                fake_enums: bool = False) -> Tuple[Any, "NullManager"]:
+                real_isf=None) -> Tuple[Any, "NullManager"]:
     """Import a pyplugin *module* (not necessarily a ``Plugin`` subclass) with a
     null ``plugins`` bound, and return ``(module, manager)``.
 
@@ -605,9 +663,10 @@ def load_module(path_or_name: str, *, doubles: Optional[Dict[str, Any]] = None,
     import importlib
     import penguin
 
-    if fake_enums:
-        install_fake_enums()
     doubles = dict(doubles or {})
+    if real_isf is not None:
+        _clear_hyper_consts_cache()
+        doubles.setdefault("kffi", RealKffi(_resolve_real_isf(real_isf)))
     path = _resolve_path(path_or_name, pyplugins_dir)
     root = pyplugins_dir or _pyplugins_root(path)
     if root is None:

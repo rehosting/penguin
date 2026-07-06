@@ -111,6 +111,15 @@ jobs:
       - name: Install penguin + pengutils (editable, with test extras)
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         run: pip install -e "src[test]" -e "pengutils[test]"
+      # Cache the igloo.ko ISF the enum-boundary tests pull for the pinned
+      # IGLOO_DRIVER_VERSION (parsed from the Dockerfile). Keyed on the Dockerfile
+      # so bumping the pin re-pulls; otherwise conftest downloads it once.
+      - name: Cache driver ISF
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: tests/unit/.isf_cache
+          key: igloo-ko-isf-${{ hashFiles('Dockerfile') }}
       - name: Run host-side unit tests
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         run: |

@@ -12,7 +12,9 @@ from .harness import (
     NullPanda,
     RecorderStub,
     drive,
-    install_fake_enums,
+    install_real_consts,
+    resolve_igloo_ko_isf,
+    RealKffi,
 )
 
 __all__ = [
@@ -23,5 +25,7 @@ __all__ = [
     "NullPanda",
     "RecorderStub",
     "drive",
-    "install_fake_enums",
+    "install_real_consts",
+    "resolve_igloo_ko_isf",
+    "RealKffi",
 ]

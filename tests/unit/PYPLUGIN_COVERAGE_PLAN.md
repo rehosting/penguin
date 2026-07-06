@@ -137,27 +137,23 @@ Ordered most-valuable first. Percentages are current host coverage.
    natural host-side test.
 9. **`analysis/interfaces.py` + the `apis.syscalls`-importing class** ✅ done
    (`test_interfaces.py`, `analysis/interfaces.py` 4→93%) — the FFI-enum boundary,
-   crossed with the **`fake_enums=True`** load mode. `from apis.syscalls import
+   crossed with the **`real_isf=`** load mode. `from apis.syscalls import
    ValueFilter` transitively imports `apis/__init__` → `hyper.portal` →
    `hyper.consts` (builds enums from `plugins.kffi.get_enum_dict(...)` and wraps
-   them in `ConstDictWrapper`, which *eagerly* materializes members) and
-   `wrappers.ptregs_wrap` → `dwarffi` (now in the `[test]` extra).
+   them in `ConstDictWrapper`) and `wrappers.ptregs_wrap` → `dwarffi` (in the
+   `[test]` extra).
 
-   **What actually works (and why the obvious fix doesn't):** faking
-   `get_enum_dict` alone is defeated by `ConstDictWrapper.__init__`'s
-   `self.__dict__.update(data)` — it copies the keys present at construction, with
-   no `__getattr__` fallback, so an auto-vivifying dict yields `AttributeError` on
-   any unseen member. The seam is one level up: `install_fake_enums()` inserts a
-   fake `hyper.consts` module (PEP-562 `__getattr__`) whose every enum is an
-   `_AutoIntEnum` returning a stable auto-int for any member. Real `hyper.portal`/
-   `apis.syscalls`/`ValueFilter` then import against it. The enum **values are
-   bogus**, so any `PortalCmd` built from them carries a meaningless command number
-   — fine in the null backend (nothing is sent to a guest), and enough to import
-   the plugin and exercise its host-side logic (interfaces' name validation/dedup,
-   the ip/ifconfig exec parser, and the `after_ioctl` generator via the pump + a
-   `mem.read_str` double). Use it only for logic that doesn't depend on real enum
-   constants; for those, a live enum-dict capture → checked-in fixture is still the
-   right (deferred) answer.
+   **How it works:** `load_pyplugin(..., real_isf=<path>)` registers a real
+   `dwarffi`-backed `kffi` double (`RealKffi`) built from the actual published
+   `igloo.ko` ISF, then clears any cached `hyper.consts` so the **genuine**
+   `hyper/consts.py` imports and builds against real values via
+   `get_enum_dict`/`get_type`. So the whole runtime path is exercised — real
+   `dwarffi`, real `consts.py`, real `ConstDictWrapper`, real `hyper.portal` — and
+   every `PortalCmd` carries its **true** op number. This also exposes the full
+   driver type universe (structs, not just the seven enums), so type-reading
+   plugins work too. The one enum with no host-reachable ISF home
+   (`igloo_base_hypercalls`, defined in igloo_base) is supplied by `RealKffi` as a
+   single ABI-fixed constant.
 
 ### Harness capabilities (as landed)
 
@@ -175,8 +171,8 @@ API calls the generator makes (`plugins.mem.read_bytes`, `plugins.osi.*`) are
 satisfied by generator *doubles* that `yield from ()` and `return` a canned
 value; `panda.ffi.cast` is modelled as identity so `int(cast("target_long", fd))`
 works. Proven on `rw_logger` (read/write) and `kmods`
-(init_module/finit_module). Not yet handled: faithful FFI enums at import (the
-`apis.syscalls` interfaces boundary above).
+(init_module/finit_module). The `apis.syscalls` FFI-enum boundary is handled via
+`real_isf=` (see below).
 
 **Module loader (landed).** `penguin.testing.load_module(path, doubles=…)` imports
 a pyplugin *module* (under its real dotted name so `from .base import …` resolves)
@@ -188,19 +184,21 @@ way: instantiate the model, `drive()` its generator method, resolve
 import so a module already cached by an earlier test still resolves against the
 current doubles.
 
-**Fake enums (landed, now with REAL values).** `install_fake_enums()` — also
-`load_pyplugin(..., fake_enums=True)` / `load_module(..., fake_enums=True)` —
-inserts a stand-in `hyper.consts` into `sys.modules` so plugins behind the
-FFI-enum boundary import host-side. Each enum is **seeded with the real captured
-values** from `src/penguin/testing/hyper_enums.json`, extracted from the published
-kernel/driver ISF (`igloo.ko.<arch>.json.xz` + `cosi.<arch>.json.xz`) — the same
-source `apis.kffi` reads at runtime — via
-`python -m penguin.testing.gen_hyper_enums`. So a portal command built from a
-captured member (e.g. `HYPER_OP_DEVFS_CREATE_OR_LOOKUP_DIR == 43`) carries its
-**real** op number; only members absent from the capture fall back to a bogus
-auto-int (above the real range, so no collision). The fixture is small (~5 KB),
-arch-invariant (C enum values), regenerable, and shipped in the wheel. Proven on
-`analysis/interfaces` (4→93%), `core/scope` (7→93%), `hyperfile/devfs` (3→45%).
+**Real ISF enums (landed).** `load_pyplugin(..., real_isf=<path>)` /
+`load_module(..., real_isf=<path>)` register a real `dwarffi`-backed `kffi` double
+(`RealKffi`) built from the actual published `igloo.ko` ISF and clear cached
+`hyper.consts` so the genuine module rebuilds against **real** enum values — the
+same path `apis.kffi` uses at runtime. No checked-in fixture: the ISF is the
+source of truth, pinned to the driver release, so it can't drift. The
+`igloo_ko_isf` pytest fixture (in `conftest.py`) resolves the ISF via
+`penguin.testing.resolve_igloo_ko_isf` — env `PENGUIN_TEST_IGLOO_KO_ISF` → local
+cache → **download `igloo_driver.tar.gz` for the Dockerfile-pinned
+`IGLOO_DRIVER_VERSION`** (not `:latest`) and extract one arch → nix store — and
+`skip`s cleanly when offline with nothing cached. The one enum absent from the
+driver ISF (`igloo_base_hypercalls`) is supplied by `RealKffi` as a single
+ABI-fixed constant. Enums/most driver types are arch-invariant, so one arch
+(`armel`) suffices. Proven on `analysis/interfaces` (4→93%), `core/scope` (7→93%),
+`hyperfile/devfs` (3→45%), plus `test_real_consts.py` for the mechanism.
 
 ## Sequencing
 

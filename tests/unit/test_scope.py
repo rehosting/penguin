@@ -2,54 +2,52 @@
 (pyplugins/core/scope.py), driven host-side with no PANDA/guest.
 
 Scope sits behind the FFI-enum boundary (``from hyper.portal import PortalCmd`` /
-``from hyper.consts import HYPER_OP``), so we load it with ``fake_enums=True``.
-
-The point of this test is the concern the fake-enum mode raises: the enum *value*
-is meaningless, but the **portal command logic must be correct on the Python
-side**. So we drive the enable handler and assert it emits the *right* command —
-``HYPER_OP_SET_SCOPE_ENABLED`` with ``addr=1`` — by comparing the yielded
-``PortalCmd.op`` against the *same* enum member (self-consistent within the run),
-plus the mode-normalization and the register/queue wiring done at init.
+``from hyper.consts import HYPER_OP``), so we load it with ``real_isf=`` — the real
+published driver ISF, read through ``dwarffi``, so ``hyper.consts`` builds with
+**real** enum values. We then drive the enable handler and assert it emits the
+*right* command — ``HYPER_OP_SET_SCOPE_ENABLED`` (its real op number) with
+``addr=1`` — plus mode-normalization and the register/queue wiring done at init.
 """
 from pathlib import Path
 
-from penguin.testing import drive, install_fake_enums, load_pyplugin
+from penguin.testing import drive, load_pyplugin
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCOPE = str(REPO_ROOT / "pyplugins" / "core" / "scope.py")
 
 
-def _load(scope_value):
+def _load(scope_value, isf):
     return load_pyplugin(
-        SCOPE, fake_enums=True,
+        SCOPE, real_isf=isf,
         args={"conf": {"core": {"analysis_scope": scope_value}}},
     )
 
 
-def test_enable_handler_emits_set_scope_enabled_command():
-    consts = install_fake_enums()  # the same fake module scope.py imported hop from
+def test_enable_handler_emits_set_scope_enabled_command(igloo_ko_isf):
+    lp = _load("firmware", igloo_ko_isf)
+    # the genuine hyper.consts scope.py imported hop from, built from the real ISF
+    import hyper.consts as consts
 
-    lp = _load("firmware")
     ret, yielded = drive(lp.plugin._enable_handler(), collect=True)
 
     assert len(yielded) == 1
     cmd = yielded[0]
-    # the RIGHT portal op is chosen (compared against the same enum member) ...
+    # the RIGHT portal op is chosen, carrying its real op number ...
     assert cmd.op == consts.HYPER_OP.HYPER_OP_SET_SCOPE_ENABLED
     # ... with the right argument (1 == enable) and a clean end.
     assert cmd.addr == 1
     assert ret is False
 
 
-def test_enable_handler_is_idempotent():
-    lp = _load("firmware")
+def test_enable_handler_is_idempotent(igloo_ko_isf):
+    lp = _load("firmware", igloo_ko_isf)
     drive(lp.plugin._enable_handler(), collect=True)          # first: emits
     _ret, yielded = drive(lp.plugin._enable_handler(), collect=True)
     assert yielded == []  # already sent -> no second command
 
 
-def test_firmware_mode_wires_the_portal_interrupt():
-    lp = _load("firmware")
+def test_firmware_mode_wires_the_portal_interrupt(igloo_ko_isf):
+    lp = _load("firmware", igloo_ko_isf)
     assert lp.plugin.mode == "firmware" and lp.plugin.enabled is True
     # the enable path is queued through the portal at init
     paths = [c[0] for c in lp.calls]
@@ -57,15 +55,15 @@ def test_firmware_mode_wires_the_portal_interrupt():
     assert any("portal.queue_interrupt" in p for p in paths)
 
 
-def test_scope_none_disables_and_skips_portal():
-    lp = _load("none")
+def test_scope_none_disables_and_skips_portal(igloo_ko_isf):
+    lp = _load("none", igloo_ko_isf)
     assert lp.plugin.enabled is False
     paths = [c[0] for c in lp.calls]
     assert not any("portal.queue_interrupt" in p for p in paths)
 
 
-def test_mode_normalization():
+def test_mode_normalization(igloo_ko_isf):
     # booleans map for backwards compat; strings are lowercased/passed through
-    assert _load(True).plugin.mode == "firmware"
-    assert _load(False).plugin.mode == "none"
-    assert _load("FIRMWARE").plugin.mode == "firmware"
+    assert _load(True, igloo_ko_isf).plugin.mode == "firmware"
+    assert _load(False, igloo_ko_isf).plugin.mode == "none"
+    assert _load("FIRMWARE", igloo_ko_isf).plugin.mode == "firmware"
