@@ -1,12 +1,31 @@
-import json
+"""Host-side tests for the summary.json aggregator (penguin.run_summary).
 
-import pytest
+run_summary is not a pyplugin — it's the post-run host aggregator the CLI
+invokes after scoring — so it is exercised in two layers:
+
+- **Producer contract, via the harness**: the real ``analysis/netbinds.py``
+  pyplugin is loaded with ``penguin.testing.load_pyplugin``, driven with bind
+  events, and finalized; ``write_run_summary`` then aggregates the directory
+  the plugin actually wrote. No hand-rolled ``netbinds.csv`` fixture — if the
+  plugin's CSV shape drifts, this test fails.
+- **Format compatibility + optional artifacts, via fixtures**: the artifact
+  shapes main produces (draft 01 ``crashes.yaml``, draft 03 ranked
+  ``pseudofiles_failures.yaml``), the shapes it doesn't yet (draft 05
+  lifecycle columns, draft 06 ``waitgraph.yaml``), and the absent-producer
+  null semantics.
+"""
+import json
+from pathlib import Path
 
 from penguin.run_summary import (
     SUMMARY_SCHEMA_VERSION,
     build_run_summary,
     write_run_summary,
 )
+from penguin.testing import load_pyplugin
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+NETBINDS = REPO_ROOT / "pyplugins" / "analysis" / "netbinds.py"
 
 SCORES = {
     "execs": 427,
@@ -18,9 +37,10 @@ SCORES = {
     "script_lines_covered": 50,
     "nopanic": 1,
     "blocked_signals": 0,
+    "crashes": 0,
 }
 
-# Pre-lifecycle netbinds.csv shape (no pid/state/closed_time columns).
+# Pre-pid netbinds.csv shape (no pid/state/closed_time columns).
 NETBINDS_CSV = """\
 procname,ipvn,domain,guest_ip,guest_port,time
 docker,6,tcp,[::1],0,113.273
@@ -71,13 +91,14 @@ PSEUDOFILES_FAILURES_RANKED_YAML = """\
     read: {model: zero}
 """
 
+# Shape written by analysis/crashes.py (pc is a hex string).
 CRASHES_YAML = """\
 crashes:
   - proc: httpd
     pid: 412
     signal: 11
     signame: SIGSEGV
-    pc: 0x004013a8
+    pc: '0x004013a8'
     time: 12.481
     count: 3
 """
@@ -95,28 +116,101 @@ threads:
 """
 
 
-@pytest.fixture
-def full_run_dir(tmp_path):
-    (tmp_path / "netbinds.csv").write_text(NETBINDS_CSV)
-    (tmp_path / "pseudofiles_failures.yaml").write_text(PSEUDOFILES_FAILURES_YAML)
-    (tmp_path / "crashes.yaml").write_text(CRASHES_YAML)
-    (tmp_path / "waitgraph.yaml").write_text(WAITGRAPH_YAML)
-    return tmp_path
+# --------------------------------------------------------------------------- #
+# Producer contract: aggregate what the real netbinds plugin writes
+# --------------------------------------------------------------------------- #
+def test_summary_aggregates_real_netbinds_output(tmp_path):
+    # Drive the real netbinds plugin host-side (see test_pyplugin_harness.py:
+    # endianness="big" keeps the "port:pid" port value un-swapped).
+    lp = load_pyplugin(
+        str(NETBINDS), outdir=tmp_path,
+        args={"shutdown_on_www": False}, endianness="big",
+    )
+    lp.dispatch("igloo_ipv4_setup", None, "httpd", 0)     # sin_addr 0 -> 0.0.0.0
+    lp.dispatch("igloo_ipv4_bind", None, "80:123", True)  # port:pid, TCP
+    lp.dispatch("igloo_ipv4_setup", None, "dnsd", 0)
+    lp.dispatch("igloo_ipv4_bind", None, "53:99", False)  # UDP
+    lp.finalize()
 
-
-def test_full_summary(full_run_dir):
-    summary = build_run_summary(str(full_run_dir), SCORES, wallclock_s=41.2345)
+    path = write_run_summary(str(tmp_path), SCORES, wallclock_s=41.2345)
+    assert path == str(tmp_path / "summary.json")
+    with open(path) as f:
+        summary = json.load(f)
 
     assert summary["schema_version"] == SUMMARY_SCHEMA_VERSION
     assert summary["score"] == float(sum(SCORES.values()))
     assert summary["scores"] == SCORES
 
-    # Old-format CSV: no state column, all rows kept, no lifecycle keys.
+    # The binds come from the CSV the plugin actually wrote.
+    for bind, expected in zip(summary["binds"], [
+        {"proc": "httpd", "proto": "tcp", "ipvn": 4, "ip": "0.0.0.0", "port": 80, "pid": 123},
+        {"proc": "dnsd", "proto": "udp", "ipvn": 4, "ip": "0.0.0.0", "port": 53, "pid": 99},
+    ]):
+        time = bind.pop("time")
+        assert isinstance(time, float)
+        assert bind == expected
+    assert len(summary["binds"]) == 2
+
+    assert summary["crashes"] == []
+    assert summary["unmodeled_pseudofiles"] is None
+    assert summary["stalled_threads"] is None
+    assert summary["panic"] is False
+    assert summary["wallclock_s"] == 41.234
+    assert summary["suggest"] == []
+
+
+# --------------------------------------------------------------------------- #
+# netbinds.csv format compatibility
+# --------------------------------------------------------------------------- #
+def test_old_format_netbinds_all_rows_kept(tmp_path):
+    # Pre-pid CSVs: no state column, all rows kept, no pid/lifecycle keys.
+    (tmp_path / "netbinds.csv").write_text(NETBINDS_CSV)
+    summary = build_run_summary(str(tmp_path), SCORES)
     assert summary["binds"] == [
         {"proc": "docker", "proto": "tcp", "ipvn": 6, "ip": "[::1]", "port": 0, "time": 113.273},
         {"proc": "portmap", "proto": "udp", "ipvn": 4, "ip": "0.0.0.0", "port": 111, "time": 114.317},
         {"proc": "httpd", "proto": "tcp", "ipvn": 4, "ip": "0.0.0.0", "port": 80, "time": 120.5},
     ]
+
+
+def test_lifecycle_netbinds_filters_non_working(tmp_path):
+    (tmp_path / "netbinds.csv").write_text(NETBINDS_LIFECYCLE_CSV)
+    summary = build_run_summary(str(tmp_path), SCORES)
+
+    # pending/transient must not read as working services (draft 05 contract).
+    assert summary["binds"] == [
+        {
+            "proc": "httpd", "proto": "tcp", "ipvn": 4, "ip": "0.0.0.0",
+            "port": 80, "pid": 412, "time": 120.5,
+            "state": "listening", "closed_time": None,
+        },
+        {
+            "proc": "dnsmasq", "proto": "udp", "ipvn": 4, "ip": "0.0.0.0",
+            "port": 53, "pid": 300, "time": 90.1,
+            "state": "closed", "closed_time": 400.2,
+        },
+    ]
+
+
+def test_malformed_netbinds_row_skipped(tmp_path):
+    (tmp_path / "netbinds.csv").write_text(
+        "procname,ipvn,domain,guest_ip,guest_port,time\n"
+        "httpd,4,tcp,0.0.0.0,80,120.5\n"
+        "bad,notanint,tcp,0.0.0.0,x,y\n"
+    )
+    summary = build_run_summary(str(tmp_path), SCORES)
+    assert len(summary["binds"]) == 1
+    assert summary["binds"][0]["proc"] == "httpd"
+
+
+# --------------------------------------------------------------------------- #
+# Optional artifacts and null semantics
+# --------------------------------------------------------------------------- #
+def test_optional_artifacts_aggregated(tmp_path):
+    (tmp_path / "pseudofiles_failures.yaml").write_text(PSEUDOFILES_FAILURES_YAML)
+    (tmp_path / "crashes.yaml").write_text(CRASHES_YAML)
+    (tmp_path / "waitgraph.yaml").write_text(WAITGRAPH_YAML)
+    summary = build_run_summary(str(tmp_path), SCORES)
 
     assert summary["crashes"] == [
         {
@@ -124,17 +218,13 @@ def test_full_summary(full_run_dir):
             "pid": 412,
             "signal": 11,
             "signame": "SIGSEGV",
-            "pc": 0x004013A8,
+            "pc": "0x004013a8",
             "time": 12.481,
             "count": 3,
         }
     ]
-
     assert summary["unmodeled_pseudofiles"] == 2
     assert summary["stalled_threads"] == 2
-    assert summary["panic"] is False
-    assert summary["wallclock_s"] == 41.234
-    assert summary["suggest"] == []
 
 
 def test_missing_optional_artifacts(tmp_path):
@@ -164,41 +254,3 @@ def test_panic_derived_from_nopanic(tmp_path):
     scores = dict(SCORES, nopanic=0)
     summary = build_run_summary(str(tmp_path), scores)
     assert summary["panic"] is True
-
-
-def test_lifecycle_netbinds_filters_non_working(tmp_path):
-    (tmp_path / "netbinds.csv").write_text(NETBINDS_LIFECYCLE_CSV)
-    summary = build_run_summary(str(tmp_path), SCORES)
-
-    # pending/transient must not read as working services (draft 05 contract).
-    assert summary["binds"] == [
-        {
-            "proc": "httpd", "proto": "tcp", "ipvn": 4, "ip": "0.0.0.0",
-            "port": 80, "time": 120.5,
-            "state": "listening", "pid": 412, "closed_time": None,
-        },
-        {
-            "proc": "dnsmasq", "proto": "udp", "ipvn": 4, "ip": "0.0.0.0",
-            "port": 53, "time": 90.1,
-            "state": "closed", "pid": 300, "closed_time": 400.2,
-        },
-    ]
-
-
-def test_malformed_netbinds_row_skipped(tmp_path):
-    (tmp_path / "netbinds.csv").write_text(
-        "procname,ipvn,domain,guest_ip,guest_port,time\n"
-        "httpd,4,tcp,0.0.0.0,80,120.5\n"
-        "bad,notanint,tcp,0.0.0.0,x,y\n"
-    )
-    summary = build_run_summary(str(tmp_path), SCORES)
-    assert len(summary["binds"]) == 1
-    assert summary["binds"][0]["proc"] == "httpd"
-
-
-def test_write_run_summary_round_trips(full_run_dir):
-    path = write_run_summary(str(full_run_dir), SCORES, wallclock_s=41.2)
-    assert path == str(full_run_dir / "summary.json")
-    with open(path) as f:
-        on_disk = json.load(f)
-    assert on_disk == build_run_summary(str(full_run_dir), SCORES, wallclock_s=41.2)
