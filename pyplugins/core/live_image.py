@@ -47,7 +47,14 @@ import os
 from typing import Iterator, Dict, Tuple, Optional, Callable
 from pathlib import Path
 import tempfile
-import keystone
+try:
+    import keystone
+except ImportError:
+    # keystone (asm assembly) is optional: only the 'asm' patch form needs it,
+    # and that path is exercised by the integration fixture, not host unit
+    # tests. _gen_asm_patch_bytes already guards on `keystone is None`. Making
+    # the import soft lets the plugin load in a host [test]-only venv.
+    keystone = None
 import tarfile
 import shlex
 
