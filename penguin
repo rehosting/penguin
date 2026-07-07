@@ -1003,8 +1003,14 @@ penguin_run() {
         for map in "${maps[@]}";
         do
             # Rewrite only the host side (before the first colon) for CI
-            # shared-daemon mode; the guest side is unchanged.
-            docker_cmd+=("-v" "$(rewrite_host_mount "${map%%:*}"):${map#*:}")
+            # shared-daemon mode; the guest side is unchanged. Guard on a colon:
+            # a colonless entry (e.g. an anonymous-volume "-v /foo") would split
+            # to "/foo:/foo", so pass those through untouched.
+            if [[ "$map" == *:* ]]; then
+                docker_cmd+=("-v" "$(rewrite_host_mount "${map%%:*}"):${map#*:}")
+            else
+                docker_cmd+=("-v" "$map")
+            fi
         done
     fi
 
