@@ -1,0 +1,97 @@
+name: Cleanup PR Images
+
+# When a PR closes (merged or not), reclaim the throwaway Harbor tags it pushed:
+#   - :cache-PR-<num>   the buildx registry cache for this PR (~7 GB, one per PR)
+#   - :<sha>            the runnable test image for each commit built (~2 GB each)
+# The nightly retention policy + GC already age these out ~14 days after last
+# pull; this just reclaims the space promptly instead of waiting two weeks.
+#
+# Best-effort: every delete tolerates 404 (tag never pushed / already gone) and
+# the job never fails the merge. Runs on rehosting-arc because Harbor's core API
+# (harbor.harbor.svc.cluster.local) is only reachable in-cluster, and only in the
+# canonical repo (forks lack the registry credentials / push nothing to Harbor).
+
+on:
+  pull_request:
+    types: [closed]
+
+env:
+  # Bare Harbor host (same secret the build/push uses). The public-fork fallback
+  # value is never exercised here — the job is gated to the canonical repo.
+  REGISTRY: ${{ secrets.REHOSTING_ARC_REGISTRY || 'harbor.harbor.svc.cluster.local' }}
+  # Image reference the build pushed to, minus the tag: <host>/rehosting/penguin.
+  TARGET: ${{ secrets.REHOSTING_ARC_REGISTRY || 'harbor.harbor.svc.cluster.local/external' }}
+  USER: ${{ secrets.REHOSTING_ARC_REGISTRY_USER || 'external' }}
+
+jobs:
+  cleanup:
+    # Only in the canonical repo: forks have no registry secret and push nothing.
+    if: ${{ github.repository == 'rehosting/penguin' }}
+    runs-on: rehosting-arc
+    steps:
+      - name: Trust Harbor's self-signed certificate
+        run: |
+          echo "Fetching certificate from ${REGISTRY}"
+          openssl s_client -showcerts -connect "${REGISTRY}:443" < /dev/null 2>/dev/null \
+            | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
+          sudo update-ca-certificates
+
+      - name: Delete this PR's Harbor tags
+        env:
+          PR: ${{ github.event.number }}
+          # Same credential the build uses to push. Deleting artifacts needs a
+          # Harbor account with the "delete artifact" permission on the project;
+          # if this robot lacks it the DELETEs return 401/403 and are logged but
+          # do not fail the job (retention/GC remain the backstop). Swap in a
+          # delete-scoped robot secret here if that happens.
+          PASS: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -u
+
+          # Derive Harbor (project, repository) from the pushed image reference
+          # "<TARGET>/rehosting/penguin" by stripping the leading "<host>/".
+          #   internal: TARGET=<host>          -> ref "rehosting/penguin"          -> project=rehosting repo=penguin
+          #   fork:     TARGET=<host>/external -> ref "external/rehosting/penguin" -> project=external  repo=rehosting/penguin
+          image_ref="${TARGET}/rehosting/penguin"
+          rel="${image_ref#"${REGISTRY}"/}"          # drop "<host>/"
+          project="${rel%%/*}"                        # first path segment
+          repo="${rel#*/}"                            # everything after it
+          # URL-encode the single '/' that a multi-segment repo path may contain.
+          repo_enc="${repo//\//%2F}"
+          api="https://${REGISTRY}/api/v2.0/projects/${project}/repositories/${repo_enc}/artifacts"
+          echo "Harbor project=${project} repo=${repo} -> ${api}"
+
+          # Delete one artifact by tag/digest reference. Best-effort.
+          del() {
+            local ref="$1" code
+            code=$(curl -s -o /dev/null -w '%{http_code}' -u "${USER}:${PASS}" \
+                     -X DELETE "${api}/${ref}") || code="000"
+            case "$code" in
+              2*)      echo "  deleted ${ref} (HTTP ${code})" ;;
+              404)     echo "  skip    ${ref} (not present)" ;;
+              401|403) echo "  DENIED  ${ref} (HTTP ${code}) — credential lacks delete permission" >&2 ;;
+              *)       echo "  warn    ${ref} (HTTP ${code})" >&2 ;;
+            esac
+          }
+
+          # 1) The per-PR buildx cache tag (the big one).
+          del "cache-PR-${PR}"
+
+          # 2) Every commit SHA the PR carried — each may have a pushed :<sha>
+          #    test image. Non-built commits simply 404. Paginate to be safe.
+          page=1
+          while :; do
+            shas=$(curl -s -H "Authorization: Bearer ${GH_TOKEN}" \
+                     -H "Accept: application/vnd.github+json" \
+                     "https://api.github.com/repos/${REPO}/pulls/${PR}/commits?per_page=100&page=${page}" \
+                   | python3 -c "import sys,json; d=json.load(sys.stdin); print('\n'.join(c['sha'] for c in d))" 2>/dev/null)
+            [ -z "$shas" ] && break
+            for sha in $shas; do del "$sha"; done
+            # Fewer than a full page means we are done.
+            [ "$(printf '%s\n' "$shas" | wc -l)" -lt 100 ] && break
+            page=$((page + 1))
+          done
+
+          echo "Cleanup complete for PR #${PR}."
