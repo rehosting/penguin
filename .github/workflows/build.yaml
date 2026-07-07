@@ -5,6 +5,11 @@ on:
     branches:
       - main
     types: [opened, synchronize, reopened, ready_for_review]
+  # Required checks (lint, build_container, run_tests) live only in this
+  # workflow. The merge queue fires a `merge_group` event and waits for those
+  # contexts to report; without this trigger they never run and GitHub evicts
+  # the PR ("no response for status checks").
+  merge_group:
 
 env:
   REGISTRY: ${{ secrets.REHOSTING_ARC_REGISTRY || 'harbor.harbor.svc.cluster.local' }}
@@ -18,15 +23,21 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     outputs:
-      run_lint: ${{ steps.filter.outputs.python }}
+      run_lint: ${{ github.event_name == 'merge_group' || steps.filter.outputs.python == 'true' }}
       # Run the guest-test matrix on code changes OR on changes to the test
       # workflow / test fixtures themselves (the `code` filter excludes
       # .github/**, so a build.yaml-only change would otherwise skip the tests
       # it governs).
-      run_tests: ${{ steps.filter.outputs.code == 'true' || steps.filter.outputs.testci == 'true' }}
+      # In the merge queue there is no PR base for paths-filter to diff, and a
+      # skipped *required* job reports no conclusion (→ another eviction), so
+      # force the full matrix on merge_group — the queue should validate the
+      # real merged result, not a path-filtered subset.
+      run_tests: ${{ github.event_name == 'merge_group' || steps.filter.outputs.code == 'true' || steps.filter.outputs.testci == 'true' }}
     steps:
       - uses: actions/checkout@v4
+        if: ${{ github.event_name != 'merge_group' }}
       - id: filter
+        if: ${{ github.event_name != 'merge_group' }}
         uses: dorny/paths-filter@v3
         with:
           predicate-quantifier: 'every'  # require file to satisfy all positives and none of the negatives
