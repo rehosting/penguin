@@ -13,6 +13,25 @@ if ! command -v realpath >/dev/null 2>&1; then
     }
 fi
 
+# CI shared-daemon support. When the wrapper talks to a Docker daemon that does
+# NOT share this process's filesystem -- e.g. a per-node shared daemon reached
+# over DOCKER_HOST, where each runner's workspace lives on a hostPath the daemon
+# sees at a different absolute path -- bind-mount host paths must be expressed in
+# the DAEMON's view. If PENGUIN_HOST_MOUNT_FROM and PENGUIN_HOST_MOUNT_TO are
+# both set, rewrite a leading FROM in any host bind path to TO. No-op when unset
+# (the normal case: the daemon and this wrapper share a filesystem).
+rewrite_host_mount() {
+    local p="$1"
+    if [ -n "${PENGUIN_HOST_MOUNT_FROM:-}" ] && [ -n "${PENGUIN_HOST_MOUNT_TO:-}" ]; then
+        case "$p" in
+            "$PENGUIN_HOST_MOUNT_FROM" | "$PENGUIN_HOST_MOUNT_FROM"/*)
+                p="${PENGUIN_HOST_MOUNT_TO}${p#"$PENGUIN_HOST_MOUNT_FROM"}"
+                ;;
+        esac
+    fi
+    printf '%s' "$p"
+}
+
 # Container engine selection.
 # ENGINE            - the resolved engine command ("docker" or "podman")
 # ENGINE_IS_PODMAN  - "true" when ENGINE is podman
@@ -609,6 +628,13 @@ penguin_run() {
             fi
         fi
 
+        # CI shared-daemon support: append PENGUIN_NAME_SUFFIX (e.g. the runner
+        # pod name) to the resolved name so concurrent jobs sharing one Docker
+        # daemon don't collide on container names. No-op when unset.
+        if [ -n "${PENGUIN_NAME_SUFFIX:-}" ] && [ -n "$container_name" ]; then
+            container_name="${container_name}-${PENGUIN_NAME_SUFFIX}"
+        fi
+
         if [[ -n "$container_name" && "${cmd[0]}" != "guest_cmd" && "${cmd[0]}" != "guest-cmd" && "${cmd[0]}" != "shell" ]]; then
             if "$ENGINE" inspect --type container "$container_name" >/dev/null 2>&1; then
                 if $replace; then
@@ -976,13 +1002,15 @@ penguin_run() {
     if [[ ${#maps[@]} -gt 0 ]]; then
         for map in "${maps[@]}";
         do
-            docker_cmd+=("-v" "$map")
+            # Rewrite only the host side (before the first colon) for CI
+            # shared-daemon mode; the guest side is unchanged.
+            docker_cmd+=("-v" "$(rewrite_host_mount "${map%%:*}"):${map#*:}")
         done
     fi
 
     # Map workspace dir to /workspace in container
     if [ -n "$host_workspace_dir" ]; then
-        docker_cmd+=("-v" "$host_workspace_dir:/workspace")
+        docker_cmd+=("-v" "$(rewrite_host_mount "$host_workspace_dir"):/workspace")
         docker_cmd+=("-l" "penguin.root=$host_workspace_dir")
     fi
 
