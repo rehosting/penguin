@@ -1,4 +1,11 @@
 plugins:
+  netbinds:
+    # Announce immediately: this test's guest is instrumented heavily enough
+    # that background threads (the announce backup timer, vpn_test's probe
+    # threads) can be GIL-starved for many seconds, which makes a nonzero
+    # announce window nondeterministic here. The nonzero-window debounce path
+    # is covered separately by netbinds_announce.yaml.
+    announce_debounce_s: 0
   verifier:
     conditions:
       netbinds+console:

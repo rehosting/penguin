@@ -5,6 +5,13 @@
 # flaps enough to mark a service transient.
 plugins:
   netbinds:
+    # Announce immediately: these tests drive rapid bind/close cycles through
+    # the post-announce flap machinery; with a nonzero announce window they
+    # would be swallowed as pre-announce transients instead. (The announce
+    # debounce path itself is covered by the host-side pytest in
+    # tests/unit/test_netbinds_lifecycle.py and the netbinds_announce.yaml
+    # in-guest fixture.)
+    announce_debounce_s: 0
     debounce_period: 3600
     transient_threshold: 2
   verifier:

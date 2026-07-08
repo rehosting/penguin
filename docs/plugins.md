@@ -123,7 +123,28 @@ are stored in `nvram.csv`
 ## Netbinds
 This plugin detects and logs network binds by guest processes. The results
 are logged into `netbinds.csv` and include a `time` column indicating how
-many seconds after boot until the bind occurred.
+many seconds after boot until the bind occurred, plus `state` and `closed_time`
+columns describing each socket's final lifecycle state:
+
+- `listening` — announced and still bound.
+- `transient` — released within the announce window; not a working service.
+- `closed` — listened, then released for good (`closed_time` set).
+- `pending` — bound when the run ended but younger than the announce window;
+  never confirmed, so not a working service either.
+
+New binds are announced to downstream plugins (VPN, Nmap, FetchWeb) only after
+an announce debounce (`announce_debounce_s`, default 2s), so short-lived binds
+never trigger VPN bridging or scans. Both the announce and the close/flap
+debounce windows use host wall-clock time, so the classification of a
+very short-lived bind can vary with emulation speed. Every open/flap/
+transient/close transition is appended to `netbind_events.csv`, and a
+per-socket lifecycle summary is written to `netbinds_lifecycle.csv` at run end.
+
+The socket lifecycle survives a VM snapshot/restore: the record is bundled with
+the snapshot and rebuilt on restore (a restored guest is already past its binds
+and would otherwise vanish from `netbinds.csv`). Already-announced services are
+rebuilt silently — downstream consumers replay their own state — while a service
+still within its announce window at snapshot time is announced on restore.
 
 ## Nmap
 This plugin runs nmap scans on all network-listening services.
