@@ -31,6 +31,21 @@ static_files:
       /igloo/utils/busybox mkfifo /tmp/meowmix
       /igloo/utils/busybox cat /tmp/meowmix &
       pid=$!
+
+      # The backgrounded `cat` is fork()ed but may not have finished execve()
+      # yet, so /proc/$pid/cmdline can briefly still show this script's argv
+      # (no "meowmix"). That window widens when the host/emulator is under load,
+      # which made the final grep flaky in CI. Poll until the child's cmdline
+      # reflects `cat` before proceeding, so the test measures signal handling +
+      # cmdline readout rather than racing guest scheduling. Bounded (~30s) so a
+      # genuinely broken cmdline read still fails instead of hanging forever.
+      i=0
+      while [ $i -lt 30 ]; do
+          /igloo/utils/busybox grep meowmix /proc/${pid}/cmdline >/dev/null 2>&1 && break
+          /igloo/utils/busybox sleep 1
+          i=$((i + 1))
+      done
+
       kill -15 $pid
       kill -18 $pid # Resume in background
       /igloo/utils/busybox grep meowmix /proc/${pid}/cmdline || exit 1
