@@ -331,3 +331,39 @@ jobs:
         with:
           name: compose-artifacts
           path: ${{ github.workspace }}/tests/integration/compose/compose_projects/
+
+  # Single required status check for branch protection + the merge queue.
+  #
+  # The per-arch run_tests matrix and build_container are conditionally skipped
+  # (docs-only / non-build.yaml-workflow-only PRs don't need them). A skipped
+  # matrix job never expands, so its per-arch contexts are never created — which
+  # would leave the old per-arch required contexts permanently unsatisfied and
+  # block such PRs. This gate always runs and turns "succeeded or legitimately
+  # skipped" into one green context, so branch protection should require ONLY
+  # `ci_gate` (not the individual jobs). It fails if any gated job failed or was
+  # cancelled.
+  ci_gate:
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    needs: [changes, lint, unit_tests, build_container, run_tests, run_compose]
+    steps:
+      - name: Require no gated job to have failed
+        run: |
+          declare -A r=(
+            [changes]='${{ needs.changes.result }}'
+            [lint]='${{ needs.lint.result }}'
+            [unit_tests]='${{ needs.unit_tests.result }}'
+            [build_container]='${{ needs.build_container.result }}'
+            [run_tests]='${{ needs.run_tests.result }}'
+            [run_compose]='${{ needs.run_compose.result }}'
+          )
+          ok=true
+          for job in "${!r[@]}"; do
+            echo "  ${job}: ${r[$job]}"
+            case "${r[$job]}" in
+              success|skipped) ;;
+              *) echo "::error::gated job '${job}' result='${r[$job]}'"; ok=false ;;
+            esac
+          done
+          $ok || { echo "One or more gated jobs failed/cancelled."; exit 1; }
+          echo "All gated jobs passed or were legitimately skipped."
