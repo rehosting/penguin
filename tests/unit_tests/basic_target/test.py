@@ -187,6 +187,42 @@ def assert_dropin_c_result(project_dir):
         raise AssertionError(f"C drop-in did not point at compiled cache: {host_path}")
 
 
+# Kernel-fault signatures that must never appear in a healthy boot. These are
+# a regression tripwire for the igloo driver's init/portal paths: e.g. driver
+# 0.0.75 shipped a shared-major devfs change that triggered a recursive mipsel
+# do_ade (unaligned-access) oops storm at driver init, which was reverted
+# without a test to catch it. A minimal boot must produce none of these.
+KERNEL_OOPS_SIGNATURES = (
+    "Unhandled kernel unaligned access",
+    "Unable to handle kernel",
+    "do_ade+",
+    "Oops[",
+    "Oops:",
+    "BUG: ",
+)
+
+
+def assert_no_kernel_oops(project_dir):
+    console = project_dir / "results" / "latest" / "console.log"
+    if not console.exists():
+        raise AssertionError(f"no console.log to check for kernel oops: {console}")
+    text = console.read_text(errors="replace")
+    hits = {sig for sig in KERNEL_OOPS_SIGNATURES if sig in text}
+    # basic_target's init.sh intentionally exits, so the guest ends with an
+    # expected "Kernel panic ... Attempted to kill init" and reboots. Flag any
+    # OTHER kernel panic (a genuine early fault), but not that one.
+    for line in text.splitlines():
+        if "Kernel panic" in line and "Attempted to kill init" not in line:
+            hits.add(line.strip())
+    if hits:
+        logger.error("--- console.log tail (kernel oops detected) ---")
+        for line in text.splitlines()[-60:]:
+            logger.error(line)
+        raise AssertionError(
+            f"kernel oops signature(s) {sorted(hits)} found in guest console: {console}"
+        )
+
+
 def run_test(kernel, arch, image, execution_mode="qemu"):
     id = subprocess.check_output(
         f"docker create {image}", shell=True).decode().strip()
@@ -229,6 +265,10 @@ def run_test(kernel, arch, image, execution_mode="qemu"):
         yaml.dump(bconfig, file, sort_keys=False)
 
     penguin_run(config, image, execution_mode=execution_mode)
+
+    # Guard against kernel faults during boot / driver init (e.g. the mipsel
+    # do_ade regression that got a shared-major devfs change reverted).
+    assert_no_kernel_oops(project_path)
 
     if arch in DROPIN_C_TEST_ARCHES:
         assert_dropin_c_result(project_path)
