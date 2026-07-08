@@ -156,7 +156,7 @@ jobs:
           reporter: java-junit
 
   build_container:
-    runs-on: rehosting-arc
+    runs-on: rehosting-arc-shared
     needs: [changes, lint]
     # Job-level gate: don't build/push the image on docs-only PRs. lint stays
     # ungated (this job needs it), so skipping here never cascade-skips via lint.
@@ -217,7 +217,7 @@ jobs:
 
   run_tests:
     needs: [changes, build_container]
-    runs-on: rehosting-arc
+    runs-on: rehosting-arc-shared
     # Job-level gate: on docs-only PRs, don't allocate the 10-arch matrix of
     # ephemeral runners just to skip every step.
     if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
@@ -294,7 +294,7 @@ jobs:
     # Compose's mcast plumbing is arch-independent, so this runs once outside
     # the per-arch matrix instead of multiplying CI cost by 10.
     needs: [changes, build_container]
-    runs-on: rehosting-arc
+    runs-on: rehosting-arc-shared
     # Job-level gate: skip the runner entirely on docs-only PRs.
     if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
     steps:
