@@ -218,13 +218,27 @@ jobs:
   run_tests:
     needs: [changes, build_container]
     runs-on: rehosting-arc
-    # Job-level gate: on docs-only PRs, don't allocate the 10-arch matrix of
-    # ephemeral runners just to skip every step.
+    # Job-level gate: on docs-only PRs, don't allocate the matrix of ephemeral
+    # runners just to skip every step.
     if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
     strategy:
       fail-fast: false
       matrix:
+        # One job per (arch, kernel). Both test runners (basic_target,
+        # test_target) otherwise loop DEFAULT_KERNELS serially inside a single
+        # per-arch job — the kernel loop is the real long pole (e.g. mipsel
+        # test_target was ~438s for two kernels). Splitting the loop into the
+        # matrix runs the kernels in parallel; with the shared-daemon warm image
+        # store the extra per-job pull is ~13s, so more/smaller jobs are cheap.
         arch: ["armel", "mipsel", "mipseb", "mips64el", "mips64eb", "powerpc64", "loongarch64", "aarch64", "x86_64", "riscv64"]
+        kernel: ["4.10", "6.13"]
+        # powerpc64/loongarch64/riscv64 only support 6.13 (NONDEFAULT_KERNEL_ARCHES
+        # in the test runners); drop their 4.10 combos so those jobs don't spin
+        # up just to skip. Every other arch runs both kernels. Net: 17 jobs.
+        exclude:
+          - { arch: "powerpc64", kernel: "4.10" }
+          - { arch: "loongarch64", kernel: "4.10" }
+          - { arch: "riscv64", kernel: "4.10" }
 
     steps:
       # using the version from here https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md
@@ -258,22 +272,24 @@ jobs:
           install-python: "true"
           install-cert: "false"
 
-      - name: Basic test for ${{ matrix.arch }}
+      - name: Basic test for ${{ matrix.arch }} (kernel ${{ matrix.kernel }})
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: timeout 10m python3 $GITHUB_WORKSPACE/tests/integration/basic_target/test.py --arch ${{ matrix.arch }}
-          
-      - name: Test for ${{ matrix.arch }} all kernels
+        run: timeout 10m python3 $GITHUB_WORKSPACE/tests/integration/basic_target/test.py --arch ${{ matrix.arch }} --kernel ${{ matrix.kernel }}
+
+      - name: Test for ${{ matrix.arch }} kernel ${{ matrix.kernel }}
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         # 20m (was 10m): the test_target suite now drives full CPython per
         # python test instead of micropython, which pushes slow-emulated arches
-        # (powerpc64, loongarch64) past the old 10m budget.
-        run: timeout 20m python3 $GITHUB_WORKSPACE/tests/integration/test_target/test.py --arch ${{ matrix.arch }}
-      
+        # (powerpc64, loongarch64) past the old 10m budget. Now single-kernel per
+        # job (see the matrix), so this is a generous upper bound.
+        run: timeout 20m python3 $GITHUB_WORKSPACE/tests/integration/test_target/test.py --arch ${{ matrix.arch }} --kernel ${{ matrix.kernel }}
+
       - name: Test Report
         uses: dorny/test-reporter@v2.1.1
         if: ${{ needs.changes.outputs.run_tests == 'true'  && ((success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository)}}
-        with: 
-          name: ${{ matrix.arch }}-test-results
+        with:
+          # Per (arch, kernel) so parallel jobs don't collide on the report name.
+          name: ${{ matrix.arch }}-${{ matrix.kernel }}-test-results
           # Update the glob pattern here to only match numbered folders
           path: ${{ github.workspace }}/tests/integration/test_target/results/[0-9]*/verifier.xml
           reporter: java-junit
@@ -282,7 +298,7 @@ jobs:
         if: ${{ needs.changes.outputs.run_tests == 'true' && failure() }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.arch }}-artifacts
+          name: ${{ matrix.arch }}-${{ matrix.kernel }}-artifacts
           if-no-files-found: ignore
           # Capture both suites: a basic_target failure aborts before
           # test_target runs, so its results/ would otherwise never be uploaded.
