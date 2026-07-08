@@ -111,6 +111,11 @@ def test_sibling_package_import_resolved(tmp_path):
 # --------------------------------------------------------------------------- #
 def _load_netbinds(tmp_path, **args):
     args.setdefault("shutdown_on_www", False)
+    # announce_debounce_s=0 announces synchronously (the historical immediate
+    # behavior), so a single bind writes its row and publishes on_bind right
+    # away -- what these reference tests assert. The nonzero-window debounce is
+    # covered in test_netbinds_lifecycle.py.
+    args.setdefault("announce_debounce_s", 0)
     # endianness="big" keeps the port value un-swapped so "80:123" -> port 80.
     return load_pyplugin(str(NETBINDS), outdir=tmp_path, args=args, endianness="big")
 
@@ -127,9 +132,12 @@ def test_netbinds_writes_bind_row(tmp_path):
     lp.dispatch("igloo_ipv4_bind", None, "80:123", True)   # port:pid, TCP
 
     rows = (tmp_path / "netbinds.csv").read_text().splitlines()
-    assert rows[0] == "procname,ipvn,domain,guest_ip,guest_port,pid,time"
+    assert rows[0] == "procname,ipvn,domain,guest_ip,guest_port,pid,time,state,closed_time"
     fields = rows[1].split(",")
     assert fields[:6] == ["httpd", "4", "tcp", "0.0.0.0", "80", "123"]
+    # Announced (survived the zero-length window) -> state listening, no close.
+    assert fields[7] == "listening"
+    assert fields[8] == ""
 
     # The plugin published an on_bind event for downstream consumers (VPN/Nmap).
     on_binds = [p for p in lp.published if p[1] == "on_bind"]
@@ -170,7 +178,8 @@ def test_netbinds_ipv6_uses_mem_double(tmp_path):
     # plugins.mem, which the harness resolves to our fake instead of a stub.
     raw = socket.inet_pton(socket.AF_INET6, "fe80::1")
     lp = load_pyplugin(
-        str(NETBINDS), outdir=tmp_path, args={"shutdown_on_www": False},
+        str(NETBINDS), outdir=tmp_path,
+        args={"shutdown_on_www": False, "announce_debounce_s": 0},
         endianness="little", doubles={"mem": _FakeMem(raw)},
     )
     lp.dispatch("igloo_ipv6_setup", None, "dnsd", 0)  # addr arg -> read via mem double

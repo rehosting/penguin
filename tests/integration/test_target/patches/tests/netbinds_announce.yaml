@@ -1,0 +1,80 @@
+# End-to-end coverage of the announce debounce -> on_bind -> VPN bridge path
+# with a real (nonzero) announce window. NOT included in base_config.yaml's
+# patch list: the merged suite pins announce_debounce_s to 0 (see
+# netbinds_lifecycle.yaml / netbinds.yaml), so this runs standalone via
+#   python3 test.py -a <arch> -k <kernel> -t netbinds_announce.yaml
+#
+# A persistent httpd on 8500 must survive the window, get announced, and be
+# bridged by the VPN. A "ticker" that binds/closes 8501 once a second must be
+# classified transient and never bridged; the ticker's bind/release events
+# also drive the hypercall-path announce sweep, so the 8500 announcement does
+# not depend on the backup timer thread (which can be GIL-starved under heavy
+# instrumentation).
+plugins:
+  netbinds:
+    # Same code path as the shipped 2s default; 5s adds margin so a slow
+    # emulated guest cannot stretch a ticker's bind->close beyond the window
+    # (which would wrongly announce it). Host wall-clock, see plugin docs.
+    announce_debounce_s: 5
+  verifier:
+    conditions:
+      # The persistent service survives the window and is announced...
+      netbinds_announce+listening:
+        type: file_contains
+        file: netbinds.csv
+        strings:
+          - ",8500,"
+          - "listening"
+      # ...and actually bridged by the VPN (real debounce->announce->bridge).
+      netbinds_announce+bridged:
+        type: file_contains
+        file: vpn_bridges.csv
+        string: ",8500,"
+      # The flapping ticker is transient...
+      netbinds_announce+transient:
+        type: file_contains
+        file: netbinds.csv
+        strings:
+          - ",8501,"
+          - "transient"
+      # ...and transient binds must never trigger VPN bridging.
+      netbinds_announce+not_bridged:
+        type: file_not_contains
+        file: vpn_bridges.csv
+        string: ",8501,"
+static_files:
+  # One tick: bind 8501, listen (so the release fires even with the driver's
+  # TCP listener-only release guard), close, exit. Well inside the announce
+  # window -> transient.
+  /tests/netbinds_announce_tick.py:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/python3
+      import socket
+      s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+      try:
+          s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+      except Exception:
+          pass
+      s.bind(("0.0.0.0", 8501))
+      s.listen(1)
+      s.close()
+    mode: 73
+  /tests/netbinds_announce.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -ex
+
+      # Persistent service: stays bound past the announce window.
+      /igloo/utils/busybox httpd -f -p 8500 -h / &
+
+      # Ticker: transient bind once a second. Uses busybox sleep (not guest
+      # python time.sleep, which is unreliable on some arch/kernel combos)
+      # and keeps the guest alive well past 8500's announce deadline.
+      for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+        /tests/netbinds_announce_tick.py
+        /igloo/utils/busybox sleep 1
+      done
+      exit 0
+    mode: 73

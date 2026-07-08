@@ -124,7 +124,11 @@ def test_summary_aggregates_real_netbinds_output(tmp_path):
     # endianness="big" keeps the "port:pid" port value un-swapped).
     lp = load_pyplugin(
         str(NETBINDS), outdir=tmp_path,
-        args={"shutdown_on_www": False}, endianness="big",
+        # announce_debounce_s=0: announce synchronously so the bind is recorded
+        # (state listening) at dispatch time rather than held pending until a
+        # timer/sweep -- otherwise finalize() with no elapsed time would leave
+        # it pending and run_summary would (correctly) filter it as non-working.
+        args={"shutdown_on_www": False, "announce_debounce_s": 0}, endianness="big",
     )
     lp.dispatch("igloo_ipv4_setup", None, "httpd", 0)     # sin_addr 0 -> 0.0.0.0
     lp.dispatch("igloo_ipv4_bind", None, "80:123", True)  # port:pid, TCP
@@ -141,10 +145,14 @@ def test_summary_aggregates_real_netbinds_output(tmp_path):
     assert summary["score"] == float(sum(SCORES.values()))
     assert summary["scores"] == SCORES
 
-    # The binds come from the CSV the plugin actually wrote.
+    # The binds come from the CSV the plugin actually wrote. It now emits the
+    # draft-05 lifecycle columns: both binds were announced synchronously
+    # (announce_debounce_s=0) and never released -> state listening, no close.
     for bind, expected in zip(summary["binds"], [
-        {"proc": "httpd", "proto": "tcp", "ipvn": 4, "ip": "0.0.0.0", "port": 80, "pid": 123},
-        {"proc": "dnsd", "proto": "udp", "ipvn": 4, "ip": "0.0.0.0", "port": 53, "pid": 99},
+        {"proc": "httpd", "proto": "tcp", "ipvn": 4, "ip": "0.0.0.0", "port": 80,
+         "pid": 123, "state": "listening", "closed_time": None},
+        {"proc": "dnsd", "proto": "udp", "ipvn": 4, "ip": "0.0.0.0", "port": 53,
+         "pid": 99, "state": "listening", "closed_time": None},
     ]):
         time = bind.pop("time")
         assert isinstance(time, float)
