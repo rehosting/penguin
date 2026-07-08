@@ -266,7 +266,13 @@ jobs:
           target: ${{ env.TARGET }}
           image: rehosting/penguin
           tag: ${{ github.sha }}
-          local-tag: rehosting/penguin:latest
+          # Immutable per-commit local tag, NOT a shared :latest. On the shared
+          # per-node daemon all jobs share one image store; retagging a mutable
+          # :latest raced across concurrent jobs (delete-and-recreate →
+          # "AlreadyExists"), which the arch×kernel fan-out below made frequent.
+          # Per-sha is idempotent within a run and distinct across PRs, so no
+          # two jobs contend on the tag.
+          local-tag: rehosting/penguin:${{ github.sha }}
           username: ${{ env.USER }}
           password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
           install-python: "true"
@@ -274,7 +280,7 @@ jobs:
 
       - name: Basic test for ${{ matrix.arch }} (kernel ${{ matrix.kernel }})
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: timeout 10m python3 $GITHUB_WORKSPACE/tests/integration/basic_target/test.py --arch ${{ matrix.arch }} --kernel ${{ matrix.kernel }}
+        run: timeout 10m python3 $GITHUB_WORKSPACE/tests/integration/basic_target/test.py --arch ${{ matrix.arch }} --kernel ${{ matrix.kernel }} --image rehosting/penguin:${{ github.sha }}
 
       - name: Test for ${{ matrix.arch }} kernel ${{ matrix.kernel }}
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
@@ -282,7 +288,7 @@ jobs:
         # python test instead of micropython, which pushes slow-emulated arches
         # (powerpc64, loongarch64) past the old 10m budget. Now single-kernel per
         # job (see the matrix), so this is a generous upper bound.
-        run: timeout 20m python3 $GITHUB_WORKSPACE/tests/integration/test_target/test.py --arch ${{ matrix.arch }} --kernel ${{ matrix.kernel }}
+        run: timeout 20m python3 $GITHUB_WORKSPACE/tests/integration/test_target/test.py --arch ${{ matrix.arch }} --kernel ${{ matrix.kernel }} --image rehosting/penguin:${{ github.sha }}
 
       - name: Test Report
         uses: dorny/test-reporter@v2.1.1
@@ -332,14 +338,20 @@ jobs:
           target: ${{ env.TARGET }}
           image: rehosting/penguin
           tag: ${{ github.sha }}
-          local-tag: rehosting/penguin:latest
+          # Immutable per-commit local tag, NOT a shared :latest. On the shared
+          # per-node daemon all jobs share one image store; retagging a mutable
+          # :latest raced across concurrent jobs (delete-and-recreate →
+          # "AlreadyExists"), which the arch×kernel fan-out below made frequent.
+          # Per-sha is idempotent within a run and distinct across PRs, so no
+          # two jobs contend on the tag.
+          local-tag: rehosting/penguin:${{ github.sha }}
           username: ${{ env.USER }}
           password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
           install-python: "true"
           install-cert: "false"
 
       - name: Compose test (armel)
-        run: timeout 8m python3 $GITHUB_WORKSPACE/tests/integration/compose/test.py --arch armel
+        run: timeout 8m python3 $GITHUB_WORKSPACE/tests/integration/compose/test.py --arch armel --image rehosting/penguin:${{ github.sha }}
 
       - name: Compose debug info
         if: ${{ failure() }}
