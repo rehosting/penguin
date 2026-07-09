@@ -12,10 +12,7 @@ The zero-window immediate-announce behaviour and the netbinds.csv shape are
 covered in test_pyplugin_harness.py; the in-guest path is covered by the
 tests/integration/test_target netbinds*.yaml fixtures.
 """
-import sys
 from pathlib import Path
-
-import pytest
 
 from penguin.testing import load_pyplugin
 
