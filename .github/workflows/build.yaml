@@ -290,15 +290,6 @@ jobs:
         # job (see the matrix), so this is a generous upper bound.
         run: timeout 20m python3 $GITHUB_WORKSPACE/tests/integration/test_target/test.py --arch ${{ matrix.arch }} --kernel ${{ matrix.kernel }} --image rehosting/penguin:${{ github.sha }}
 
-      - name: Netbinds announce-debounce test (${{ matrix.arch }} ${{ matrix.kernel }})
-        # Standalone e2e for the real (nonzero) announce debounce -> on_bind ->
-        # VPN bridge path. The merged suite above pins announce_debounce_s to 0,
-        # so this cannot run as part of it. The debounce is arch-independent
-        # Python, so run it on one representative combo rather than multiplying
-        # it across the whole arch×kernel matrix.
-        if: ${{ needs.changes.outputs.run_tests == 'true' && matrix.arch == 'armel' && matrix.kernel == '6.13' }}
-        run: timeout 15m python3 $GITHUB_WORKSPACE/tests/integration/test_target/test.py --arch ${{ matrix.arch }} --kernel ${{ matrix.kernel }} --image rehosting/penguin:${{ github.sha }} -t netbinds_announce.yaml
-
       - name: Test Report
         uses: dorny/test-reporter@v2.1.1
         if: ${{ needs.changes.outputs.run_tests == 'true'  && ((success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository)}}

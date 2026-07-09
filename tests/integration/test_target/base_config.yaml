@@ -76,6 +76,7 @@ patches:
   - ./patches/tests/pseudofile_ext_ops.yaml
   - ./patches/tests/signal_interception.yaml
   - ./patches/tests/crashes.yaml
+  - ./patches/tests/netbinds-announce.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
 
