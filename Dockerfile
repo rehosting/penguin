@@ -381,8 +381,11 @@ ENV LC_ALL=C.UTF-8
 ENV LANG=C.UTF-8
 ENV HOME=/root
 
-# Add rootshell helper command
-RUN echo "#!/bin/sh\ntelnet localhost 4321" > /usr/local/bin/rootshell && chmod +x /usr/local/bin/rootshell
+# Add rootshell helper command. The serial-console telnet port is chosen
+# dynamically per run and published by penguin_run to
+# /tmp/.penguin_root_shell_port; read it (falling back to 4321) so rootshell
+# reaches the actual console instead of a stale hardcoded port.
+RUN printf '%s\n' '#!/bin/sh' 'exec telnet localhost "$(cat /tmp/.penguin_root_shell_port 2>/dev/null || echo 4321)"' > /usr/local/bin/rootshell && chmod +x /usr/local/bin/rootshell
 
 COPY --from=downloader /tmp/glow.deb /tmp/
 COPY --from=downloader /tmp/gum.deb /tmp/
