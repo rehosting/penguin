@@ -61,6 +61,8 @@ class TestKVMRunnerSelection(unittest.TestCase):
         start("penguin.penguin_run.find_free_port").return_value = 4321
         start("penguin.penguin_run.os.open")
         start("penguin.penguin_run._write_runtime_metadata")
+        start("penguin.penguin_run._write_connect_script")
+        start("penguin.penguin_run._write_root_shell_port")
         # Replace the plugin-manager singleton; initialize() is the first thing
         # run_config calls after backend selection, so it is our stop point.
         # Patch with new=<instance> (not new_callable): letting patch pick the

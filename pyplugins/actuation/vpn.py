@@ -14,6 +14,9 @@ Features
 - Supports source IP spoofing for guest services.
 - Dynamically bridges guest network binds to the host and exposes them.
 - Logs and tracks active network bridges and listeners.
+- Maintains an ``endpoints.txt`` listing (one ``host -> guest`` line per bridge)
+  and a ``guest_ip`` file in the output directory, regenerated as bridges are
+  established.
 - Cleans up VPN processes on exit.
 
 Arguments
@@ -93,6 +96,25 @@ def guest_cmd(cmd: str) -> subprocess.CompletedProcess:
 atexit.register(kill_vpn)
 
 BRIDGE_FILE = "vpn_bridges.csv"
+
+# Convenience files describing how to reach the bridged services, regenerated
+# from the current bridge set as bridges are established. (The actionable "get
+# me into the guest" script, connect.sh, is generated separately by penguin_run
+# from the run's serial-console details.)
+ENDPOINTS_FILE = "endpoints.txt"
+GUEST_IP_FILE = "guest_ip"
+
+
+def _sanitize_label(text) -> str:
+    """Scrub a guest-controlled string for inclusion in generated files.
+
+    Process names come straight from the guest (settable via
+    prctl(PR_SET_NAME)) and may contain newlines or control characters, so
+    anything outside printable ASCII is replaced before it reaches a generated
+    file.
+    """
+    return "".join(c if 0x20 <= ord(c) <= 0x7E else "?" for c in str(text))
+
 
 # Port maps built from an optional environment variable
 # e.g., IGLOO_VPN_PORT_MAPS="TCP:80:192.168.0.1:80,udp:20002:192.168.0.1:20002"
@@ -183,6 +205,10 @@ class VPN(Plugin):
         self.exposed_ip = env.get("CONTAINER_IP", "127.0.0.1")
         with open(f"{self.outdir}/ipaddr.txt", "w") as f:
             f.write(self.exposed_ip + "\n")
+        # Bare IP convenience file (same content as ipaddr.txt, stable name for
+        # humans/scripts).
+        with open(join(self.outdir, GUEST_IP_FILE), "w") as f:
+            f.write(self.exposed_ip + "\n")
         self.container_name = env.get("CONTAINER_NAME", None)
 
         self.has_perms = geteuid() == 0
@@ -271,6 +297,10 @@ class VPN(Plugin):
 
         with open(join(self.outdir, BRIDGE_FILE), "w") as f:
             f.write("procname,ipvn,domain,guest_ip,guest_port,host_port\n")
+
+        # Create the (empty) endpoints listing up front so it always exists; it
+        # is regenerated as bridges are established.
+        self._write_endpoints()
 
         # Whenever NetBinds detects a bind, we'll set up bridges
         plugins.subscribe(plugins.NetBinds, "on_bind", self.on_bind)
@@ -531,6 +561,29 @@ class VPN(Plugin):
 
             with open(join(self.outdir, BRIDGE_FILE), "a") as f:
                 f.write(f"{procname},ipv{ipvn},{sock_type},{ip},{guest_port},{host_port}\n")
+
+            # Keep the endpoints listing current while the guest runs.
+            self._write_endpoints()
+
+    def _write_endpoints(self) -> None:
+        """Regenerate endpoints.txt from the current bridges: one
+        ``proto host_ip:host_port -> guest_ip:guest_port (proc)`` line per
+        bridge. Dumb, derived, and regenerable -- the authoritative record is
+        vpn_bridges.csv."""
+        rows = sorted(
+            (
+                (key[0], _sanitize_label(key[1]), key[2],
+                 info["host_port"], _sanitize_label(info["procname"]))
+                for key, info in dict(self.bridges_made).items()
+            ),
+            key=lambda r: (r[0], r[2]),
+        )
+        with open(join(self.outdir, ENDPOINTS_FILE), "w") as f:
+            for sock_type, guest_ip, guest_port, host_port, procname in rows:
+                f.write(
+                    f"{sock_type} {self.exposed_ip}:{host_port} -> "
+                    f"{guest_ip}:{guest_port} ({procname})\n"
+                )
 
     def bridge(self, sock_type: str, ip: str, guest_port: int, procname: str, ipvn: int) -> int:
         """
