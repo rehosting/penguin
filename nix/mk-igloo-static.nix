@@ -52,12 +52,18 @@ pkgs.runCommand "igloo-static"
     # Forked guest tools that build themselves (guesthopper, vpnguin, ...). Each
     # dist is a fragment of /igloo_static (e.g. <arch>/vpn, guesthopper/*), laid
     # in AFTER penguin-tools so a tool's own build overrides any stale copy the
-    # penguin-tools tarball may still ship during the transition. `--no-preserve`
-    # keeps the tree writable for the staging loop below.
+    # penguin-tools tarball may still ship during the transition. Use plain
+    # `cp -a` to preserve the 0555 exec mode from the nix store (NOT
+    # --no-preserve=mode, which creates fresh files 0644 and strips the execute
+    # bit off the guest binaries). chmod u+w AFTER EACH tool so the next tool can
+    # add into a shared melting-pot dir (console + busybox both write <arch>/)
+    # while the exec bit survives (0555 -> 0755).
     ${pkgs.lib.concatMapStringsSep "\n"
-      (d: ''cp -a --no-preserve=mode ${d}/. "$out/igloo_static/"'')
+      (d: ''
+        cp -a ${d}/. "$out/igloo_static/"
+        chmod -R u+w "$out/igloo_static"
+      '')
       toolDists}
-    chmod -R u+w "$out/igloo_static"
 
     # libnvram source (arch-independent): penguin globs /igloo_static/libnvram/*.{c,h}
     # to compile lib_inject per project. Ship the .c/.h set only (no prebuilt .so).
