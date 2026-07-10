@@ -93,20 +93,20 @@ def calculate_entropy(buffer: bytes) -> float:
 class FetchWeb(Plugin):
     class Args(PluginArgs):
         fetch_delay: Optional[int] = Field(
-            default=None, description="Seconds to wait before fetching a newly bound web service. Defaults to 20 when unset."
-        )
+            default=None,
+            description="Seconds to wait before fetching a newly bound web service. Defaults to 20 when unset.")
         shutdown_after_www: bool = Field(
-            default=False, description="If true, shut down emulation after a successful web fetch."
-        )
+            default=False,
+            description="If true, shut down emulation after a successful web fetch.")
         shutdown_on_failure: bool = Field(
-            default=False, description="If true, shut down emulation if no responsive servers are found."
-        )
+            default=False,
+            description="If true, shut down emulation if no responsive servers are found.")
         shutdown_after_cmd: bool = Field(
-            default=False, description="If true, shut down emulation after cmd_on_bind commands complete."
-        )
+            default=False,
+            description="If true, shut down emulation after cmd_on_bind commands complete.")
         cmd_on_bind: Optional[Any] = Field(
-            default=None, description="Command(s) to run after bind. Supports string, list, or structured format with mode (host/guest)."
-        )
+            default=None,
+            description="Command(s) to run after bind. Supports string, list, or structured format with mode (host/guest).")
 
     def __init__(self) -> None:
         """
@@ -122,7 +122,9 @@ class FetchWeb(Plugin):
 
         if self.cmd_on_bind is not None:
             # Check if it's list of dicts with mode/cmd
-            if isinstance(self.cmd_on_bind, list) and len(self.cmd_on_bind) > 0:
+            if isinstance(
+                    self.cmd_on_bind, list) and len(
+                    self.cmd_on_bind) > 0:
                 if isinstance(self.cmd_on_bind[0], dict):
                     self.cmd_on_bind_structured = self.cmd_on_bind
                     self.logger.info(
@@ -145,13 +147,14 @@ class FetchWeb(Plugin):
 
             # Guest-cmd must be enabled if any guest commands exist
             has_guest_cmds = any(
-                entry.get("mode") == "guest" for entry in self.cmd_on_bind_structured
-            )
-            if has_guest_cmds and not self.get_arg("conf")["core"]["guest_cmd"]:
+                entry.get("mode") == "guest" for entry in self.cmd_on_bind_structured)
+            if has_guest_cmds and not self.get_arg(
+                    "conf")["core"]["guest_cmd"]:
                 self.logger.error(
                     "cmd_on_bind with guest mode requires guest_cmd: true in config.yaml"
                 )
-                raise ValueError("guest_cmd must be enabled for guest mode commands")
+                raise ValueError(
+                    "guest_cmd must be enabled for guest mode commands")
         else:
             self.cmd_on_bind_structured = []
 
@@ -193,19 +196,21 @@ class FetchWeb(Plugin):
         if self.shutting_down or proto != "tcp" or guest_port not in [80, 443]:
             return
 
-        # Only trigger cmd_on_bind for 0.0.0.0 to avoid running commands multiple times
+        # Only trigger cmd_on_bind for 0.0.0.0 to avoid running commands
+        # multiple times
         if self.cmd_on_bind_structured and guest_ip == "0.0.0.0":
             self.logger.info(
-                f"Bind detected on {guest_ip}:{guest_port}, spawning cmd_on_bind thread"
-            )
+                f"Bind detected on {guest_ip}:{guest_port}, spawning cmd_on_bind thread")
             t = threading.Thread(
                 target=self._delayed_bind_workflow, args=(guest_ip, guest_port)
             )
             t.daemon = True
             t.start()
 
-        log_file_name = os.path.join(self.outdir, f"web_{guest_ip}_{guest_port}")
-        self.task_queue.put((guest_ip, host_ip, guest_port, host_port, log_file_name))
+        log_file_name = os.path.join(
+            self.outdir, f"web_{guest_ip}_{guest_port}")
+        self.task_queue.put(
+            (guest_ip, host_ip, guest_port, host_port, log_file_name))
 
     def worker(self) -> None:
         """
@@ -239,8 +244,7 @@ class FetchWeb(Plugin):
             self.shutting_down = True
             timestamp = f"{(time.time() - self.start_time):.02f}s"
             self.logger.info(
-                f"Shutting down after fetching {guest_ip}:{guest_port} ({timestamp} after boot)"
-            )
+                f"Shutting down after fetching {guest_ip}:{guest_port} ({timestamp} after boot)")
             self.panda.end_analysis()
 
     def _run_on_bind_command(self) -> bool:
@@ -265,12 +269,15 @@ class FetchWeb(Plugin):
                     self.logger.info(f"Running HOST command: {cmd}")
                     try:
                         # Split the command string into a list for subprocess
-                        cmd_list = shlex.split(cmd) if isinstance(cmd, str) else cmd
+                        cmd_list = shlex.split(
+                            cmd) if isinstance(cmd, str) else cmd
 
                         # Determine working directory for host mode
                         if self.outdir:
-                            cwd = os.path.abspath(os.path.join(self.outdir, "../.."))
-                            self.logger.info(f"Derived project root from outdir: {cwd}")
+                            cwd = os.path.abspath(
+                                os.path.join(self.outdir, "../.."))
+                            self.logger.info(
+                                f"Derived project root from outdir: {cwd}")
                             if not os.path.isdir(cwd):
                                 self.logger.warning(
                                     f"Project root does not exist: {cwd}"
@@ -288,26 +295,32 @@ class FetchWeb(Plugin):
                             check=False,
                             cwd=cwd,
                         )
-                        self.logger.info(f"Host command output:\n{result.stdout}")
+                        self.logger.info(
+                            f"Host command output:\n{
+                                result.stdout}")
                         if result.stderr:
                             self.logger.warning(
                                 f"Host command stderr:\n{result.stderr}"
                             )
                         if result.returncode != 0:
                             self.logger.warning(
-                                f"Host command failed with code {result.returncode}"
-                            )
+                                f"Host command failed with code {
+                                    result.returncode}")
                             overall_success = False
                     except Exception as exc:
                         import traceback
 
-                        self.logger.warning(f"Host command execution error: {exc}")
-                        self.logger.warning(f"Traceback:\n{traceback.format_exc()}")
+                        self.logger.warning(
+                            f"Host command execution error: {exc}")
+                        self.logger.warning(
+                            f"Traceback:\n{
+                                traceback.format_exc()}")
                         overall_success = False
 
                 elif mode == "guest":
                     # Run in guest via guest_cmd.py wrapper
-                    # Pass the command as a single string to guest_cmd.py, don't split it
+                    # Pass the command as a single string to guest_cmd.py,
+                    # don't split it
                     full_cmd = [
                         "python3",
                         "/igloo_static/guesthopper/guest_cmd.py",
@@ -321,31 +334,36 @@ class FetchWeb(Plugin):
                             text=True,
                             check=False,
                         )
-                        self.logger.info(f"Guest command output:\n{result.stdout}")
+                        self.logger.info(
+                            f"Guest command output:\n{
+                                result.stdout}")
                         if result.stderr:
                             self.logger.warning(
                                 f"Guest command stderr:\n{result.stderr}"
                             )
                         if result.returncode != 0:
                             self.logger.warning(
-                                f"Guest command failed with code {result.returncode}"
-                            )
+                                f"Guest command failed with code {
+                                    result.returncode}")
                             overall_success = False
-                        
+
                         # Append guest command output to a single file
-                        output_file = os.path.join(self.outdir, "guest_commands_output.txt")
+                        output_file = os.path.join(
+                            self.outdir, "guest_commands_output.txt")
                         with open(output_file, 'a') as f:
-                            f.write(f"\n{'='*60}\n")
+                            f.write(f"\n{'=' * 60}\n")
                             f.write(f"Command: {cmd}\n")
                             f.write(f"Return code: {result.returncode}\n")
-                            f.write(f"{'='*60}\n")
+                            f.write(f"{'=' * 60}\n")
                             f.write(f"STDOUT:\n{result.stdout}\n")
                             if result.stderr:
                                 f.write(f"STDERR:\n{result.stderr}\n")
-                        self.logger.info(f"Guest command output appended to: {output_file}")
-                        
+                        self.logger.info(
+                            f"Guest command output appended to: {output_file}")
+
                     except Exception as exc:
-                        self.logger.warning(f"Guest command execution error: {exc}")
+                        self.logger.warning(
+                            f"Guest command execution error: {exc}")
                         overall_success = False
                 else:
                     self.logger.error(
@@ -357,8 +375,11 @@ class FetchWeb(Plugin):
 
     def _delayed_bind_workflow(self, guest_ip: str, guest_port: int) -> None:
         """Execute cmd_on_bind commands after a delay"""
-        self.logger.info(f"cmd_on_bind thread started for {guest_ip}:{guest_port}")
-        self.logger.info(f"Sleeping {self.fetch_delay}s before running commands")
+        self.logger.info(
+            f"cmd_on_bind thread started for {guest_ip}:{guest_port}")
+        self.logger.info(
+            f"Sleeping {
+                self.fetch_delay}s before running commands")
 
         time.sleep(self.fetch_delay)
 
@@ -417,14 +438,14 @@ class FetchWeb(Plugin):
             return False
         except subprocess.TimeoutExpired:
             self.logger.warning(
-                f"{timestamp}: No response to wget for {host_ip}:{host_port} after 30s"
-            )
+                f"{timestamp}: No response to wget for {host_ip}:{host_port} after 30s")
             return False
 
         with open(log_file_name, "rb") as f:
             buffer = f.read()
             entropy = calculate_entropy(buffer)
             self.logger.info(
-                f"Service on {guest_ip}:{guest_port} responds with {len(buffer)} bytes, entropy {entropy:.02f}"
-            )
+                f"Service on {guest_ip}:{guest_port} responds with {
+                    len(buffer)} bytes, entropy {
+                    entropy:.02f}")
         return True
