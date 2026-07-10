@@ -237,42 +237,69 @@ class Plugin:
         pass
 
     def on_restore(self, tag: str) -> None:
-        """Hook called after a VM snapshot is restored (or booted via -loadvm).
+        """Second restore phase — **actuate**. No-op by default.
 
-        Called after :meth:`load_state` has run, so any state captured at save
-        time is already available. Override to rehydrate host-side state (e.g.
-        re-establish bridges, replay recorded bindings) so it matches the
-        restored guest. No-op by default.
+        Runs after *every* plugin's :meth:`load_state` (see the two-phase
+        contract there), so sibling state restored in phase one is already
+        visible. This is where side effects belong: re-publish events, replay
+        recorded work, re-establish bridges, and re-write output files (the run's
+        ``out_dir`` is wiped on a restore run, so files must be rewritten here).
+
+        **No-double-actuation rule.** Only re-actuate ground truth that *no other
+        plugin saved*. If some other plugin will replay state you also observe
+        (e.g. the VPN bridge re-publishes ``on_bind`` for every service it
+        restores), do **not** re-emit it here — instead restore your view of it
+        *silently* by applying it in :meth:`load_state` (phase one), so the
+        upstream replay lands on already-restored state and is absorbed. Getting
+        this wrong double-actuates (re-runs scans, re-triggers analysis).
         """
         pass
 
     def save_state(self):
-        """Opt-in: return JSON-serialisable host-side state to bundle with a
-        snapshot, or None to save nothing (default).
+        """Return **JSON-serialisable** host-side state to bundle with a
+        snapshot, or None to carry nothing (default; also the way to opt out).
 
-        A snapshot does not capture host-side plugin state; plugins that hold
-        in-memory state needed for continuity after a cross-process restore
-        should return it here. File-backed state (e.g. NVRAM's nvram_state.yaml)
-        can self-heal via the output dir and need not be returned. The returned
-        value is stored in the snapshot's host sidecar and handed back to
+        A VM snapshot captures the guest, not host-side plugin state, and a
+        cross-process restore starts a fresh ``./penguin run`` whose ``out_dir``
+        is wiped — so in-memory state *and* output-dir files are lost unless
+        returned here. Only ``proj_dir``-backed state (e.g. NVRAM's
+        ``nvram_state.yaml``) self-heals without this.
+
+        Return only JSON types (dict/list/str/int/float/bool/None) — the value
+        is ``json.dump``\\ ed to the host sidecar, so sets/tuples/bytes must be
+        converted (``set`` -> list, ``bytes`` -> base64) and threads / ffi
+        handles / file objects must be dropped. Include a version field in your
+        dict if the shape may change across releases (a sidecar can outlive the
+        penguin version that wrote it). The value is handed back to
         :meth:`load_state` on restore.
         """
         return None
 
     def load_state(self, data) -> None:
-        """Opt-in: rehydrate state previously returned by :meth:`save_state`.
+        """First restore phase — **apply data, do not actuate**. No-op by default.
 
-        Called on restore before :meth:`on_restore`. No-op by default.
+        Receives exactly what :meth:`save_state` returned. Restore your own
+        attributes here (counters, dedup sets, records) but perform **no side
+        effects** — no publishing, no replay, no file writes; those belong in
+        :meth:`on_restore`.
+
+        The split is deliberate: the framework runs ``load_state`` for *all*
+        plugins before *any* plugin's :meth:`on_restore`, so data applied here is
+        visible to siblings during their actuation phase. A downstream consumer
+        that must absorb an upstream replay (see the no-double-actuation rule on
+        :meth:`on_restore`) therefore restores its dedup/seen state *here*, so it
+        is already in place when the upstream replay fires.
         """
         pass
 
     def reset_state(self) -> None:
-        """Opt-in: reset host-side state to a pristine baseline.
+        """Reserved seam — reset host-side state to a pristine baseline.
 
-        Reserved for fork/restore-many (restoring the same point repeatedly),
-        where each restore needs a clean host-side slate (fresh counters, port
-        maps, etc.). Not exercised by once-and-continue restore. No-op by
-        default; this is the designed seam, not yet driven by any caller.
+        Intended for fork / restore-many (restoring one save point repeatedly),
+        where each restore needs a clean slate (fresh counters, port maps). **Not
+        invoked by any caller today** — once-and-continue restore never calls it.
+        Do not rely on it running; it exists so restore-many can be wired later
+        without changing the contract.
         """
         pass
 
