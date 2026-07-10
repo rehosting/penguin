@@ -58,6 +58,9 @@ class Kprobes(Plugin):
         self._func_to_probe_ids: Dict[Callable, List[int]] = defaultdict(list)
         self._name_to_probe_ids: Dict[str, List[int]] = defaultdict(list)
 
+        # {reattach_key -> guest probe_id} carried across a snapshot restore.
+        self._restored_ids: Dict[str, int] = {}
+
         self.portal = plugins.portal
         self.portal.register_interrupt_handler(
             "kprobes", self._kprobe_interrupt_handler)
@@ -319,6 +322,79 @@ class Kprobes(Plugin):
                 self.logger.error("Failed to register kprobe")
 
         return False
+
+    # --- snapshot / restore ------------------------------------------------ #
+    @staticmethod
+    def _reattach_key(config, original_func):
+        """Stable, JSON-safe identity for a registration, matched across a
+        restore. Includes the handler qualname so multiple probes at the same
+        site (e.g. an aggregate + a filter probe on do_filp_open) stay distinct."""
+        fn = getattr(original_func, "__qualname__", "") or ""
+        return (f"{config['symbol']}+{config.get('offset', 0):#x}:"
+                f"{bool(config.get('on_enter', True))}:"
+                f"{bool(config.get('on_return', False))}:"
+                f"{config.get('process_filter')}:{config.get('pid_filter')}:{fn}")
+
+    def save_state(self):
+        """Persist {reattach_key -> guest probe_id}. The guest-side kprobes live
+        in the guest kprobe_table and survive savevm, so a cross-process restore
+        must re-bind host callbacks to those existing ids rather than install
+        duplicates. Callbacks aren't serialisable -- they come fresh from the
+        owner plugin's re-register on the restore boot; only the ids are carried."""
+        probes = {}
+        for probe_id, entry in self._hooks.items():
+            original_func = entry[3]
+            config = self._hook_info.get(probe_id)
+            if config:
+                probes[self._reattach_key(config, original_func)] = probe_id
+        return {"probes": probes} if probes else None
+
+    def load_state(self, data) -> None:
+        """Phase one: stash the saved key->id map (no guest I/O)."""
+        if data:
+            self._restored_ids = dict(data.get("probes", {}))
+
+    def on_restore(self, tag: str) -> None:
+        """Re-bind host callbacks to the kprobes that survived the snapshot.
+
+        The guest-side probe (and its id) is baked into guest RAM and still fires
+        after -loadvm; only the host id->callback map was lost. The normal
+        register drain does NOT run on a restore boot (it is kicked by fs_init /
+        a portal interrupt that a -loadvm boot doesn't re-issue), so bind
+        directly here: for each pending registration whose key matches a saved
+        id, populate _hooks with the fresh callback at the EXISTING id and drop
+        it from the pending queue, so it is never re-installed (which would leave
+        a duplicate guest probe). Unmatched pendings fall through to the normal
+        path (genuinely new probes)."""
+        if not self._restored_ids:
+            return
+        remaining = []
+        for item in self._pending_kprobes:
+            if isinstance(item, tuple) and item and item[0] == 'unregister':
+                remaining.append(item)
+                continue
+            kprobe_config, handle = item
+            original_func = getattr(handle, '_original_func', handle)
+            probe_id = self._restored_ids.pop(
+                self._reattach_key(kprobe_config, original_func), None)
+            if probe_id is None:
+                remaining.append(item)
+                continue
+            is_method = kprobe_config.get("is_method", False)
+            read_only = kprobe_config.get("read_only", False)
+            injection = self._analyze_signature(original_func)
+            self._hooks[probe_id] = (
+                handle, is_method, read_only, original_func, injection)
+            self._hook_info[probe_id] = kprobe_config
+            self._handle_to_probe_ids[handle].append(probe_id)
+            self._func_to_probe_ids[original_func].append(probe_id)
+            func_name = getattr(original_func, "__name__", None)
+            if func_name:
+                self._name_to_probe_ids[func_name].append(probe_id)
+            self.logger.info(
+                f"Re-attached kprobe id {probe_id} to {kprobe_config['symbol']} "
+                "after snapshot restore (no reinstall)")
+        self._pending_kprobes = remaining
 
     def _register_kprobe(self, config: Dict[str, Any]) -> Iterator[Optional[int]]:
         on_enter = config.get("on_enter", True)
