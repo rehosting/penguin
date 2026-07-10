@@ -10,7 +10,7 @@ patched.
 from pathlib import Path
 from unittest import mock
 
-from penguin.testing import load_pyplugin
+from penguin.testing import load_pyplugin, snapshot_roundtrip
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NMAP = REPO_ROOT / "pyplugins" / "actuation" / "nmap.py"
@@ -51,3 +51,47 @@ def test_uninit_terminates_running_scans(tmp_path):
     proc.terminate.assert_called_once()
     proc.kill.assert_called_once()
     assert lp.plugin.subprocesses == []
+
+
+# --------------------------------------------------------------------------- #
+# Dedup + snapshot restore
+# --------------------------------------------------------------------------- #
+def test_on_bind_dedupes_same_service(tmp_path, monkeypatch):
+    lp = load_pyplugin(str(NMAP), outdir=tmp_path)
+    monkeypatch.setattr(lp.plugin, "scan_thread", lambda *a, **k: None)
+    lp.plugin.nmap_on_bind("tcp", "10.0.0.1", 80, 8080, "127.0.0.1", "httpd")
+    # Same guest service, different host_port (a plausible re-map) -> still deduped.
+    lp.plugin.nmap_on_bind("tcp", "10.0.0.1", 80, 9090, "127.0.0.1", "httpd")
+    assert lp.plugin._scanned == {("10.0.0.1", 80)}
+
+
+def test_udp_bind_not_recorded(tmp_path):
+    lp = load_pyplugin(str(NMAP), outdir=tmp_path)
+    lp.plugin.nmap_on_bind("udp", "10.0.0.1", 53, 5300, "127.0.0.1", "dnsmasq")
+    assert lp.plugin._scanned == set()
+
+
+def test_save_state_none_when_idle(tmp_path):
+    lp = load_pyplugin(str(NMAP), outdir=tmp_path)
+    assert lp.plugin.save_state() is None
+
+
+def test_snapshot_suppresses_replayed_scan(tmp_path, monkeypatch):
+    # Producer: one service scanned pre-snapshot.
+    src = load_pyplugin(str(NMAP), outdir=tmp_path / "a")
+    monkeypatch.setattr(src.plugin, "scan_thread", lambda *a, **k: None)
+    src.plugin.nmap_on_bind("tcp", "10.0.0.1", 80, 8080, "127.0.0.1", "httpd")
+    assert src.plugin._scanned == {("10.0.0.1", 80)}
+
+    # Consumer: fresh restored run; the scanned-set is rehydrated in load_state
+    # so the VPN's on_bind replay (possibly a new host_port) is a no-op.
+    dst = load_pyplugin(str(NMAP), outdir=tmp_path / "b")
+    launched = []
+    monkeypatch.setattr(dst.plugin, "scan_thread",
+                        lambda *a, **k: launched.append(a))
+    state = snapshot_roundtrip(src, dst)
+
+    assert state == {"scanned": [["10.0.0.1", 80]]}
+    assert dst.plugin._scanned == {("10.0.0.1", 80)}
+    dst.plugin.nmap_on_bind("tcp", "10.0.0.1", 80, 9999, "127.0.0.1", "httpd")
+    assert launched == []  # replayed bind suppressed -> no scan relaunched
