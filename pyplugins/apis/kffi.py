@@ -887,7 +887,15 @@ class KFFI(Plugin):
     def on_restore(self, tag: str) -> None:
         """Re-apply the igloo.ko base shift -- the IGLOO_MODULE_BASE hypercall
         that normally drives it does not re-fire on a -loadvm boot. Trampoline
-        re-attach is lazy (in callback(), when the owner re-registers)."""
+        re-attach is lazy (in callback()/rebind_callback, when the owner
+        re-registers)."""
+        # The IGLOO_HYP_TRAMP_HIT hypercall handler is normally registered the
+        # first time a trampoline is generated. On a restore boot no trampoline
+        # is *generated* (surviving ones are re-bound instead), so wire the hit
+        # handler up explicitly -- otherwise every surviving trampoline's hit
+        # (modeled-pseudofile ops, re-attached kffi callbacks) is dropped and the
+        # guest silently reads dead nodes.
+        self.__init_tramp_functionality()
         if self._restored_shift is not None:
             self._fixup_igloo_module_baseaddr(self._restored_shift)
 
