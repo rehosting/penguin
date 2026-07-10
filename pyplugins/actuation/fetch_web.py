@@ -309,8 +309,7 @@ class FetchWeb(Plugin):
                         self.logger.warning(
                             f"Host command execution error: {exc}")
                         self.logger.warning(
-                            f"Traceback:\n{
-                                traceback.format_exc()}")
+                            f"Traceback:\n{traceback.format_exc()}")
                         overall_success = False
 
                 elif mode == "guest":
@@ -331,16 +330,14 @@ class FetchWeb(Plugin):
                             check=False,
                         )
                         self.logger.info(
-                            f"Guest command output:\n{
-                                result.stdout}")
+                            f"Guest command output:\n{result.stdout}")
                         if result.stderr:
                             self.logger.warning(
                                 f"Guest command stderr:\n{result.stderr}"
                             )
                         if result.returncode != 0:
                             self.logger.warning(
-                                f"Guest command failed with code {
-                                    result.returncode}")
+                                f"Guest command failed with code {result.returncode}")
                             overall_success = False
 
                         # Append guest command output to a single file
@@ -374,8 +371,7 @@ class FetchWeb(Plugin):
         self.logger.info(
             f"cmd_on_bind thread started for {guest_ip}:{guest_port}")
         self.logger.info(
-            f"Sleeping {
-                self.fetch_delay}s before running commands")
+            f"Sleeping {self.fetch_delay}s before running commands")
 
         time.sleep(self.fetch_delay)
 
@@ -441,7 +437,5 @@ class FetchWeb(Plugin):
             buffer = f.read()
             entropy = calculate_entropy(buffer)
             self.logger.info(
-                f"Service on {guest_ip}:{guest_port} responds with {
-                    len(buffer)} bytes, entropy {
-                    entropy:.02f}")
+                f"Service on {guest_ip}:{guest_port} responds with {len(buffer)} bytes, entropy {entropy:.02f}")
         return True
