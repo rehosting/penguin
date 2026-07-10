@@ -261,13 +261,13 @@
       "flake": false,
       "locked": {
         "lastModified": 1,
-        "narHash": "sha256-8Olvdc27etOPKFDMJJfyE2XJycE1RfMgFUfLm5DEH1U=",
+        "narHash": "sha256-AMgFPIIrQH00rrLcIQgwMRIbZp7YCLiYAmiIbukCNhQ=",
         "type": "tarball",
-        "url": "https://github.com/rehosting/penguin-tools/releases/download/v0.0.23/penguin-tools.tar.gz"
+        "url": "https://github.com/rehosting/penguin-tools/releases/download/v0.0.25/penguin-tools.tar.gz"
       },
       "original": {
         "type": "tarball",
-        "url": "https://github.com/rehosting/penguin-tools/releases/download/v0.0.23/penguin-tools.tar.gz"
+        "url": "https://github.com/rehosting/penguin-tools/releases/download/v0.0.25/penguin-tools.tar.gz"
       }
     },
     "root": {
