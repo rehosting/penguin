@@ -295,17 +295,13 @@ class FetchWeb(Plugin):
                             check=False,
                             cwd=cwd,
                         )
-                        self.logger.info(
-                            f"Host command output:\n{
-                                result.stdout}")
+                        self.logger.info(f"Host command output:\n{result.stdout}")
                         if result.stderr:
                             self.logger.warning(
                                 f"Host command stderr:\n{result.stderr}"
                             )
                         if result.returncode != 0:
-                            self.logger.warning(
-                                f"Host command failed with code {
-                                    result.returncode}")
+                            self.logger.warning(f"Host command failed with code {result.returncode}")
                             overall_success = False
                     except Exception as exc:
                         import traceback

@@ -97,10 +97,8 @@ class FetchWebTest(Plugin):
         # If checking guest output or host marker, wait for commands to
         # complete
         if self.cmd_on_bind_guest_output_contains or self.cmd_on_bind_marker:
-            import time
             self.logger.info(
-                f"Waiting {
-                    self.cmd_wait_timeout} seconds for cmd_on_bind commands to complete...")
+                f"Waiting {self.cmd_wait_timeout} seconds for cmd_on_bind commands to complete...")
             time.sleep(self.cmd_wait_timeout)
 
         with open(join(self.outdir, "fetch_web_test.txt"), 'w') as f:
