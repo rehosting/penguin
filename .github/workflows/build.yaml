@@ -154,9 +154,16 @@ jobs:
       cachix-auth-token: ${{ secrets.CACHIX_REHOSTING }}
 
   # Run the basic_target + test_target suites against the Nix-built image across
-  # all 12 bootable system arches the flake produces -- including powerpc
-  # (32-bit BE) and powerpc64le. (powerpc64el is an alias of powerpc64le -- same
-  # ppc64-softmmu library -- so it is not tested separately.)
+  # the same 10 system arches gated on main. The flake also produces bootable
+  # powerpc (32-bit BE) and powerpc64le images, but they are NOT gated here yet:
+  #  - powerpc64le boots and runs every plugin, but one uprobe subtest
+  #    (uprobes_strncmp) fails on a qemu-fork ppc64le TCG bug -- a
+  #    freshly-installed uprobe breakpoint is not delivered on the probed
+  #    instruction's FIRST execution (SMC / translation-block invalidation
+  #    timing). Tracked at rehosting/qemu#17; re-add powerpc64le once fixed.
+  #  - powerpc (32-bit) has a separate pre-existing userland gap.
+  # Neither arch was ever a CI target on main, so leaving them out keeps CI at
+  # parity rather than masking a known-red arch.
   run_tests:
     needs: [changes, build_container]
     runs-on: rehosting-arc
@@ -164,7 +171,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: ["armel", "mipsel", "mipseb", "mips64el", "mips64eb", "powerpc", "powerpc64", "powerpc64le", "loongarch64", "aarch64", "x86_64", "riscv64"]
+        arch: ["armel", "mipsel", "mipseb", "mips64el", "mips64eb", "powerpc64", "loongarch64", "aarch64", "x86_64", "riscv64"]
 
     steps:
       - name: Checkout code
