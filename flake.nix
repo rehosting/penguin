@@ -37,6 +37,11 @@
     url = "https://github.com/rehosting/igloo_driver/releases/download/v0.0.85/igloo_driver.tar.gz";
     flake = false;
   };
+  # NOTE: bump to v0.0.24 (the slimmed penguin-tools that drops the forked guest
+  # tools) once penguin-tools PR #24 merges and its release workflow publishes
+  # the v0.0.24 asset. penguin already stages the tools from their own flakes, so
+  # v0.0.23 (which still ships them) works today via the overwrite path; v0.0.24
+  # just removes the now-redundant copies.
   inputs.penguin-tools = {
     url = "https://github.com/rehosting/penguin-tools/releases/download/v0.0.23/penguin-tools.tar.gz";
     flake = false;
