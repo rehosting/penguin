@@ -163,8 +163,7 @@ class FetchWebTest(Plugin):
                         self.logger.error(
                             f'FetchWebTest: cmd_on_bind (guest) failed - missing strings: {missing_strings}')
                         f.write(
-                            f"cmd_on_bind_guest: failed (missing: {
-                                ', '.join(missing_strings)})\n")
+                            f"cmd_on_bind_guest: failed (missing: {', '.join(missing_strings)})\n")
                 else:
                     self.logger.error(
                         'FetchWebTest: cmd_on_bind (guest) failed - guest_commands_output.txt not found')
