@@ -171,3 +171,31 @@ class Crashes(Plugin):
 
     def uninit(self):
         self.write_report()
+
+    # --- snapshot / restore ------------------------------------------------- #
+    def save_state(self):
+        """Carry recorded crashes across a snapshot restore. crashes.yaml lives
+        in the wiped out_dir and the restored guest is past the signal
+        deliveries, so without this every pre-snapshot crash disappears from the
+        report. The dict *keys* are internal dedup tuples — only the record
+        values are carried and the keys are rebuilt on load. ``signames`` and
+        ``start_time`` are not saved: signames is re-derived from config in
+        __init__, and each record already stores its own relative ``time``.
+        Returns None when nothing has crashed."""
+        if not self.records:
+            return None
+        return {"records": list(self.records.values())}
+
+    def load_state(self, data) -> None:
+        """Rebuild the records dict (phase one, no I/O); on_restore rewrites the
+        report. The dedup key mirrors on_signal_deliver: (proc, signal, pc)."""
+        if not data:
+            return
+        for rec in data.get("records", []):
+            key = (rec["proc"], rec["signal"], int(rec["pc"], 16))
+            self.records[key] = rec
+
+    def on_restore(self, tag: str) -> None:
+        """Re-emit crashes.yaml into the wiped out_dir from the restored records.
+        Silent: the report is an output file, nothing downstream re-actuates."""
+        self.write_report()

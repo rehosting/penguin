@@ -9,13 +9,14 @@ YAML output flushed on ``uninit`` rather than per-event CSV.
 from pathlib import Path
 
 from penguin import yaml
-from penguin.testing import load_pyplugin
+from penguin.testing import load_pyplugin, snapshot_roundtrip
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV = REPO_ROOT / "pyplugins" / "analysis" / "env.py"
 
 
 def _load_env(tmp_path, conf=None):
+    Path(tmp_path).mkdir(parents=True, exist_ok=True)
     return load_pyplugin(
         str(ENV), outdir=tmp_path, class_name="EnvTracker",
         args={"conf": conf or {}},
@@ -49,4 +50,28 @@ def test_uboot_var_captured_via_strstr(tmp_path):
     lp.dispatch("igloo_strstr", None, "igloo_uboot_env=placeholder", "bootcmd=")
     lp.finalize()
     uboot = yaml.safe_load((tmp_path / "env_uboot.txt").read_text())
+    assert "bootcmd" in uboot
+
+
+# --------------------------------------------------------------------------- #
+# Snapshot / restore
+# --------------------------------------------------------------------------- #
+def test_env_save_state_none_when_idle(tmp_path):
+    lp = _load_env(tmp_path)
+    assert lp.plugin.save_state() is None
+
+
+def test_snapshot_restores_env_vars(tmp_path):
+    src = _load_env(tmp_path / "a")
+    src.dispatch("igloo_getenv", None, "FOOBAR_APP_KEY")
+    src.dispatch("igloo_strstr", None, "igloo_uboot_env=placeholder", "bootcmd=")
+
+    # Restored run: the guest is past its getenv/strstr, so the env_* files would
+    # be empty without the carried state.
+    dst = _load_env(tmp_path / "b")
+    snapshot_roundtrip(src, dst)
+
+    missing = yaml.safe_load((tmp_path / "b" / "env_missing.yaml").read_text())
+    uboot = yaml.safe_load((tmp_path / "b" / "env_uboot.txt").read_text())
+    assert "FOOBAR_APP_KEY" in missing
     assert "bootcmd" in uboot

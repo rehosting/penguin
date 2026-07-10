@@ -68,6 +68,11 @@ class Interfaces(Plugin):
 
         self.missing_ifaces = set()
         self.failed_ioctls = set()
+        # Rendered log rows in write order, so a snapshot restore can rewrite the
+        # (append-only, wiped-on-restore) logs faithfully — the ioctl row keeps
+        # its rv, which the (ioctl, iface) dedup set alone does not retain.
+        self._iface_rows = []
+        self._ioctl_rows = []
 
     def handle_interface(self, iface):
         if iface is None or not len(iface):
@@ -82,6 +87,7 @@ class Interfaces(Plugin):
             return
 
         self.missing_ifaces.add(iface)
+        self._iface_rows.append(iface)
         with open(f"{self.outdir}/{iface_log}", "a") as f:
             f.write(f"{iface}\n")
         self.logger.debug(f"Detected new missing interface {iface}")
@@ -95,11 +101,47 @@ class Interfaces(Plugin):
             return
 
         self.failed_ioctls.add((ioctl, iface))
+        self._ioctl_rows.append([ioctl, iface, rv])
         self.logger.debug(
             f"Detected new failing ioctl {hex(ioctl)} for {iface or '[?]'}")
 
         with open(f"{self.outdir}/{ioctl_log}", "a") as f:
             f.write(f"{hex(ioctl)},{iface or '[?]'},{rv}\n")
+
+    # --- snapshot / restore ------------------------------------------------- #
+    def save_state(self):
+        """Carry detected missing interfaces / failing ioctls across a snapshot
+        restore. Both logs live in the wiped out_dir and the restored guest is
+        past the ioctls that revealed them, so without this they start empty.
+        The rendered rows (in order, with the ioctl rv) are carried; the dedup
+        sets are rebuilt from them on load. ``added_ifaces`` is re-derived from
+        config in __init__. Returns None when nothing has been detected."""
+        if not (self._iface_rows or self._ioctl_rows):
+            return None
+        return {"iface_rows": list(self._iface_rows),
+                "ioctl_rows": [list(r) for r in self._ioctl_rows]}
+
+    def load_state(self, data) -> None:
+        """Rebuild the rows and dedup sets (phase one, no I/O); on_restore
+        rewrites the logs."""
+        if not data:
+            return
+        for iface in data.get("iface_rows", []):
+            self.missing_ifaces.add(iface)
+            self._iface_rows.append(iface)
+        for ioctl, iface, rv in data.get("ioctl_rows", []):
+            self.failed_ioctls.add((ioctl, iface))
+            self._ioctl_rows.append([ioctl, iface, rv])
+
+    def on_restore(self, tag: str) -> None:
+        """Rewrite both logs into the wiped out_dir from the carried rows.
+        Silent — pure output."""
+        with open(f"{self.outdir}/{iface_log}", "w") as f:
+            for iface in self._iface_rows:
+                f.write(f"{iface}\n")
+        with open(f"{self.outdir}/{ioctl_log}", "w") as f:
+            for ioctl, iface, rv in self._ioctl_rows:
+                f.write(f"{hex(ioctl)},{iface or '[?]'},{rv}\n")
 
     @plugins.syscalls.syscall("on_sys_ioctl_return",
                               arg_filters=[

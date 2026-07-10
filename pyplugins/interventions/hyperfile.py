@@ -599,3 +599,30 @@ class HyperFile(Plugin):
         if self.log_file is not None:
             with open(self.log_file, "w") as f:
                 yaml.dump(self.results, f)
+
+    # --- snapshot / restore ------------------------------------------------- #
+    def save_state(self):
+        """Carry the recorded hyperfile access log across a snapshot restore.
+        The log_file lives in the wiped out_dir and the restored guest is past
+        the accesses, so without this it starts empty. ``results`` is already a
+        plain nested dict of primitives (read/write buffers are decoded to str),
+        so it is carried as-is. Returns None when nothing has been recorded (or
+        the plugin was imported without models and is inert -- no results)."""
+        results = getattr(self, "results", None)
+        if not results:
+            return None
+        return {"results": results}
+
+    def load_state(self, data) -> None:
+        """Restore the access log (phase one, no I/O); on_restore rewrites the
+        log file."""
+        if not data or not hasattr(self, "results"):
+            return
+        self.results = data.get("results", {})
+
+    def on_restore(self, tag: str) -> None:
+        """Rewrite the hyperfile log into the wiped out_dir from the restored
+        results. Silent — pure output."""
+        if getattr(self, "log_file", None) and hasattr(self, "results"):
+            with open(self.log_file, "w") as f:
+                yaml.dump(self.results, f)

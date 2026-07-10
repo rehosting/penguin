@@ -114,6 +114,9 @@ class EnvTracker(Plugin):
         self.mtd_vars.add(match)
 
     def uninit(self):
+        self._write_reports()
+
+    def _write_reports(self):
         # Write environment vars
         with open(pjoin(self.outdir, missing_output), "w") as f:
             missing = [x for x in self.env_vars if x not in self.default_env_vars]
@@ -128,6 +131,32 @@ class EnvTracker(Plugin):
         with open(pjoin(self.outdir, mtd_output), "w") as f:
             for var in self.mtd_vars:
                 f.write(var + "\n")
+
+    # --- snapshot / restore ------------------------------------------------- #
+    def save_state(self):
+        """Carry the observed env/uboot/mtd variable sets across a snapshot
+        restore. The env_* output files live in the wiped out_dir and the
+        restored guest is past the getenv/strstr calls that revealed them, so
+        without this every pre-snapshot variable disappears. Returns None when
+        nothing has been observed."""
+        if not (self.env_vars or self.uboot_vars or self.mtd_vars):
+            return None
+        return {"env_vars": sorted(self.env_vars),
+                "uboot_vars": sorted(self.uboot_vars),
+                "mtd_vars": sorted(self.mtd_vars)}
+
+    def load_state(self, data) -> None:
+        """Rehydrate the variable sets (phase one, no I/O); on_restore rewrites
+        the files. default_env_vars is re-derived from config in __init__."""
+        if not data:
+            return
+        self.env_vars |= set(data.get("env_vars", []))
+        self.uboot_vars |= set(data.get("uboot_vars", []))
+        self.mtd_vars |= set(data.get("mtd_vars", []))
+
+    def on_restore(self, tag: str) -> None:
+        """Re-emit the env_* files into the wiped out_dir. Silent — pure output."""
+        self._write_reports()
 
     @staticmethod
     def uboot_var_interesting(var):
