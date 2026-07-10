@@ -1025,8 +1025,20 @@ penguin_run() {
         docker_cmd+=("-w" "/workspace")
     fi
 
-    # Add extra args, if set
+    # Add extra args, if set. Under a shared daemon, host bind paths passed via
+    # --extra_docker_args must be expressed in the daemon's view just like the
+    # wrapper's own mounts above (e.g. CI's
+    # `--extra_docker_args "-v <_work>/results:/workspace/results"`) -- otherwise
+    # the raw host path resolves in the daemon's namespace, not this runner's
+    # per-pod workspace, and penguin fails writing into the bind (e.g. creating
+    # results/latest -> EPERM). The invariant is just "a path under FROM becomes
+    # TO", so a plain string substitution over the whole arg string covers every
+    # mount syntax (-v, --volume, --mount) without parsing docker's grammar.
+    # No-op when PENGUIN_HOST_MOUNT_* are unset (every local / non-shared run).
     if [ -n "$extra_docker_args" ]; then
+        if [ -n "${PENGUIN_HOST_MOUNT_FROM:-}" ] && [ -n "${PENGUIN_HOST_MOUNT_TO:-}" ]; then
+            extra_docker_args="${extra_docker_args//$PENGUIN_HOST_MOUNT_FROM/$PENGUIN_HOST_MOUNT_TO}"
+        fi
         docker_cmd+=($extra_docker_args)
     fi
 
