@@ -35,6 +35,7 @@ Arguments
 """
 
 from sqlalchemy import create_engine, insert, inspect
+from sqlalchemy.orm import Session
 from os.path import join
 from pengutils.events import Base
 # Import the Base Event class for inheritance checks (aliased to avoid conflict with threading.Event)
@@ -74,6 +75,9 @@ class DB(Plugin):
         self.queued_events: list = []
         self.buffer_size: int = int(self.get_arg("bufsize") or 100000)
         self.queue_lock = Lock()
+        # Serializes actual flushes so the background worker and a synchronous
+        # flush() cannot run _perform_flush (and mutate id_counter) concurrently.
+        self.flush_lock = Lock()
         self.flush_event = Event()
         self.stop_event = Event()
         self.finished_worker = Event()
@@ -119,7 +123,33 @@ class DB(Plugin):
                 self.queued_events = []  # allocate new list
 
         if to_flush:
-            self._perform_flush(to_flush)
+            # Serialize with the background worker so id_counter / the write
+            # transaction are never touched by two threads at once.
+            with self.flush_lock:
+                self._perform_flush(to_flush)
+
+    def flush(self) -> None:
+        """Synchronously drain the queued events to the database.
+
+        Unlike setting ``flush_event`` (which only *signals* the worker), this
+        returns once the currently-queued events are written. Consumers that
+        read the DB back during teardown (e.g. the process-tree derived view)
+        must call this first, because plugins unload in reverse load order --
+        so a downstream plugin's ``uninit`` runs before this plugin's own final
+        flush. Safe to call from any thread; serialized via ``flush_lock``.
+        """
+        self._swap_and_flush()
+
+    def query(self, table_cls) -> list:
+        """Return all rows of ``table_cls`` as ORM objects.
+
+        Ensures the schema exists first (so querying a table that never
+        received a row yields ``[]`` instead of raising). Call :meth:`flush`
+        beforehand if you need events buffered during the run to be visible.
+        """
+        Base.metadata.create_all(self.engine)
+        with Session(self.engine) as session:
+            return list(session.query(table_cls).all())
 
     def _get_table_info(self, table_cls):
         """Cached introspection of table metadata"""

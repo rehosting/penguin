@@ -408,6 +408,66 @@ class OSI(Plugin):
         self.logger.debug(f"Retrieved {len(handles)} process handles")
         return handles
 
+    def get_all_procs(self) -> Generator[Any, None, List[Wrapper]]:
+        """
+        Retrieve full ``osi_proc`` records for every user process in one
+        kernel-side walk (``HYPER_OP_OSI_PROC_ALL``).
+
+        This is the bulk equivalent of calling :meth:`get_proc` for each pid
+        from :meth:`get_proc_handles`: the driver walks ``for_each_process``
+        under ``rcu_read_lock`` and returns the whole set (paginated), so a
+        process-tree snapshot costs ``ceil(N / procs-per-page)`` round-trips and
+        is internally consistent rather than torn across N separate reads. Names
+        come from ``task->comm`` (kernel memory only), so it is safe against
+        exiting contexts. Kernel threads are omitted (they have no ``mm``).
+
+        Returns
+        -------
+        List[Wrapper]
+            One wrapper per process, each carrying the ``osi_proc`` fields
+            (``pid``, ``ppid``, ``uid`` ...) plus a decoded ``.name`` (comm).
+        """
+        self.logger.debug("get_all_procs called")
+        all_procs: List[Wrapper] = []
+        skip = 0
+        header_size = kffi.sizeof("osi_result_header")
+        node_size = kffi.sizeof("osi_proc_node")
+
+        while True:
+            buf = yield PortalCmd(hop.HYPER_OP_OSI_PROC_ALL, skip, 0)
+            if not buf or len(buf) < header_size:
+                break
+
+            orh = kffi.from_buffer("osi_result_header", buf)
+            count = orh.result_count
+            total_count = orh.total_count
+            total_size = len(buf)
+
+            offset = header_size
+            page: List[Wrapper] = []
+            for i in range(count):
+                if offset + node_size > total_size:
+                    self.logger.error(
+                        f"get_all_procs: buffer short for node {i} at {offset}")
+                    break
+                nb = kffi.from_buffer(
+                    "osi_proc_node", buf, instance_offset_in_buffer=offset)
+                wrap = Wrapper(nb)
+                # comm is inlined in the struct (fixed 16 bytes, NUL-padded).
+                raw = bytes(nb.comm)
+                wrap.name = raw.split(b'\0', 1)[0].decode('latin-1', errors='replace')
+                page.append(wrap)
+                offset += node_size
+
+            all_procs.extend(page)
+            # Stop when this page was empty or we've collected everything.
+            if not page or len(all_procs) >= total_count:
+                break
+            skip += len(page)
+
+        self.logger.debug(f"get_all_procs retrieved {len(all_procs)} procs")
+        return all_procs
+
     def get_fds(self, pid: Optional[int] = None, start_fd: int = 0,
                 count: Optional[int] = None) -> Generator[Any, None, List[Wrapper]]:
         """
