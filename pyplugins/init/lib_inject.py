@@ -14,12 +14,43 @@ from elftools.elf.elffile import ELFFile
 from penguin import getColoredLogger
 from penguin.arch import arch_filter
 from penguin.defaults import (
+    atheros_broadcom,
     default_lib_aliases,
     default_libinject_string_introspection,
+    generic_lib_aliases,
+    netgear_acos,
+    ralink,
+    realtek,
+    zyxel_or_edimax,
 )
 from penguin.init_plugin import InitContext, InitPlugin
 
 logger = getColoredLogger("penguin.init.lib_inject")
+
+
+def _exported_alias_subset(library_info: dict, table: dict[str, str]) -> dict[str, str]:
+    """
+    The subset of ``table`` whose symbols the target actually exports (per
+    LibrarySymbols) -- the same exported-symbol filter the tailored-alias patch
+    applies, factored out for reuse by the per-SDK patches.
+    """
+    aliases: dict[str, str] = {}
+    for _, exported_syms in library_info.get("symbols", {}).items():
+        for sym in exported_syms:
+            if sym in table:
+                aliases[sym] = table[sym]
+    return aliases
+
+
+def _sdk_alias_patch(plugin: InitPlugin, table: dict[str, str]) -> dict | None:
+    """
+    Body shared by the per-SDK alias patches: the SDK group's aliases
+    intersected with the target's exported symbols, wrapped as a lib_inject
+    patch -- or ``None`` when the target exports none of them, so the candidate
+    only materializes for plausibly-relevant targets.
+    """
+    aliases = _exported_alias_subset(plugin.plugins.LibrarySymbols.library_info, table)
+    return {'lib_inject': {'aliases': aliases}} if aliases else None
 
 
 class LibInjectSymlinks(InitPlugin):
@@ -94,8 +125,10 @@ class LibInjectStringIntrospection(InitPlugin):
 
 class LibInjectTailoredAliases(InitPlugin):
     '''
-    Set default aliases in libinject based on library analysis. If one of the defaults
-    is present in a library, we'll add it to the libinject alias list
+    Set generic (non-SDK) libinject aliases based on library analysis. If one of
+    the generic defaults is present in a library, we'll add it to the libinject
+    alias list. SDK-specific alias groups are handled separately, as disabled
+    per-SDK candidate patches (see the Sdk*Aliases classes below).
     '''
     patch_name = 'lib_inject.dynamic_models'
     order = 120
@@ -105,12 +138,16 @@ class LibInjectTailoredAliases(InitPlugin):
         self.unmodeled = set()
         aliases = {}
 
-        # Only copy values from our defaults if we see that same symbol exported
+        # Only copy values from our generic defaults if we see that same symbol
+        # exported. A symbol that is modeled only in an SDK group is neither
+        # emitted here (it lives in a disabled per-SDK candidate) nor flagged as
+        # unmodeled -- hence the unmodeled check is against the full union.
         for _, exported_syms in library_info.get("symbols", {}).items():
             for sym in exported_syms:
-                if sym in default_lib_aliases:
-                    aliases[sym] = default_lib_aliases[sym]
-                elif "nvram" in sym and sym not in self.unmodeled:
+                if sym in generic_lib_aliases:
+                    aliases[sym] = generic_lib_aliases[sym]
+                elif "nvram" in sym and sym not in default_lib_aliases \
+                        and sym not in self.unmodeled:
                     self.unmodeled.add(sym)
 
         if len(self.unmodeled):
@@ -120,6 +157,61 @@ class LibInjectTailoredAliases(InitPlugin):
 
         if len(aliases):
             return {'lib_inject': {'aliases': aliases}}
+
+
+# Per-SDK lib_inject alias candidates. Each SDK's alias group is emitted as its
+# own named patch, DISABLED by default: a profile bundle is a candidate in the
+# config search (a togglable vertex), not a fact baked into the initial config.
+# The bundle only materializes when the target exports the SDK's symbols.
+
+class SdkAtherosBroadcomAliases(InitPlugin):
+    '''Atheros/Broadcom SDK nvram shims (nvram_nget/nvram_nset/...).'''
+    patch_name = 'sdk.atheros_broadcom'
+    order = 125
+    enabled = False
+
+    def patch(self, ctx: InitContext) -> dict | None:
+        return _sdk_alias_patch(self, atheros_broadcom)
+
+
+class SdkRealtekAliases(InitPlugin):
+    '''Realtek RTL819x SDK apmib shims (apmib_get/apmib_set).'''
+    patch_name = 'sdk.realtek'
+    order = 125
+    enabled = False
+
+    def patch(self, ctx: InitContext) -> dict | None:
+        return _sdk_alias_patch(self, realtek)
+
+
+class SdkNetgearAcosAliases(InitPlugin):
+    '''Netgear ACOS SDK config shim (WAN_ith_CONFIG_GET).'''
+    patch_name = 'sdk.netgear_acos'
+    order = 125
+    enabled = False
+
+    def patch(self, ctx: InitContext) -> dict | None:
+        return _sdk_alias_patch(self, netgear_acos)
+
+
+class SdkZyxelOrEdimaxAliases(InitPlugin):
+    '''Zyxel/Edimax SDK nvram/envram shims (nvram_*_adv, envram_*).'''
+    patch_name = 'sdk.zyxel_or_edimax'
+    order = 125
+    enabled = False
+
+    def patch(self, ctx: InitContext) -> dict | None:
+        return _sdk_alias_patch(self, zyxel_or_edimax)
+
+
+class SdkRalinkAliases(InitPlugin):
+    '''Ralink/MediaTek APSoC SDK nvram shims (nvram_bufget/nvram_bufset).'''
+    patch_name = 'sdk.ralink'
+    order = 125
+    enabled = False
+
+    def patch(self, ctx: InitContext) -> dict | None:
+        return _sdk_alias_patch(self, ralink)
 
 
 class LibInjectFixedAliases(InitPlugin):
