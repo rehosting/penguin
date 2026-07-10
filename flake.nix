@@ -42,6 +42,39 @@
     flake = false;
   };
 
+  # Forked guest utilities that build themselves (their own flakes cross-build
+  # every guest arch). penguin consumes each directly and stages its
+  # /igloo_static fragment, so a tool change no longer needs a penguin-tools
+  # re-release -- just bump the pinned tag here. `follows nixpkgs` keeps the
+  # cross toolchains + rust closures shared through Cachix (no duplicate
+  # closures). Pinned to version tags (reproducible); bump on a new tool release.
+  inputs.console = {
+    url = "github:rehosting/console/v1.0.9";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+  inputs.busybox = {
+    url = "github:rehosting/busybox/v0.0.20";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+  inputs.guesthopper = {
+    url = "github:rehosting/guesthopper/v1.0.23";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+  # vpnguin v1.0.29 carries the owned-interface datapaths matching penguin's
+  # vpn.py (WAN bridge / --own-iface). This pin is what fixes the old skew where
+  # penguin-tools deliberately held vpnguin at v1.0.26 (4-field) behind penguin.
+  inputs.vpnguin = {
+    url = "github:rehosting/vpnguin/v1.0.29";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+  # libnvram: source only -- penguin compiles nvram.c into lib_inject per
+  # project (clang-20), so we just need the .c/.h tree, not a build. Consumed
+  # directly here rather than routed through penguin-tools.
+  inputs.libnvram = {
+    url = "github:rehosting/libnvram/e013c0686facbb62df09b30d0d5b92dd75fd4d58";
+    flake = false;
+  };
+
   # musl source (headers only -- install-headers, no compiler). Dockerfile builds
   # per-arch headers into /igloo_static/musl-headers/<arch>.
   inputs.musl-src = {
@@ -78,6 +111,11 @@
       kernels,
       igloo-driver,
       penguin-tools,
+      console,
+      busybox,
+      guesthopper,
+      vpnguin,
+      libnvram,
       musl-src,
       ltrace-src,
       vhost-device,
@@ -256,12 +294,28 @@
             )
           );
 
+          # Forked guest tools that now build themselves. Their dists are the
+          # /igloo_static fragment each tool owns; mk-igloo-static.nix `cp -a`s
+          # them in AFTER penguin-tools, so they win over any stale copy still
+          # shipped in the penguin-tools tarball during the transition. Always
+          # sourced from the x86_64-linux cross-build (guest binaries are
+          # host-independent; the real build host + CI is x86_64-linux, matching
+          # penguin-tools' own x86_64-only flake).
+          toolDists = [
+            console.packages.x86_64-linux.dist
+            busybox.packages.x86_64-linux.dist
+            guesthopper.packages.x86_64-linux.dist
+            vpnguin.packages.x86_64-linux.dist
+          ];
+
           iglooStatic = import ./nix/mk-igloo-static.nix {
             inherit
               pkgs
               kernels
               igloo-driver
               penguin-tools
+              toolDists
+              libnvram
               muslHeaders
               nativeHelpersTree
               ;
