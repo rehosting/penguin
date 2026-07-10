@@ -17,6 +17,11 @@
   kernels,
   igloo-driver,
   penguin-tools,
+  toolDists, # list of forked-guest-tool dists (guesthopper, vpnguin, ...) that
+             # build themselves; each is a /igloo_static fragment, cp'd in AFTER
+             # penguin-tools so it wins over any stale copy in that tarball.
+  libnvram,  # libnvram source tree (.c/.h); penguin compiles lib_inject from it
+             # per project, so we ship the sources, not a prebuilt .so.
   guestUtils,
   muslHeaders,
   ltraceSrc,
@@ -43,6 +48,23 @@ pkgs.runCommand "igloo-static"
     # it writable again before adding more into it.
     cp -a ${penguin-tools}/. "$out/igloo_static/"
     chmod -R u+w "$out/igloo_static"
+
+    # Forked guest tools that build themselves (guesthopper, vpnguin, ...). Each
+    # dist is a fragment of /igloo_static (e.g. <arch>/vpn, guesthopper/*), laid
+    # in AFTER penguin-tools so a tool's own build overrides any stale copy the
+    # penguin-tools tarball may still ship during the transition. `--no-preserve`
+    # keeps the tree writable for the staging loop below.
+    ${pkgs.lib.concatMapStringsSep "\n"
+      (d: ''cp -a --no-preserve=mode ${d}/. "$out/igloo_static/"'')
+      toolDists}
+    chmod -R u+w "$out/igloo_static"
+
+    # libnvram source (arch-independent): penguin globs /igloo_static/libnvram/*.{c,h}
+    # to compile lib_inject per project. Ship the .c/.h set only (no prebuilt .so).
+    # Overwrites any copy still shipped by the penguin-tools tarball.
+    mkdir -p "$out/igloo_static/libnvram"
+    cp -a --no-preserve=mode ${libnvram}/*.c ${libnvram}/*.h "$out/igloo_static/libnvram/"
+    chmod -R u+w "$out/igloo_static/libnvram"
 
     # guest-utils source tree (scripts + native sources), Dockerfile COPY.
     cp -a ${guestUtils} "$out/igloo_static/guest-utils"
