@@ -16,6 +16,49 @@
         "type": "github"
       }
     },
+    "busybox": {
+      "inputs": {
+        "libhc": "libhc",
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1783560442,
+        "narHash": "sha256-PSooTFh5GkdWruGCwyoOUaAoA9uj+rNKr5baelyoMD0=",
+        "owner": "rehosting",
+        "repo": "busybox",
+        "rev": "34a9307c35b7d1b5e1672d86bd6b26877c2f0639",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rehosting",
+        "ref": "v0.0.20",
+        "repo": "busybox",
+        "type": "github"
+      }
+    },
+    "console": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1783560386,
+        "narHash": "sha256-TBNEX61hCv9L65YDKT7lVxHgZ5UjvAqHVPkI4eVQSjg=",
+        "owner": "rehosting",
+        "repo": "console",
+        "rev": "abb4f3f20f830d461fab200cb4da085b817aaf7a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rehosting",
+        "ref": "v1.0.9",
+        "repo": "console",
+        "type": "github"
+      }
+    },
     "filter": {
       "locked": {
         "lastModified": 1757882181,
@@ -70,6 +113,27 @@
         "type": "github"
       }
     },
+    "guesthopper": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1783560297,
+        "narHash": "sha256-YvD1jGvuO5GQUKiwUqvOh472PUQYsjI4DRLyTjAgc6A=",
+        "owner": "rehosting",
+        "repo": "guesthopper",
+        "rev": "4195992a25085407455e4c9e4de7c666e98451ee",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rehosting",
+        "ref": "v1.0.23",
+        "repo": "guesthopper",
+        "type": "github"
+      }
+    },
     "igloo-driver": {
       "flake": false,
       "locked": {
@@ -94,6 +158,40 @@
       "original": {
         "type": "tarball",
         "url": "https://github.com/rehosting/linux_builder/releases/download/v3.5.33-beta/kernels-latest.tar.gz"
+      }
+    },
+    "libhc": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1746116303,
+        "narHash": "sha256-hmqYiqk30CJWRJXcl9AJRJsn8VKeWtMytyaPEbY+gew=",
+        "owner": "panda-re",
+        "repo": "libhc",
+        "rev": "b2f2efbd948faca9e242ae410e035c0065ec433a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "panda-re",
+        "repo": "libhc",
+        "rev": "b2f2efbd948faca9e242ae410e035c0065ec433a",
+        "type": "github"
+      }
+    },
+    "libnvram": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1780521704,
+        "narHash": "sha256-dXLQvAfFrDLCMbKQ1tLaie4qkRRMxEN/Cd3PcsEygs8=",
+        "owner": "rehosting",
+        "repo": "libnvram",
+        "rev": "e013c0686facbb62df09b30d0d5b92dd75fd4d58",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rehosting",
+        "repo": "libnvram",
+        "rev": "e013c0686facbb62df09b30d0d5b92dd75fd4d58",
+        "type": "github"
       }
     },
     "ltrace-src": {
@@ -174,15 +272,20 @@
     },
     "root": {
       "inputs": {
+        "busybox": "busybox",
+        "console": "console",
         "fw2tar": "fw2tar",
+        "guesthopper": "guesthopper",
         "igloo-driver": "igloo-driver",
         "kernels": "kernels",
+        "libnvram": "libnvram",
         "ltrace-src": "ltrace-src",
         "musl-src": "musl-src",
         "nixpkgs": "nixpkgs",
         "penguin-qemu": "penguin-qemu",
         "penguin-tools": "penguin-tools",
-        "vhost-device": "vhost-device"
+        "vhost-device": "vhost-device",
+        "vpnguin": "vpnguin"
       }
     },
     "shell-hooks": {
@@ -238,6 +341,27 @@
         "owner": "rust-vmm",
         "ref": "vhost-device-vsock-v0.2.0",
         "repo": "vhost-device",
+        "type": "github"
+      }
+    },
+    "vpnguin": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1783560347,
+        "narHash": "sha256-ZMVUvLLjLN6C7PrFmNkWn0Aytb8ta5HxqNOGbnJOBLk=",
+        "owner": "rehosting",
+        "repo": "vpnguin",
+        "rev": "1def9441fd51a2858ac5875ba340521102d59e7d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rehosting",
+        "ref": "v1.0.29",
+        "repo": "vpnguin",
         "type": "github"
       }
     }
