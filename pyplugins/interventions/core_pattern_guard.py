@@ -70,12 +70,51 @@ class CorePatternSysctl(SysctlFile):
 class CorePatternGuard(Plugin):
     def __init__(self):
         self._registered = False
+        self._pattern = None
+        self._restore_pattern = None
+        # Force the sysctl plugin to load eagerly now (it is otherwise
+        # lazy-loaded on first `plugins.sysctl` access). We depend on it, but
+        # more importantly for snapshot restore: our sysctl is only registered
+        # from a hypercall / on_restore, so nothing else pulls sysctl in on a
+        # -loadvm boot. If sysctl first loaded during our on_restore, it would
+        # have already MISSED the snapshot load_state dispatch (which runs before
+        # any on_restore), so its saved handler trampolines would never be
+        # restored and our re-registration could not re-bind. Loading it here
+        # ensures sysctl.load_state runs and populates its restore map first.
+        self._sysctl = plugins.sysctl
         plugins.send_hypercall.subscribe("core_pattern_lock", self._on_lock)
 
     def _on_lock(self, pattern: str):
         if self._registered:
             return 0, ""
+        self._pattern = pattern
         plugins.sysctl.register_sysctl(CorePatternSysctl(pattern, self))
         self._registered = True
         self.logger.debug(f"locked core_pattern at {pattern!r}")
         return 0, ""
+
+    # --- snapshot / restore ------------------------------------------------ #
+    def save_state(self):
+        """Persist the locked pattern. The `core_pattern_lock` hypercall that
+        installs our sysctl fires only once from the guest init script and does
+        NOT re-fire on a -loadvm boot, so without this the lock silently lapses
+        after a restore and guest software could redirect core dumps again."""
+        if not self._registered:
+            return None
+        return {"pattern": self._pattern}
+
+    def load_state(self, data) -> None:
+        if data:
+            self._restore_pattern = data.get("pattern")
+
+    def on_restore(self, tag: str) -> None:
+        """Re-register our core_pattern sysctl. The guest node survived the
+        snapshot, so register_sysctl takes its restore fast-path and re-binds
+        the surviving handler instead of re-creating it."""
+        if self._restore_pattern is None or self._registered:
+            return
+        self._pattern = self._restore_pattern
+        plugins.sysctl.register_sysctl(CorePatternSysctl(self._pattern, self))
+        self._registered = True
+        self.logger.info(
+            f"Re-locked core_pattern at {self._pattern!r} after snapshot restore")

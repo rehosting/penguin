@@ -750,25 +750,7 @@ class KFFI(Plugin):
         Immediately generates the trampoline, sets up the interrupt handler, and returns an integer address.
         """
         # 1. Automatic Signature Extraction from dwarffi Ptr objects
-        if func_type is not None:
-            # Check if it's a Ptr object (duck-typing for the .signature property)
-            if hasattr(func_type, "signature"):
-                sig = func_type.signature
-                if sig is not None:
-                    # Use the VtypeFunction object directly
-                    func_type = sig
-                else:
-                    # Fallback to points_to_type_info if it's an older/raw dict
-                    pt_info = getattr(func_type, "points_to_type_info", None)
-                    if pt_info and isinstance(pt_info, dict) and pt_info.get("kind") == "function":
-                        func_type = pt_info
-                    else:
-                        raise ValueError("The provided Ptr does not point to a function signature.")
-
-            # If it's a VtypeFunction object, convert it to a dictionary so the
-            # hypervisor can serialize it into the trampoline manager
-            if hasattr(func_type, "to_dict"):
-                func_type = func_type.to_dict()
+        func_type = self._normalize_func_type(func_type)
 
         qn = getattr(func, "__qualname__", None)
         if qn and qn in self._restored_tramps and func not in self._tramp_addresses:
@@ -800,6 +782,59 @@ class KFFI(Plugin):
         self._tramp_addresses[tramp_id] = tramp_addr
         self._tramp_addresses[func] = tramp_addr
         return tramp_addr
+
+    def _normalize_func_type(self, func_type):
+        """Coerce a dwarffi Ptr / VtypeFunction into the plain-dict signature the
+        trampoline manager serializes. A raw dict (already-extracted subtype) or
+        None passes through unchanged."""
+        if func_type is None:
+            return None
+        # Check if it's a Ptr object (duck-typing for the .signature property)
+        if hasattr(func_type, "signature"):
+            sig = func_type.signature
+            if sig is not None:
+                func_type = sig
+            else:
+                # Fallback to points_to_type_info if it's an older/raw dict
+                pt_info = getattr(func_type, "points_to_type_info", None)
+                if pt_info and isinstance(pt_info, dict) and pt_info.get("kind") == "function":
+                    func_type = pt_info
+                else:
+                    raise ValueError("The provided Ptr does not point to a function signature.")
+        # If it's a VtypeFunction object, convert it to a dictionary so the
+        # hypervisor can serialize it into the trampoline manager
+        if hasattr(func_type, "to_dict"):
+            func_type = func_type.to_dict()
+        return func_type
+
+    def rebind_callback(self, func, tramp_id, tramp_addr, func_type=None) -> None:
+        """Re-bind a fresh Python callback to a trampoline that survived a
+        snapshot (its guest-side address is baked into surviving guest
+        structures, e.g. a modeled-pseudofile ops pointer). Unlike callback(),
+        this generates nothing and issues no guest I/O -- it only rebuilds the
+        host-side tramp_id->callback map that a cross-process -loadvm dropped, so
+        an already-wired guest call routes back to ``func``.
+
+        Pseudofile registrars (devfs/sysctl/...) call this from on_restore /
+        re-registration, having persisted {path -> (tramp_id, tramp_addr)} across
+        the snapshot. Keying on the concrete (path, op) rather than the callback
+        qualname avoids the collision when several instances of one model class
+        each own a distinct trampoline for the same method."""
+        func_type = self._normalize_func_type(func_type)
+        num_args = len(inspect.signature(func).parameters)
+        self._tramp_callbacks[tramp_id] = (func, num_args, func_type)
+        self._tramp_callbacks[func] = tramp_id
+        self._tramp_addresses[tramp_id] = tramp_addr
+        self._tramp_addresses[func] = tramp_addr
+        # If a qualname-keyed restore entry also exists, consume it so the lazy
+        # callback() path doesn't later re-bind the same trampoline to a
+        # different sibling instance's method.
+        qn = getattr(func, "__qualname__", None)
+        if qn:
+            self._restored_tramps.pop(qn, None)
+        self.logger.info(
+            f"Re-bound trampoline id={tramp_id} addr={tramp_addr:#x} to "
+            f"{getattr(func, '__qualname__', func)} after snapshot restore")
 
     def get_callback_id(self, f: Union[int, Any]) -> Optional[int]:
         """
