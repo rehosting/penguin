@@ -54,7 +54,9 @@ class Uprobes(Plugin):
         self._uprobe_event = self.plugins.portal.wrap(self._uprobe_event)
 
     def _resolve_callback(self, f, is_method, hook_ptr):
-        if is_method and hasattr(f, '__qualname__') and '.' in f.__qualname__:
+        if (is_method and hasattr(f, '__qualname__')
+                and '.' in f.__qualname__
+                and '<locals>' not in f.__qualname__):
             class_name = f.__qualname__.split('.')[0]
             method_name = f.__qualname__.split('.')[-1]
             try:
@@ -423,7 +425,9 @@ class Uprobes(Plugin):
                 wrapper._original_func = func
 
                 is_method = hasattr(func, '__self__') or (
-                    hasattr(func, '__qualname__') and '.' in func.__qualname__)
+                    hasattr(func, '__qualname__')
+                    and '.' in func.__qualname__
+                    and '<locals>' not in func.__qualname__)
 
                 for uprobe_config in uprobe_configs:
                     uprobe_config["callback"] = func

@@ -1,26 +1,33 @@
-"""Regression coverage for syscall-hook callback classification in
-``pyplugins/apis/syscalls.py``.
+"""Regression coverage for hook-callback classification in the three probe APIs
+(``pyplugins/apis/{syscalls,uprobes,kprobes}.py``).
 
-The ``Syscalls.syscall`` decorator has to tell three kinds of callable apart:
+Each decorator has to tell three kinds of callable apart:
 
 * a **bound method** (``func.__self__`` set),
 * an **unbound plugin method** captured at class-definition time (qualname
-  ``Plugin.method``) — which must be re-resolved to the bound method on the live
-  plugin instance at event time, and
-* a **nested closure** (qualname ``Outer.method.<locals>.handler``) — which is a
-  plain function and must be used *as-is*.
+  ``Plugin.method``) — re-resolved to the bound method on the live plugin
+  instance at event time, and
+* a **nested closure** (qualname ``Outer.method.<locals>.handler``) — a plain
+  function that must be used *as-is*.
 
 The original heuristic classified anything with a dotted ``__qualname__`` as a
 method. A closure's qualname always contains ``<locals>`` and dots, so it was
-misclassified; ``_resolve_syscall_callback`` then tried
-``getattr(plugins, "Outer")`` / ``hasattr(instance, "handler")``, failed, logged
-``"Could not find method handler on instance"`` and returned ``None`` — silently
-dropping the hook. This is exactly the path the ``breakpoint syscall`` CLI takes,
-because ``HookLogger.register_syscall`` wraps every action in a nested ``handler``
-closure.
+misclassified, and ``_resolve_callback`` then split the qualname and tried
+``getattr(plugins, "Outer")`` / ``hasattr(instance, "handler")``. The
+consequences differed by API:
 
-These tests drive the *real* module (behind the ``hyper.consts`` FFI-enum
-boundary, so they need the real ISF fixture) with a null ``plugins`` bound.
+* **syscalls** logged ``"Could not find method handler on instance"`` and
+  returned ``None`` — silently dropping the hook (the ``breakpoint syscall`` CLI
+  bug, since ``HookLogger.register_syscall`` wraps every action in a nested
+  ``handler`` closure);
+* **uprobes/kprobes** fell through to ``return f`` (hook still fired) *unless* a
+  plugin was registered under the closure's outer name and exposed a matching
+  attribute — then they bound to the **wrong** callable.
+
+The fix, in all three, is to also require ``<locals>`` be absent from the
+qualname, so a nested closure is never mistaken for a method. These tests drive
+the real modules (behind the ``hyper.consts`` FFI-enum boundary, so they need the
+real ISF fixture) with a null ``plugins`` bound.
 """
 from pathlib import Path
 
@@ -29,7 +36,7 @@ import pytest
 from penguin.testing import load_module
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SYSCALLS = str(REPO_ROOT / "pyplugins" / "apis" / "syscalls.py")
+APIS = REPO_ROOT / "pyplugins" / "apis"
 
 
 # --- module-level stand-ins ------------------------------------------------- #
@@ -41,19 +48,29 @@ SYSCALLS = str(REPO_ROOT / "pyplugins" / "apis" / "syscalls.py")
 
 class _ClosureMaker:
     """Stands in for ``HookLogger``: a method that returns a nested closure,
-    just like ``register_syscall`` does with its ``handler``."""
+    just like ``register_syscall``/``register_uprobe`` do with their ``handler``.
+    The closure's qualname is ``_ClosureMaker.register.<locals>.handler``."""
 
     def register(self):
-        def handler(regs, proto, sc, *args):   # nested closure -> "<locals>"
+        def handler(*args, **kwargs):
             yield from ()
         return handler
 
 
-class _MethodPlugin:
-    """Stands in for a normal plugin whose class-body method is registered
-    directly as a syscall callback."""
+class _Decoy:
+    """A plugin registered under the name ``_ClosureMaker`` (the closure's outer
+    class name) that *does* expose a ``handler`` attribute. A resolver that
+    misreads the closure as the method ``_ClosureMaker.handler`` would wrongly
+    bind to this instead of returning the closure."""
 
-    def on_syscall(self, regs, proto, sc, *args):
+    def handler(self, *args, **kwargs):
+        yield from ()
+
+
+class _MethodPlugin:
+    """A normal plugin whose class-body method is registered directly."""
+
+    def on_event(self, *args, **kwargs):
         yield from ()
 
 
@@ -68,62 +85,78 @@ class _RecordingLogger:
         pass
 
 
-def _make_syscalls(igloo_ko_isf):
-    """Import the real ``apis.syscalls`` (real consts via the ISF) and build a
-    ``Syscalls`` instance without its PANDA-heavy ``__init__``, wiring only the
-    attributes the decorator and resolver touch."""
-    mod, mgr = load_module(SYSCALLS, real_isf=igloo_ko_isf)
-    s = mod.Syscalls.__new__(mod.Syscalls)
-    s._pending_hooks = []
-    s._hooks = {}
-    s.logger = _RecordingLogger()
-    return s, mgr
+# (module filename, plugin class, resolver method, resolver takes a hook_ptr arg)
+CASES = [
+    ("syscalls.py", "Syscalls", "_resolve_syscall_callback", False),
+    ("uprobes.py", "Uprobes", "_resolve_callback", True),
+    ("kprobes.py", "Kprobes", "_resolve_callback", True),
+]
+CASE_IDS = [c[1] for c in CASES]
 
 
-# --- the regression: a closure hook must not be treated as a method --------- #
-def test_nested_closure_hook_is_not_classified_as_method(igloo_ko_isf):
-    s, _ = _make_syscalls(igloo_ko_isf)
+def _make(igloo_ko_isf, filename, clsname):
+    """Import the real API module (real consts via the ISF) and build the plugin
+    without its PANDA-heavy ``__init__``, wiring only what the resolver touches."""
+    mod, mgr = load_module(str(APIS / filename), real_isf=igloo_ko_isf)
+    cls = getattr(mod, clsname)
+    inst = cls.__new__(cls)
+    inst._hooks = {}
+    inst.logger = _RecordingLogger()
+    return inst, mgr
+
+
+def _resolve(inst, method, takes_hook_ptr, f, is_method):
+    fn = getattr(inst, method)
+    # hook_ptr 0 is absent from the empty _hooks map, so the cache-update branch
+    # is skipped and only the classification path is exercised.
+    return fn(f, is_method, 0) if takes_hook_ptr else fn(f, is_method)
+
+
+# --- the regression, across all three probe APIs ---------------------------- #
+@pytest.mark.parametrize("filename,clsname,method,hp", CASES, ids=CASE_IDS)
+def test_nested_closure_hook_is_neither_dropped_nor_misbound(
+        igloo_ko_isf, filename, clsname, method, hp):
+    inst, mgr = _make(igloo_ko_isf, filename, clsname)
     handler = _ClosureMaker().register()
     assert "<locals>" in handler.__qualname__     # sanity: this is the shape that broke
+
+    # Register a decoy under the closure's outer class name that *has* a "handler"
+    # attribute. Pre-fix: syscalls -> None (drop); uprobes/kprobes -> decoy.handler
+    # (wrong bind). Either way, not the closure. Pass is_method=True (the worst
+    # case the old heuristic produced) so the resolver's guard is what's tested.
+    mgr._ClosureMaker = _Decoy()
+
+    resolved = _resolve(inst, method, hp, handler, True)
+
+    assert resolved is handler
+    assert inst.logger.errors == []
+
+
+@pytest.mark.parametrize("filename,clsname,method,hp", CASES, ids=CASE_IDS)
+def test_real_plugin_method_still_binds(igloo_ko_isf, filename, clsname, method, hp):
+    """Guard against over-correction: a genuine class-body plugin method (qualname
+    without "<locals>") must still resolve to the bound method on the instance."""
+    inst, mgr = _make(igloo_ko_isf, filename, clsname)
+    target = _MethodPlugin()
+    mgr._MethodPlugin = target                    # getattr(plugins, "_MethodPlugin")
+
+    resolved = _resolve(inst, method, hp, _MethodPlugin.on_event, True)
+
+    assert getattr(resolved, "__self__", None) is target
+    assert getattr(resolved, "__func__", None) is _MethodPlugin.on_event
+
+
+# --- syscalls decorator: is_method is recorded at registration -------------- #
+def test_syscalls_decorator_flags_closure_as_not_a_method(igloo_ko_isf):
+    """Cover the *other* fix site: the ``@syscall`` decorator stores ``is_method``
+    in the hook config at registration time, and it must be False for a closure."""
+    mod, mgr = load_module(str(APIS / "syscalls.py"), real_isf=igloo_ko_isf)
+    s = mod.Syscalls.__new__(mod.Syscalls)
+    s._pending_hooks = []
+    handler = _ClosureMaker().register()
 
     s.syscall("ioctl")(handler)
 
     hook_config = s._pending_hooks[-1][0]
     assert hook_config["callback"] is handler
     assert hook_config["is_method"] is False
-
-    # With is_method False the resolver returns the closure unchanged (the hook
-    # fires) rather than trying — and failing — to bind it to a plugin instance.
-    assert s._resolve_syscall_callback(handler, hook_config["is_method"]) is handler
-
-
-def test_resolver_does_not_drop_closure_even_if_flagged_a_method(igloo_ko_isf):
-    """Defense in depth: even if a caller passes ``is_method=True`` for a closure,
-    the resolver must return the closure (not ``None``) and log no
-    "Could not find method" error — the exact failure the user hit."""
-    s, mgr = _make_syscalls(igloo_ko_isf)
-    handler = _ClosureMaker().register()
-    # Make the pre-fix error path deterministic: a real instance is resolvable by
-    # class name but has no "handler" attribute, so the old code logged + dropped.
-    mgr._ClosureMaker = _ClosureMaker()
-
-    resolved = s._resolve_syscall_callback(handler, True)
-
-    assert resolved is handler
-    assert s.logger.errors == []
-
-
-# --- positive control: a genuine plugin method still resolves --------------- #
-def test_plugin_method_hook_still_resolves_to_bound_method(igloo_ko_isf):
-    s, mgr = _make_syscalls(igloo_ko_isf)
-    instance = _MethodPlugin()
-    mgr._MethodPlugin = instance                  # getattr(plugins, "_MethodPlugin")
-
-    # Registered unbound (as at class-definition time): qualname "_MethodPlugin.on_syscall".
-    s.syscall("ioctl")(_MethodPlugin.on_syscall)
-    hook_config = s._pending_hooks[-1][0]
-    assert hook_config["is_method"] is True
-
-    resolved = s._resolve_syscall_callback(_MethodPlugin.on_syscall, True)
-    assert resolved.__self__ is instance
-    assert resolved.__func__ is _MethodPlugin.on_syscall
