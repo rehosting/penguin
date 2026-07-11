@@ -722,7 +722,9 @@ class Syscalls(Plugin):
         callable or None
             The resolved callable.
         """
-        if is_method and hasattr(f, '__qualname__') and '.' in f.__qualname__:
+        if (is_method and hasattr(f, '__qualname__')
+                and '.' in f.__qualname__
+                and '<locals>' not in f.__qualname__):
             class_name = f.__qualname__.split('.')[0]
             method_name = f.__qualname__.split('.')[-1]
             try:
@@ -1087,9 +1089,14 @@ class Syscalls(Plugin):
 
             # Detect if this is a method by checking if it has __self__ (bound method)
             # or if it's being called on a class (unbound method during class
-            # definition)
+            # definition). A nested closure (e.g. a handler defined inside another
+            # method) also has a dotted __qualname__, but it carries '<locals>' and
+            # is NOT resolvable via getattr(plugins, ClassName) -- exclude it so it
+            # is used directly rather than dropped at resolution time.
             is_method = hasattr(func, '__self__') or (
-                hasattr(func, '__qualname__') and '.' in func.__qualname__)
+                hasattr(func, '__qualname__')
+                and '.' in func.__qualname__
+                and '<locals>' not in func.__qualname__)
 
             # Create hook configuration
             hook_config = {
