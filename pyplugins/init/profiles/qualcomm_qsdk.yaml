@@ -1,0 +1,40 @@
+# SDK profile: ASUSWRT on Qualcomm QSDK (Atheros/IPQ + QCA SSDK switch).
+#
+# Fingerprint confirmed at the source level against a Qualcomm-QSDK ASUSWRT GPL
+# release: the QCA SSDK switch driver (qca-ssdk.ko), the ASUSWRT nvram ABI
+# (nvram_xfr, NVRAM_IOCTL_GET_SPACE / get_nvram_space over /dev/nvram), and the
+# uClibc loader (ld-uClibc.so.0) that ignores LD_PRELOAD -- which is exactly why
+# the bundle REPLACES libnvram.so via a DT_NEEDED shim instead of preloading.
+name: qualcomm_qsdk
+description: ASUSWRT on Qualcomm QSDK (QCA SSDK switch + uClibc, LD_PRELOAD-blind)
+
+provenance: ASUSWRT / Qualcomm QSDK reference rehost
+
+# qca-ssdk.ko is the silicon discriminator (vs Broadcom's et/robo switch).
+# get_nvram_space is the ASUSWRT nvram surface uClibc eager-binds. ld-uClibc.so.0
+# is the loader whose LD_PRELOAD-blindness makes the DT_NEEDED shim necessary.
+fingerprint:
+  - {kind: file, any: [qca-ssdk.ko]}                       # ClusterCollector.files
+  - {kind: symbol, any: [get_nvram_space, nvram_xfr]}      # LibrarySymbols
+  - {kind: file, any: [ld-uClibc.so.0]}                    # ClusterCollector.files
+enable_if:
+  min_signals: 2
+
+# SDK-general fix (verified in a Qualcomm-QSDK ASUSWRT reference rehost): the
+# uClibc loader ignores LD_PRELOAD and /etc/ld.so.preload, so Penguin's default
+# preload interception never loads. Replace the firmware's libnvram.so (which
+# rc/nvram/libshared all DT_NEEDED) with lib_inject, and alias the ASUS-specific
+# nvram symbols uClibc binds eagerly onto lib_inject helpers. (Model-identity
+# seeding like productid is per-device, not part of this SDK profile.)
+bundle:
+  static_files:
+    /usr/lib/libnvram.so:
+      type: shim
+      target: /igloo/dylibs/lib_inject.so
+  lib_inject:
+    aliases:
+      get_nvram_space: libinject_nvram_get_nvramspace
+      nvram_xfr: libinject_ret_0_arg
+      nvram_get_salt: libinject_ret_0_arg
+      nvram_file2nvram: libinject_ret_0
+      nvram_nvram2file: libinject_ret_0

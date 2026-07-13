@@ -1,0 +1,64 @@
+# SDK profile: ASUSWRT on Broadcom HND (et/robo switch + CFE bootloader nvram).
+#
+# A profile is fingerprint + bundle. SdkFinder scores the fingerprint against
+# static analyses that already run; SdkProfilePatch (BroadcomHndProfile) emits
+# the bundle as the named patch `sdk.broadcom_hnd`, ENABLED when the fingerprint
+# corroborates (>= enable_if.min_signals) and DISABLED (a search candidate)
+# otherwise.
+name: broadcom_hnd
+description: ASUSWRT on Broadcom HND (et/robo switch + CFE nvram)
+
+# Distilled from Broadcom-HND ASUSWRT reference rehosts. (Specific source
+# targets are tracked internally, not shipped, to keep private corpus names out
+# of this public repo.)
+provenance: ASUSWRT / Broadcom HND reference rehosts
+
+# Each entry is one signal, evaluated by SdkFinder against the named analysis.
+# The et/vlan primary switch, the rtkswitch tool, and the ASUSWRT nvram userland
+# together are distinctive; enable only when at least two corroborate.
+fingerprint:
+  - {kind: interface, any: [vlan1, vlan2, et]}            # InterfaceFinder
+  - {kind: executable, any: [rtkswitch, et, nvram]}       # ClusterCollector.executables (basenames)
+  - {kind: symbol, any: [nvram_get, acosNvramConfig_get]} # LibrarySymbols (ASUSWRT userland)
+enable_if:
+  min_signals: 2
+
+# The config this SDK tends to need. Verified as the shared intersection of two
+# Broadcom-HND ASUSWRT reference rehosts.
+bundle:
+  netdevs:
+    # Broadcom LAN switch is exposed as the VLAN device vlan1 (primary br0
+    # member); vlan2/vlan3 are WAN/guest; et is the Broadcom eth/switch device.
+    - vlan1
+    - vlan2
+    - et
+  nvram:
+    # ASUSWRT derives lan_ipaddr from the CFE var IpAddr_Lan, written at the
+    # factory into CFE flash and absent under emulation. Seed the CFE source and
+    # skip restore_defaults (which otherwise blanks lan_ipaddr on first boot).
+    IpAddr_Lan: 192.168.1.1
+    lan_ipaddr: 192.168.1.1
+    lan_netmask: 255.255.255.0
+    lan_proto: static
+    lan_ifname: br0
+    restore_defaults: "0"
+    et0macaddr: "00:11:22:33:44:50"
+    et1macaddr: "00:11:22:33:44:51"
+    et2macaddr: "00:11:22:33:44:52"
+  pseudofiles:
+    # Secondary Realtek RTL8365MB switch driven by /sbin/rtkswitch; satisfy its
+    # ioctls so the switch-config calls stop failing in a tight loop.
+    /dev/rtkswitch:
+      read: {model: zero}
+      write: {model: discard}
+      ioctl:
+        '*': {model: return_const, val: 1}
+    # CFE/flash partition table + boot partition, read by ASUSWRT board code to
+    # locate the CFE nvram region.
+    /proc/mtd:
+      read: {model: const_buf, val: "AAAAAAAAAAAAAA FLSH\0"}
+    /dev/mtd0:
+      read: {model: const_buf, val: "BBBBBBBBBBBBBB FLSH CCCCCCCCCC\0"}
+      ioctl:
+        '2149600513': {model: return_const, val: 0}   # MEMGETINFO
+        '*': {model: return_const, val: 0}
