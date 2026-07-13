@@ -216,9 +216,24 @@ nix build .#dockerImage --override-input penguin-qemu path:/abs/path/to/qemu --a
 For a permanent change, edit the input's `url` in `flake.nix` and
 `nix flake update <input>` (see [Updating pinned inputs](#updating-pinned-inputs)).
 
-## Not yet covered
+## Development loop
 
-- A Nix **devShell** for the `--pydev` live-edit loop is not yet implemented.
-  `./penguin --pydev` still mounts `src/`→`/pkg` and `pip install -e`s over the
-  image for iterating on `src/` and `pyplugins/`; for a from-scratch image
-  rebuild use `./penguin --build` (which runs `nix build .#dockerImage`).
+The image is an immutable `python3.withPackages` env (no pip, read-only
+`/nix/store`), so iteration doesn't reinstall — it overlays live sources:
+
+- **`nix develop`** — the host-side fast lane. Drops into `pythonEnv` with
+  `src/`, `pengutils/`, and `pyplugins/` on `PYTHONPATH`, so `import penguin`
+  resolves to the worktree. For host-side plugin logic, `tests/unit/`,
+  `gen_docs`, and linting — no container, no boot. (Not emulation: PANDA-QEMU
+  and `/igloo_static` only exist in the image.)
+- **`./penguin --pydev run ...`** — iterate on `src/`/`pyplugins/` against a
+  real guest boot without a rebuild: bind-mounts `src/`→`/pkg` and
+  `pyplugins/`→`/pyplugins` and prepends them to `PYTHONPATH`.
+- **`./penguin --build`** — a full image rebuild (`nix build .#dockerImage`),
+  needed only when something *baked into the image* changes (guest tools, qemu,
+  kernel, native helpers). For a local dep checkout, add `--override-input
+  <input> path:/abs/checkout`. `buildLayeredImage` re-tars only the changed
+  layers, but Nix evaluation of the flake (~tens of seconds) is a fixed
+  per-build floor.
+
+See [dev.md](dev.md) for the full walkthrough.
