@@ -1327,143 +1327,141 @@ LibInjectAliases = _newtype(
 )
 
 
-class StubAction(PartialModelMixin, BaseModel):
-    """A single declarative symbol stub.
-
-    Two mutually exclusive forms:
-
-    * **Symbol return** (``return`` / ``type`` / ``guard_null_args``): force a
-      symbol to return a constant, optionally guarding NULL arguments. Compiles
-      to a generated C shim plus a ``lib_inject`` alias (``--defsym``) -- a
-      global, LD_PRELOAD-based replacement that touches no binary on disk.
-
-    * **Assembly body** (``body`` / ``mode`` / ``expect``): overwrite the
-      instructions at a specific symbol location with assembled machine code.
-      Used when the stub key is ``symbol`` or ``symbol@offset``. Compiles down to
-      a ``static_files`` ``binary_patch`` action (the single owner of on-disk
-      patching); it edits one specific binary rather than replacing a symbol
-      everywhere."""
-
-    model_config = ConfigDict(
-        title="Symbol stub", extra="forbid", populate_by_name=True
-    )
-
-    return_: Annotated[
-        Optional[int],
-        Field(
-            None,
-            alias="return",
-            title="Constant value to return",
-            description=(
-                "Value the stubbed symbol returns. For a plain stub this is the "
-                "return value; for a 'guard_null_args' stub it is the value "
-                "returned on the NULL path (defaults to 0 if omitted)."
-            ),
-            examples=[0, 1, 42],
-        ),
-    ]
-
-    type: Annotated[
-        Optional[str],
-        Field(
-            "long",
-            title="Return C type",
-            description=(
-                "C return type of the generated shim. Defaults to register-width "
-                "'long', which is correct for most integer/pointer returns."
-            ),
-            examples=["long", "int", "unsigned int", "void *"],
-        ),
-    ]
-
-    guard_null_args: Annotated[
-        Optional[list[int]],
-        Field(
-            None,
-            title="NULL-guarded argument positions",
-            description=(
-                "Zero-based argument positions to NULL-check. If any listed "
-                "argument is NULL the shim returns the 'return' constant; "
-                "otherwise it calls through to the real symbol. Limited to the "
-                "first 8 integer/pointer register arguments (indices 0-7); "
-                "floating-point, struct-by-value, and stack arguments are not "
-                "preserved on the call-through path."
-            ),
-            examples=[[0], [0, 1]],
-        ),
-    ]
-
-    body: Annotated[
-        Optional[StrLines],
-        Field(
-            None,
-            title="Assembly body to write at the symbol",
-            description=(
-                "Assembly to assemble (via keystone) and write over the "
-                "instructions at the stub's symbol/offset. Use with a "
-                "'symbol' or 'symbol@offset' key. Compiles down to a "
-                "static_files 'binary_patch'. Mutually exclusive with "
-                "'return'/'guard_null_args'."
-            ),
-            examples=["mov v0, $zero\njr $ra", "movs r0, #0\nbx lr"],
-        ),
-    ]
-
-    mode: Annotated[
-        Optional[str],
-        Field(
-            None,
-            title="Assembly mode for 'body'",
-            description=(
-                "Assembly mode passed through to binary_patch (e.g. 'arm' or "
-                "'thumb' on ARM). Defaults to the target arch's natural mode."
-            ),
-            examples=["arm", "thumb"],
-        ),
-    ]
-
-    expect: Annotated[
-        Optional[str],
-        Field(
-            None,
-            title="Expected original bytes",
-            description=(
-                "Optional hex string of the bytes expected at the patch site; "
-                "passed through to binary_patch as a safety check before the "
-                "'body' overwrite."
-            ),
-            examples=["00000000", "1eff2fe1"],
-        ),
-    ]
-
-    @model_validator(mode="after")
-    def _require_action(self):
-        is_body = self.body is not None
-        is_return = self.return_ is not None or bool(self.guard_null_args)
-        if is_body and is_return:
+def _stub_action_check(self):
+    # `return` is a Python keyword, so read it dynamically (see StubAction).
+    ret = getattr(self, "return", None)
+    body = self.body
+    guard = self.guard_null_args
+    is_body = body is not None
+    is_return = ret is not None or bool(guard)
+    if is_body and is_return:
+        raise ValueError(
+            "a stub uses either 'body' (assembly patch) or "
+            "'return'/'guard_null_args' (symbol return), not both"
+        )
+    if not is_body and not is_return:
+        raise ValueError(
+            "a stub must set 'body', 'return', and/or 'guard_null_args'"
+        )
+    if not is_body and (self.mode is not None or self.expect is not None):
+        raise ValueError("'mode'/'expect' are only valid with a 'body' stub")
+    for i in guard or []:
+        if i < 0 or i > 7:
             raise ValueError(
-                "a stub uses either 'body' (assembly patch) or "
-                "'return'/'guard_null_args' (symbol return), not both"
+                "guard_null_args indices must be between 0 and 7 "
+                "(only the first 8 register arguments can be guarded)"
             )
-        if not is_body and not is_return:
-            raise ValueError(
-                "a stub must set 'body', 'return', and/or 'guard_null_args'"
-            )
-        if is_body and (self.guard_null_args or self.return_ is not None):
-            raise ValueError(
-                "'return'/'guard_null_args' are not valid with a 'body' stub"
-            )
-        if not is_body and (self.mode is not None or self.expect is not None):
-            raise ValueError(
-                "'mode'/'expect' are only valid with a 'body' stub"
-            )
-        for i in self.guard_null_args or []:
-            if i < 0 or i > 7:
-                raise ValueError(
-                    "guard_null_args indices must be between 0 and 7 "
-                    "(only the first 8 register arguments can be guarded)"
-                )
-        return self
+    return self
+
+
+# Built dynamically (rather than a normal class) so the field can be named
+# literally `return` -- a Python keyword. This mirrors how the `move` action
+# defines its `from` field. Using an alias instead would round-trip badly:
+# config load does model_dump(exclude_none=True) WITHOUT by_alias and then
+# jsonschema-validates against the (aliased) schema, so an aliased `return_`
+# field would dump as `return_` and fail the schema's `return`.
+StubAction = type(
+    "StubAction",
+    (PartialModelMixin, BaseModel),
+    {
+        "model_config": ConfigDict(title="Symbol stub", extra="forbid"),
+        "__doc__": (
+            "A single declarative symbol stub. Two mutually exclusive forms: "
+            "symbol-return ('return'/'type'/'guard_null_args'), which compiles "
+            "to a generated C shim plus a lib_inject '--defsym' alias; and "
+            "assembly-body ('body'/'mode'/'expect') at a 'symbol' or "
+            "'symbol@offset' key, which compiles to a static_files "
+            "'binary_patch'."
+        ),
+        "__annotations__": {
+            "return": Annotated[
+                Optional[int],
+                Field(
+                    None,
+                    title="Constant value to return",
+                    description=(
+                        "Value the stubbed symbol returns. For a plain stub this "
+                        "is the return value; for a 'guard_null_args' stub it is "
+                        "the value returned on the NULL path (defaults to 0)."
+                    ),
+                    examples=[0, 1, 42],
+                ),
+            ],
+            "type": Annotated[
+                Optional[str],
+                Field(
+                    "long",
+                    title="Return C type",
+                    description=(
+                        "C return type of the generated shim. Defaults to "
+                        "register-width 'long', correct for most integer/pointer "
+                        "returns."
+                    ),
+                    examples=["long", "int", "unsigned int", "void *"],
+                ),
+            ],
+            "guard_null_args": Annotated[
+                Optional[list[int]],
+                Field(
+                    None,
+                    title="NULL-guarded argument positions",
+                    description=(
+                        "Zero-based argument positions to NULL-check. If any "
+                        "listed argument is NULL the shim returns the 'return' "
+                        "constant; otherwise it calls through to the real symbol. "
+                        "Limited to the first 8 integer/pointer register "
+                        "arguments (indices 0-7); floating-point, struct-by-value, "
+                        "and stack arguments are not preserved on the call-through "
+                        "path."
+                    ),
+                    examples=[[0], [0, 1]],
+                ),
+            ],
+            "body": Annotated[
+                Optional[StrLines],
+                Field(
+                    None,
+                    title="Assembly body to write at the symbol",
+                    description=(
+                        "Assembly to assemble (via keystone) and write over the "
+                        "instructions at the stub's symbol/offset. Use with a "
+                        "'symbol' or 'symbol@offset' key. Compiles down to a "
+                        "static_files 'binary_patch'. Mutually exclusive with "
+                        "'return'/'guard_null_args'."
+                    ),
+                    examples=["mov v0, $zero\njr $ra", "movs r0, #0\nbx lr"],
+                ),
+            ],
+            "mode": Annotated[
+                Optional[str],
+                Field(
+                    None,
+                    title="Assembly mode for 'body'",
+                    description=(
+                        "Assembly mode passed through to binary_patch (e.g. 'arm' "
+                        "or 'thumb' on ARM). Defaults to the target arch's natural "
+                        "mode."
+                    ),
+                    examples=["arm", "thumb"],
+                ),
+            ],
+            "expect": Annotated[
+                Optional[str],
+                Field(
+                    None,
+                    title="Expected original bytes",
+                    description=(
+                        "Optional hex string of the bytes expected at the patch "
+                        "site; passed through to binary_patch as a safety check "
+                        "before the 'body' overwrite."
+                    ),
+                    examples=["00000000", "1eff2fe1"],
+                ),
+            ],
+        },
+        "_require_action": model_validator(mode="after")(_stub_action_check),
+    },
+)
 
 
 class StubLibrary(RootModel):

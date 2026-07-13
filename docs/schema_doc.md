@@ -2693,30 +2693,16 @@ Symbols (or globs) to stub within one library/object. The library key is
 
 ##### `lib_inject.stubs.<string>.<string>` Symbol stub
 
-A single declarative symbol stub.
+A single declarative symbol stub. Two mutually exclusive forms: symbol-return ('return'/'type'/'guard_null_args'), which compiles to a generated C shim plus a lib_inject '--defsym' alias; and assembly-body ('body'/'mode'/'expect') at a 'symbol' or 'symbol@offset' key, which compiles to a static_files 'binary_patch'.
 
-    Two mutually exclusive forms:
-
-    * **Symbol return** (``return`` / ``type`` / ``guard_null_args``): force a
-      symbol to return a constant, optionally guarding NULL arguments. Compiles
-      to a generated C shim plus a ``lib_inject`` alias (``--defsym``) -- a
-      global, LD_PRELOAD-based replacement that touches no binary on disk.
-
-    * **Assembly body** (``body`` / ``mode`` / ``expect``): overwrite the
-      instructions at a specific symbol location with assembled machine code.
-      Used when the stub key is ``symbol`` or ``symbol@offset``. Compiles down to
-      a ``static_files`` ``binary_patch`` action (the single owner of on-disk
-      patching); it edits one specific binary rather than replacing a symbol
-      everywhere.
-
-###### `lib_inject.stubs.<string>.<string>.return_` Constant value to return
+###### `lib_inject.stubs.<string>.<string>.return` Constant value to return
 
 |||
 |-|-|
 |__Type__|integer or null|
 |__Default__|`null`|
 
-Value the stubbed symbol returns. For a plain stub this is the return value; for a 'guard_null_args' stub it is the value returned on the NULL path (defaults to 0 if omitted).
+Value the stubbed symbol returns. For a plain stub this is the return value; for a 'guard_null_args' stub it is the value returned on the NULL path (defaults to 0).
 
 ```yaml
 0
@@ -2737,7 +2723,7 @@ Value the stubbed symbol returns. For a plain stub this is the return value; for
 |__Type__|string or null|
 |__Default__|`long`|
 
-C return type of the generated shim. Defaults to register-width 'long', which is correct for most integer/pointer returns.
+C return type of the generated shim. Defaults to register-width 'long', correct for most integer/pointer returns.
 
 ```yaml
 long

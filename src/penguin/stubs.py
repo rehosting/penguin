@@ -69,8 +69,7 @@ def _action_get(action, key, default=None):
                 return action["return"]
             return action.get("return_", default)
         return action.get(key, default)
-    if key == "return":
-        return getattr(action, "return_", default)
+    # StubAction model: the field is literally named `return` (a keyword).
     return getattr(action, key, default)
 
 
