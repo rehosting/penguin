@@ -1327,6 +1327,185 @@ LibInjectAliases = _newtype(
 )
 
 
+class StubAction(PartialModelMixin, BaseModel):
+    """A single declarative symbol stub.
+
+    Two mutually exclusive forms:
+
+    * **Symbol return** (``return`` / ``type`` / ``guard_null_args``): force a
+      symbol to return a constant, optionally guarding NULL arguments. Compiles
+      to a generated C shim plus a ``lib_inject`` alias (``--defsym``) -- a
+      global, LD_PRELOAD-based replacement that touches no binary on disk.
+
+    * **Assembly body** (``body`` / ``mode`` / ``expect``): overwrite the
+      instructions at a specific symbol location with assembled machine code.
+      Used when the stub key is ``symbol`` or ``symbol@offset``. Compiles down to
+      a ``static_files`` ``binary_patch`` action (the single owner of on-disk
+      patching); it edits one specific binary rather than replacing a symbol
+      everywhere."""
+
+    model_config = ConfigDict(
+        title="Symbol stub", extra="forbid", populate_by_name=True
+    )
+
+    return_: Annotated[
+        Optional[int],
+        Field(
+            None,
+            alias="return",
+            title="Constant value to return",
+            description=(
+                "Value the stubbed symbol returns. For a plain stub this is the "
+                "return value; for a 'guard_null_args' stub it is the value "
+                "returned on the NULL path (defaults to 0 if omitted)."
+            ),
+            examples=[0, 1, 42],
+        ),
+    ]
+
+    type: Annotated[
+        Optional[str],
+        Field(
+            "long",
+            title="Return C type",
+            description=(
+                "C return type of the generated shim. Defaults to register-width "
+                "'long', which is correct for most integer/pointer returns."
+            ),
+            examples=["long", "int", "unsigned int", "void *"],
+        ),
+    ]
+
+    guard_null_args: Annotated[
+        Optional[list[int]],
+        Field(
+            None,
+            title="NULL-guarded argument positions",
+            description=(
+                "Zero-based argument positions to NULL-check. If any listed "
+                "argument is NULL the shim returns the 'return' constant; "
+                "otherwise it calls through to the real symbol. Limited to the "
+                "first 8 integer/pointer register arguments (indices 0-7); "
+                "floating-point, struct-by-value, and stack arguments are not "
+                "preserved on the call-through path."
+            ),
+            examples=[[0], [0, 1]],
+        ),
+    ]
+
+    body: Annotated[
+        Optional[StrLines],
+        Field(
+            None,
+            title="Assembly body to write at the symbol",
+            description=(
+                "Assembly to assemble (via keystone) and write over the "
+                "instructions at the stub's symbol/offset. Use with a "
+                "'symbol' or 'symbol@offset' key. Compiles down to a "
+                "static_files 'binary_patch'. Mutually exclusive with "
+                "'return'/'guard_null_args'."
+            ),
+            examples=["mov v0, $zero\njr $ra", "movs r0, #0\nbx lr"],
+        ),
+    ]
+
+    mode: Annotated[
+        Optional[str],
+        Field(
+            None,
+            title="Assembly mode for 'body'",
+            description=(
+                "Assembly mode passed through to binary_patch (e.g. 'arm' or "
+                "'thumb' on ARM). Defaults to the target arch's natural mode."
+            ),
+            examples=["arm", "thumb"],
+        ),
+    ]
+
+    expect: Annotated[
+        Optional[str],
+        Field(
+            None,
+            title="Expected original bytes",
+            description=(
+                "Optional hex string of the bytes expected at the patch site; "
+                "passed through to binary_patch as a safety check before the "
+                "'body' overwrite."
+            ),
+            examples=["00000000", "1eff2fe1"],
+        ),
+    ]
+
+    @model_validator(mode="after")
+    def _require_action(self):
+        is_body = self.body is not None
+        is_return = self.return_ is not None or bool(self.guard_null_args)
+        if is_body and is_return:
+            raise ValueError(
+                "a stub uses either 'body' (assembly patch) or "
+                "'return'/'guard_null_args' (symbol return), not both"
+            )
+        if not is_body and not is_return:
+            raise ValueError(
+                "a stub must set 'body', 'return', and/or 'guard_null_args'"
+            )
+        if is_body and (self.guard_null_args or self.return_ is not None):
+            raise ValueError(
+                "'return'/'guard_null_args' are not valid with a 'body' stub"
+            )
+        if not is_body and (self.mode is not None or self.expect is not None):
+            raise ValueError(
+                "'mode'/'expect' are only valid with a 'body' stub"
+            )
+        for i in self.guard_null_args or []:
+            if i < 0 or i > 7:
+                raise ValueError(
+                    "guard_null_args indices must be between 0 and 7 "
+                    "(only the first 8 register arguments can be guarded)"
+                )
+        return self
+
+
+class StubLibrary(RootModel):
+    """Symbols (or globs) to stub within one library/object. The library key is
+    an organizational label and the glob-resolution target; aliasing itself is
+    global (``--defsym``)."""
+
+    root: dict[str, StubAction]
+    model_config = ConfigDict(title="Per-library symbol stubs")
+
+
+class Stubs(RootModel):
+    """Declarative symbol stubs, grouped by library/object.
+
+    Each key is a library/object (an absolute guest path like ``/lib/libc.so``
+    or a bare basename like ``libX.so`` searched for in the rootfs). Each value
+    maps a symbol key to a stub action. A symbol key is either a symbol name, a
+    glob such as ``nvram_*`` (expanded against the library's exported symbols at
+    build time; symbol-return stubs only), or ``symbol@offset`` (assembly-body
+    stubs only, where ``offset`` is added to the symbol address)."""
+
+    root: dict[str, StubLibrary]
+    model_config = ConfigDict(
+        title="Declarative symbol stubs",
+        json_schema_extra=dict(
+            examples=[
+                {},
+                {
+                    "libX.so": {
+                        "get_flag": {"return": 0},
+                        "nvram_*": {"return": 0},
+                        "hw_probe": {"body": "movs r0, #0\nbx lr", "mode": "thumb"},
+                    },
+                    "/lib/libc.so": {
+                        "memcpy": {"guard_null_args": [0, 1], "return": 0},
+                    },
+                },
+            ]
+        ),
+    )
+
+
 class LibInject(PartialModelMixin, BaseModel):
     """Library functions to be intercepted"""
 
@@ -1347,6 +1526,19 @@ class LibInject(PartialModelMixin, BaseModel):
             None,
             title="Extra injected library code",
             description="Custom source code for library functions to intercept and model",
+        ),
+    ]
+
+    stubs: Annotated[
+        Optional[Stubs],
+        Field(
+            None,
+            title="Declarative symbol stubs",
+            description=(
+                "Force library/object symbols to return a constant. Compiles "
+                "down to generated C shims plus 'aliases' entries; a symbol may "
+                "not appear in both 'stubs' and 'aliases'."
+            ),
         ),
     ]
 

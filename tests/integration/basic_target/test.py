@@ -187,6 +187,30 @@ def assert_dropin_c_result(project_dir):
         raise AssertionError(f"C drop-in did not point at compiled cache: {host_path}")
 
 
+def assert_stubs_result(project_dir):
+    """Verify the declarative `lib_inject.stubs` return-stub compiled through the
+    real per-arch toolchain: the generated shim was written, and its symbol made
+    it into the cached lib_inject .so. (A failed codegen or --defsym link would
+    have already aborted `penguin run`.)"""
+    gen = project_dir / "lib_inject.d" / ".generated" / "stub_igloo_stub_probe.c"
+    if not gen.exists():
+        raise AssertionError(f"generated stub shim not written: {gen}")
+    src = gen.read_text()
+    if "return (long)43981;" not in src:
+        raise AssertionError(f"generated stub shim unexpected contents: {src!r}")
+
+    cache_dir = project_dir / "qcows" / "cache"
+    matches = sorted(cache_dir.glob("lib_inject_*.so"))
+    if not matches:
+        raise AssertionError(f"no cached lib_inject build found under {cache_dir}")
+    shim = b"__igloo_stub_igloo_stub_probe"
+    if not any(shim in path.read_bytes() for path in matches):
+        raise AssertionError(
+            f"stub shim symbol {shim!r} missing from cached lib_inject .so files: "
+            f"{[p.name for p in matches]}"
+        )
+
+
 def run_test(kernel, arch, image, execution_mode="qemu"):
     id = subprocess.check_output(
         f"docker create {image}", shell=True).decode().strip()
@@ -234,6 +258,8 @@ def run_test(kernel, arch, image, execution_mode="qemu"):
         assert_dropin_c_result(project_path)
 
     assert_lib_inject_dropin_result(project_path)
+
+    assert_stubs_result(project_path)
 
     logger.info("Test completed")
 

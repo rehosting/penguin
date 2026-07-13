@@ -280,6 +280,28 @@ pseudofiles:
                 val: 0
 ```
 
+## Stubbing library functions
+
+When a program calls a library function that misbehaves under emulation (a
+hardware probe, a licensing check, a NVRAM accessor), forcing that function to
+return a constant is often enough to get past it. Declare it under
+`lib_inject.stubs`:
+
+```yaml
+lib_inject:
+  stubs:
+    libvendor.so:
+      hw_present: { return: 1 }
+      "check_*":  { return: 0 }        # glob over exported symbols
+    /lib/libc.so:
+      memcpy: { guard_null_args: [0, 1], return: 0 }  # skip on NULL, else real
+```
+
+This compiles down to the injected library (a generated shim + a `--defsym`
+alias), so it reuses the same build path as `lib_inject.aliases`/`extra`. See
+[lib_inject.md](lib_inject.md) for the full reference, including globs,
+return-type overrides, the `guard_null_args` call-through, and its limits.
+
 ## Advanced debugging
 If you've tried selecting the correct init program, modeling psueodfiles, and
 adding environment variables but things are still failing, you'll need to

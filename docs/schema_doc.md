@@ -2647,6 +2647,188 @@ nvram_init
 
 Custom source code for library functions to intercept and model
 
+### `lib_inject.stubs` Declarative symbol stubs
+
+|||
+|-|-|
+|__Default__|`null`|
+
+Declarative symbol stubs, grouped by library/object.
+
+    Each key is a library/object (an absolute guest path like ``/lib/libc.so``
+    or a bare basename like ``libX.so`` searched for in the rootfs). Each value
+    maps a symbol key to a stub action. A symbol key is either a symbol name, a
+    glob such as ``nvram_*`` (expanded against the library's exported symbols at
+    build time; symbol-return stubs only), or ``symbol@offset`` (assembly-body
+    stubs only, where ``offset`` is added to the symbol address).
+
+```yaml
+{}
+```
+
+```yaml
+/lib/libc.so:
+  memcpy:
+    guard_null_args:
+    - 0
+    - 1
+    return: 0
+libX.so:
+  get_flag:
+    return: 0
+  hw_probe:
+    body: 'movs r0, #0
+
+      bx lr'
+    mode: thumb
+  nvram_*:
+    return: 0
+```
+
+#### `lib_inject.stubs.<string>` Per-library symbol stubs
+
+Symbols (or globs) to stub within one library/object. The library key is
+    an organizational label and the glob-resolution target; aliasing itself is
+    global (``--defsym``).
+
+##### `lib_inject.stubs.<string>.<string>` Symbol stub
+
+A single declarative symbol stub.
+
+    Two mutually exclusive forms:
+
+    * **Symbol return** (``return`` / ``type`` / ``guard_null_args``): force a
+      symbol to return a constant, optionally guarding NULL arguments. Compiles
+      to a generated C shim plus a ``lib_inject`` alias (``--defsym``) -- a
+      global, LD_PRELOAD-based replacement that touches no binary on disk.
+
+    * **Assembly body** (``body`` / ``mode`` / ``expect``): overwrite the
+      instructions at a specific symbol location with assembled machine code.
+      Used when the stub key is ``symbol`` or ``symbol@offset``. Compiles down to
+      a ``static_files`` ``binary_patch`` action (the single owner of on-disk
+      patching); it edits one specific binary rather than replacing a symbol
+      everywhere.
+
+###### `lib_inject.stubs.<string>.<string>.return_` Constant value to return
+
+|||
+|-|-|
+|__Type__|integer or null|
+|__Default__|`null`|
+
+Value the stubbed symbol returns. For a plain stub this is the return value; for a 'guard_null_args' stub it is the value returned on the NULL path (defaults to 0 if omitted).
+
+```yaml
+0
+```
+
+```yaml
+1
+```
+
+```yaml
+42
+```
+
+###### `lib_inject.stubs.<string>.<string>.type` Return C type
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`long`|
+
+C return type of the generated shim. Defaults to register-width 'long', which is correct for most integer/pointer returns.
+
+```yaml
+long
+```
+
+```yaml
+int
+```
+
+```yaml
+unsigned int
+```
+
+```yaml
+void *
+```
+
+###### `lib_inject.stubs.<string>.<string>.guard_null_args` NULL-guarded argument positions
+
+|||
+|-|-|
+|__Type__|list of integer or null|
+|__Default__|`null`|
+
+Zero-based argument positions to NULL-check. If any listed argument is NULL the shim returns the 'return' constant; otherwise it calls through to the real symbol. Limited to the first 8 integer/pointer register arguments (indices 0-7); floating-point, struct-by-value, and stack arguments are not preserved on the call-through path.
+
+```yaml
+- 0
+```
+
+```yaml
+- 0
+- 1
+```
+
+###### `lib_inject.stubs.<string>.<string>.body` Assembly body to write at the symbol
+
+|||
+|-|-|
+|__Type__|string|
+|__Patch merge behavior__|Concatenate strings separated by `'\n'`|
+|__Default__|`null`|
+
+Assembly to assemble (via keystone) and write over the instructions at the stub's symbol/offset. Use with a 'symbol' or 'symbol@offset' key. Compiles down to a static_files 'binary_patch'. Mutually exclusive with 'return'/'guard_null_args'.
+
+```yaml
+'mov v0, $zero
+
+  jr $ra'
+```
+
+```yaml
+'movs r0, #0
+
+  bx lr'
+```
+
+###### `lib_inject.stubs.<string>.<string>.mode` Assembly mode for 'body'
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Assembly mode passed through to binary_patch (e.g. 'arm' or 'thumb' on ARM). Defaults to the target arch's natural mode.
+
+```yaml
+arm
+```
+
+```yaml
+thumb
+```
+
+###### `lib_inject.stubs.<string>.<string>.expect` Expected original bytes
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Optional hex string of the bytes expected at the patch site; passed through to binary_patch as a safety check before the 'body' overwrite.
+
+```yaml
+'00000000'
+```
+
+```yaml
+1eff2fe1
+```
+
 ## `static_files` Static files
 
 Files to create in the guest filesystem

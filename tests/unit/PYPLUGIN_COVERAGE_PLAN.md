@@ -212,6 +212,27 @@ Ordered most-valuable first. Percentages are current host coverage.
     staged window is left untouched and the tag/why land in
     `binary_patches.yaml`). This replaces the file's original hand-rolled
     `sys.modules`-stub loader — the case that motivated the harness.
+11. ✅ **`src/penguin/stubs.py` — `lib_inject.stubs` codegen** — done
+    (`test_stubs.py`, draft 07). The declarative `lib_inject.stubs` section
+    (force a library/object symbol to return a constant) compiles to a generated
+    C shim + a `--defsym` alias, reusing the existing `nvram2` lib_inject build.
+    The codegen is a pure host-side module, so it is fully unit-tested here:
+    schema validation (`structure.StubAction`: require `return`/`guard_null_args`,
+    guard-index bounds, unknown-key rejection), `generate()` output (plain return,
+    `type` override, `guard_null_args` call-through via `dlsym(RTLD_NEXT,...)` with
+    no `dlsym` leaking into plain stubs), glob expansion against an injected
+    symbol resolver, the missing/ambiguous/stripped-library and no-match hard
+    errors, the duplicate-symbol and `stubs`↔`aliases` precedence conflicts, and
+    `write_files` regeneration. The assembly-**body** form (`symbol@offset:
+    {body: asm}`) is also covered: `parse_symbol_key`, `generate_patches`
+    (offset+delta, mode/expect passthrough, glob rejection), `_vaddr_to_file_offset`,
+    `merge_patches_into_static_files` (create/append/normalize/conflict), and that
+    the synthesized `binary_patch` validates against the real `StaticFiles`
+    schema. The `nvram2` glue that writes `lib_inject.d/.generated/`, runs the
+    `clang-20` cross-compile, and resolves symbol offsets from the rootfs stays
+    out of host scope (same toolchain-image boundary noted for `nvram2.py` above)
+    — covered by the generated-C `-fsyntax-only` check and a `tests/integration/`
+    boot fixture, not host unit tests.
 
     **Out of scope — stays a `tests/integration/` fixture (`live_image.yaml`):**
     the real guest round-trip (the batch hypercall's `hyp_file_op --range`
