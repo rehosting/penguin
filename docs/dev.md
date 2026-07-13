@@ -35,13 +35,36 @@ the `penguin` command is installed for a user or system.
 
 ## Iterating on Penguin's Python code
 
-For fast iteration on `src/` and `pyplugins/` without rebuilding the image, use
-`--pydev`, which live-mounts your source over the image and reinstalls it before
-each run:
+There are two loops, fastest first. Neither rebuilds the image.
+
+### Host-only logic + unit tests — `nix develop` (no container at all)
+
+For plugin *host-side* logic, config/schema work, `gen_docs`, linting, and the
+`tests/unit/` suite, drop into the dev shell: it's the exact interpreter the
+image runs (`pythonEnv`, all runtime deps) with the live `src/`, `pengutils/`,
+and `pyplugins/` trees on `PYTHONPATH`, so `import penguin` resolves to your
+worktree — edits take effect immediately, no build, no boot.
+
+```sh
+nix develop            # then, inside the shell:
+python3 -m pytest tests/unit/ pengutils/    # host-side tests in seconds
+python3 -m penguin ...                       # host tooling against live sources
+```
+
+This can't run emulation (PANDA-QEMU, `/igloo_static`, and the guest tools only
+exist inside the image) — use it for everything that doesn't need a guest boot.
+
+### Plugin behavior in a running guest — `--pydev` (no rebuild)
+
+To iterate on `src/`/`pyplugins/` against a *real boot* without rebuilding, use
+`--pydev`: it bind-mounts `src/ -> /pkg` and `pyplugins/ -> /pyplugins` and
+prepends them to `PYTHONPATH` (the image is an immutable `python3.withPackages`
+env with no pip, so this overlays the live tree rather than reinstalling). Edits
+apply on the next `run` — no rebuild, no root/pip step.
 
 ```sh
 ./penguin --pydev run projects/myfw     # edit src/ or pyplugins/ -> re-run
-./penguin --build --pydev run ...        # rebuild the image too
+./penguin --build --pydev run ...        # rebuild the image too (only if a baked-in dep changed)
 ```
 
 ## Dependency development
