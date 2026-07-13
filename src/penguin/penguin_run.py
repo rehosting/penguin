@@ -314,6 +314,10 @@ def run_config(
     if not os.path.isdir(qcow_dir):
         os.makedirs(qcow_dir, exist_ok=True)
 
+    state_dir = os.path.join(proj_dir, "state")
+    if not os.path.isdir(state_dir):
+        os.makedirs(state_dir, exist_ok=True)
+
     if out_dir is None:
         out_dir = os.path.join(proj_dir, "output")
     if not os.path.isdir(out_dir):
@@ -868,6 +872,7 @@ def run_config(
         "fs": config_fs,
         "fw": config_image,
         "outdir": out_dir,
+        "statedir": state_dir,
         "verbose": verbose,
         "telnet_port": telnet_port,
     }

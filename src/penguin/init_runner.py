@@ -170,6 +170,10 @@ class InitPluginRunner:
         # patch_name -> plugin name, filled as patches are collected
         self._patch_owner: Dict[str, str] = {}
 
+        # Ensure statedir exists before plugins use it (mirrors penguin_run.py).
+        state_dir = self.ctx.proj_dir / "state"
+        state_dir.mkdir(exist_ok=True, parents=True)
+
     # ----- loading ----------------------------------------------------------
 
     def load_plugins(self, extra_args: Optional[Dict[str, Any]] = None) -> List[InitPlugin]:
@@ -180,6 +184,7 @@ class InitPluginRunner:
             "conf": {},
             "proj_dir": str(self.ctx.proj_dir),
             "outdir": str(self.ctx.proj_dir),
+            "statedir": str(self.ctx.proj_dir / "state"),
             "plugin_path": self.ctx.options.get("plugin_path", ""),
             "verbose": self.ctx.options.get("verbose", False),
         }

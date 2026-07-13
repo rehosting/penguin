@@ -10,7 +10,7 @@ results/
 projects/
 compose_projects/
 tests/integration/test_target/config.yaml
-tests/integration/test_target/nvram_state.yaml
+tests/integration/test_target/state/
 penguin.sif
 fw
 # Generated during the container build; absent in source checkouts (penguin
