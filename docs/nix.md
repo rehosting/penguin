@@ -60,10 +60,10 @@ keeps a normal FHS userland + `apt`), with the Nix-built components on top.
 (`dockerImageStreamHashed`, `streamLayeredImage` with `tag = null`) — same
 layers, but piped directly into the engine and content-hash-tagged.
 
-The `./penguin` wrapper's `--build` flag does exactly the above for you — it
-runs `nix build .#dockerImage`, loads the result into your container engine,
-and retags it to the run image (`localhost/penguin:dev` by default, or whatever
-`--image` selects):
+The `./penguin` wrapper's `--build` flag does this for you — it builds the
+streaming image (`.#dockerImageStream`) and pipes it straight into your
+container engine (no store tarball realised), then retags it to the run image
+(`localhost/penguin:dev` by default, or whatever `--image` selects):
 
 ```sh
 ./penguin --build run projects/your_fw   # rebuild from the flake, then run
@@ -218,4 +218,5 @@ For a permanent change, edit the input's `url` in `flake.nix` and
 - A Nix **devShell** for the `--pydev` live-edit loop is not yet implemented.
   `./penguin --pydev` still mounts `src/`→`/pkg` and `pip install -e`s over the
   image for iterating on `src/` and `pyplugins/`; for a from-scratch image
-  rebuild use `./penguin --build` (which now runs `nix build .#dockerImage`).
+  rebuild use `./penguin --build` (which streams `.#dockerImageStream` into the
+  engine).
