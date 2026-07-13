@@ -714,7 +714,7 @@ true
 |__Type__|string or null|
 |__Default__|`null`|
 
-Shell script body dropped into /igloo/init.d to run during guest boot. Installed under a name that sorts after other init.d entries so it runs last. A '#!/igloo/utils/sh' shebang is prepended automatically.
+Shell script body dropped into /igloo/init.d to run during guest boot. Installed under a name that sorts after other init.d entries so it runs last. A '#!/igloo/utils/sh' shebang is prepended automatically. For multiple scripts (shell or Python), drop files into the project's init.d/ and source.d/ folders instead; see docs/init_dropins.md.
 
 ```yaml
 'ip link set eth0 up
