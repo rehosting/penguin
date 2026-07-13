@@ -1102,35 +1102,33 @@ penguin_run() {
             fi
         fi
 
-        # Build the image with Nix and stream it straight into the engine via
-        # streamLayeredImage (.#dockerImageStream) -- no multi-GB .tar.gz is
-        # realised in the Nix store, just piped into `<engine> load`. The flake
-        # names the image rehosting/penguin:latest; retag to the resolved $image
-        # so the same invocation runs what we just built. Dependency overrides
-        # are flake inputs now (see docs/nix.md), not local_packages/. Override
-        # the build attr/args with PENGUIN_NIX_BUILD_ARGS if needed.
+        # Build the image tarball with Nix and load it into the engine. We use
+        # buildLayeredImage (.#dockerImage), not the streaming variant: it caches
+        # a *per-layer* tarball in the store, so a warm rebuild only re-tars the
+        # layers whose contents changed (e.g. just the penguin src layer after a
+        # code edit) instead of re-streaming the whole ~4GB image every run --
+        # much faster for the dev inner loop. (`nix run .#load` streams for the
+        # one-shot / disk-conscious path.) The flake names the image
+        # rehosting/penguin:latest; retag to the resolved $image so the same
+        # invocation runs what we just built. Dependency overrides are flake
+        # inputs now (see docs/nix.md), not local_packages/. Override the build
+        # attr/args with PENGUIN_NIX_BUILD_ARGS if needed.
         set +e
-        # .#dockerImageStream's output IS the streamer executable (streamLayeredImage
-        # emits a script, not a bin/ tree, so it isn't `nix run`-able). Build just
-        # that script with --no-link (no giant .tar.gz realised), then run it and
-        # pipe the image straight into `<engine> load`. pipefail (scoped to a
-        # subshell) so a build/stream failure isn't masked by a successful load.
-        (
-            set -o pipefail
-            if [ -n "$penguin_version" ]; then
-                echo "Building penguin version ${penguin_version}"
-                streamer=$(PENGUIN_OVERRIDE_VERSION="$penguin_version" \
-                    nix build --impure ${PENGUIN_NIX_BUILD_ARGS:-} --accept-flake-config --no-link --print-out-paths .#dockerImageStream) \
-                    && "$streamer" | "$ENGINE" load
-            else
-                streamer=$(nix build ${PENGUIN_NIX_BUILD_ARGS:-} --accept-flake-config --no-link --print-out-paths .#dockerImageStream) \
-                    && "$streamer" | "$ENGINE" load
-            fi
-        )
+        if [ -n "$penguin_version" ]; then
+            echo "Building penguin version ${penguin_version}"
+            PENGUIN_OVERRIDE_VERSION="$penguin_version" \
+                nix build --impure ${PENGUIN_NIX_BUILD_ARGS:-} --accept-flake-config .#dockerImage
+        else
+            nix build ${PENGUIN_NIX_BUILD_ARGS:-} --accept-flake-config .#dockerImage
+        fi
         build_rc=$?
-        if [ "$build_rc" -eq 0 ] && [ "$image" != "rehosting/penguin:latest" ]; then
-            "$ENGINE" tag rehosting/penguin:latest "$image"
+        if [ "$build_rc" -eq 0 ]; then
+            "$ENGINE" load < result
             build_rc=$?
+            if [ "$build_rc" -eq 0 ] && [ "$image" != "rehosting/penguin:latest" ]; then
+                "$ENGINE" tag rehosting/penguin:latest "$image"
+                build_rc=$?
+            fi
         fi
         set -e
         if [ "$build_rc" -ne 0 ]; then
