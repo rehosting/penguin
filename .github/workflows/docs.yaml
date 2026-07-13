@@ -162,6 +162,10 @@ jobs:
   deploy_static:
     needs: build_docs
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # force-push the rendered HTML to the `docs` branch
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -176,6 +180,20 @@ jobs:
         run: |
           mkdir html_content
           tar -xvf docs.tar.gz -C html_content
+
+      # Also publish the rendered site to a `docs` branch so it can be cloned
+      # and served directly (git clone --branch docs --depth 1 …), independent
+      # of the GitHub Pages artifact deploy below and the release tarball.
+      # force_orphan keeps `docs` as a single-commit, generated-only branch with
+      # no shared history — never hand-edit it. peaceiris disables Jekyll (drops
+      # a .nojekyll) by default, which Sphinx's `_static/` dirs require.
+      - name: Publish HTML to the docs branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./html_content
+          publish_branch: docs
+          force_orphan: true
       # A re-run (workflow or just this job) does NOT clear artifacts uploaded by
       # a prior attempt. upload-pages-artifact always names its artifact
       # "github-pages", so a re-run leaves 2+ identically-named artifacts in the
