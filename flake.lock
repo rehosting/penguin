@@ -25,17 +25,20 @@
       },
       "locked": {
         "lastModified": 1783560442,
-        "narHash": "sha256-PSooTFh5GkdWruGCwyoOUaAoA9uj+rNKr5baelyoMD0=",
-        "owner": "rehosting",
-        "repo": "busybox",
+        "narHash": "sha256-q1A0CsuWSD1iuVTY6yzPW0VDql6CJmwA6OOgaEZFrng=",
+        "ref": "refs/tags/v0.0.20",
         "rev": "34a9307c35b7d1b5e1672d86bd6b26877c2f0639",
-        "type": "github"
+        "revCount": 17651,
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/rehosting/busybox"
       },
       "original": {
-        "owner": "rehosting",
-        "ref": "v0.0.20",
-        "repo": "busybox",
-        "type": "github"
+        "ref": "refs/tags/v0.0.20",
+        "rev": "34a9307c35b7d1b5e1672d86bd6b26877c2f0639",
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/rehosting/busybox"
       }
     },
     "console": {

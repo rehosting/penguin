@@ -56,8 +56,15 @@
     url = "github:rehosting/console/v1.0.9";
     inputs.nixpkgs.follows = "nixpkgs";
   };
+  # busybox is fetched via git+https (not the github: tarball) because the repo
+  # still carries a vestigial `include/libhc` submodule gitlink (the flake gets
+  # libhc from its own input, so the submodule is unused). A codeload tarball
+  # packs that gitlink in a way our CI registry proxy repacks differently from a
+  # plain fetch, giving an environment-dependent narHash. A real git checkout
+  # with submodules=1 is content-deterministic and avoids that mismatch. The rev
+  # is v0.0.20's commit; pinned explicitly so the tag ref can't drift.
   inputs.busybox = {
-    url = "github:rehosting/busybox/v0.0.20";
+    url = "git+https://github.com/rehosting/busybox?ref=refs/tags/v0.0.20&rev=34a9307c35b7d1b5e1672d86bd6b26877c2f0639&submodules=1";
     inputs.nixpkgs.follows = "nixpkgs";
   };
   inputs.guesthopper = {
