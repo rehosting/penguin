@@ -400,6 +400,19 @@
             stream = true;
           };
 
+          # Streaming image tagged by the *nix build* rather than `latest`:
+          # `tag = null` makes dockerTools derive the tag from the image's
+          # layer-closure hash, so each distinct build loads as a unique,
+          # reproducible `rehosting/penguin:<hash>` (same inputs -> same tag,
+          # any change -> new tag). This backs `nix run .#load` (and the default
+          # `nix run`), which streams it straight into the local docker/podman
+          # daemon -- no `:latest` collision, no multi-GB tarball in the store.
+          dockerImageStreamHashed = mkImage {
+            inherit pythonEnv;
+            stream = true;
+            tag = null;
+          };
+
           # The release docs image (rehosting/penguin:docs): the runtime image
           # plus the in-image sphinx toolchain and a LaTeX engine for the PDF
           # build. texlive scheme-medium provides pdflatex + latexmk + the
@@ -411,7 +424,7 @@
           };
         in
         {
-          inherit pythonEnv penguinQemu iglooStatic muslHeaders nativeHelpersTree penguin pengutils vhostDeviceVsock dockerImage dockerImageStream docsImage;
+          inherit pythonEnv penguinQemu iglooStatic muslHeaders nativeHelpersTree penguin pengutils vhostDeviceVsock dockerImage dockerImageStream dockerImageStreamHashed docsImage;
           nativeHelper-x86_64 = nativeHelpers.x86_64;
           default = pythonEnv;
         }
@@ -427,6 +440,53 @@
       # The shellHook re-prepends the interpreter to PATH *after* rc files run,
       # so it wins against a pyenv `init` that re-prepends ~/.pyenv/shims on
       # shell startup (otherwise the shim shadows this python3).
+      # `nix run` -> build the penguin image and load it into the local
+      # docker/podman daemon, tagged by the nix build (see
+      # dockerImageStreamHashed). Streams the image straight into `<engine>
+      # load` -- no `:latest` collision and no multi-GB tarball realised in the
+      # store. `nix run .#load` is explicit; a bare `nix run` is the same (this
+      # is apps.default, distinct from packages.default = the dev pythonEnv, so
+      # `nix build` is unaffected).
+      apps = forAllSystems (
+        system:
+        let
+          pkgs = pkgsFor system;
+          streamHashed = self.packages.${system}.dockerImageStreamHashed;
+          loadScript = pkgs.writeShellScript "penguin-nix-load" ''
+            set -eu
+            engine=docker
+            if ! command -v docker >/dev/null 2>&1; then
+              if command -v podman >/dev/null 2>&1; then
+                engine=podman
+              else
+                echo "error: --load needs docker or podman on PATH; found neither" >&2
+                exit 1
+              fi
+            fi
+            echo "Streaming penguin image into $engine (tagged by nix build hash)..." >&2
+            # `<engine> load` prints "Loaded image: <name>:<tag>" on stdout; the
+            # streamer's layer progress goes to stderr. Capture the ref so we can
+            # echo a copy-pasteable run line with the resolved hash tag.
+            ref="$(${streamHashed} | "$engine" load | sed -n 's/^Loaded image: //p' | head -n1)"
+            echo "" >&2
+            if [ -n "$ref" ]; then
+              echo "Loaded $ref" >&2
+              echo "Run it with, e.g.:  ./penguin --image $ref run <project>" >&2
+            else
+              echo "Image loaded (see $engine output above for the tag)." >&2
+            fi
+          '';
+          loadApp = {
+            type = "app";
+            program = "${loadScript}";
+          };
+        in
+        {
+          load = loadApp;
+          default = loadApp;
+        }
+      );
+
       devShells = forAllSystems (
         system:
         let
