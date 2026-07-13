@@ -29,10 +29,32 @@ def test_schema_return_only():
     _validate({"libX.so": {"foo": {"return": 0}}})
 
 
-def test_schema_return_alias_populates_field():
+def test_schema_return_field():
     a = structure.StubAction.model_validate({"return": 42})
-    assert a.return_ == 42
+    assert getattr(a, "return") == 42
     assert a.type == "long"  # default
+
+
+def test_config_roundtrip_dump_then_jsonschema():
+    """Mirror penguin_config._validate_config_schema: pydantic-validate, then
+    model_dump(exclude_none=True) WITHOUT by_alias, then jsonschema-validate
+    against the generated schema. The `return` field must survive this round
+    trip (a regression guard for the aliased-field dump mismatch)."""
+    import jsonschema
+
+    cfg = dict(
+        core=dict(version=2, arch="armel"),
+        env={}, pseudofiles={}, nvram={}, static_files={}, plugins={},
+        lib_inject={"stubs": {
+            "libX.so": {"foo": {"return": 0}, "nvram_*": {"return": 1}},
+            "libc.so": {"memcpy": {"guard_null_args": [0, 1], "return": 0}},
+        }},
+    )
+    model = structure.Main(**cfg)
+    dumped = model.model_dump(exclude_none=True)
+    # the dumped key must be `return`, not `return_`
+    assert "return" in dumped["lib_inject"]["stubs"]["libX.so"]["foo"]
+    jsonschema.validate(instance=dumped, schema=structure.Main.model_json_schema())
 
 
 def test_schema_type_override_and_guard():
