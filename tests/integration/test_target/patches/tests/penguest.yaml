@@ -3,6 +3,11 @@
 # A .py driver is exec'd directly by run_tests.sh via its `#!/igloo/utils/python3`
 # shebang -- so this exercises, in one shot: the staged in-guest CPython, the
 # python3 wrapper's PYTHONPATH=/igloo/pylib, `import penguest`, penguest.portal_call
+#
+# NB: the driver is named penguest_probe.py, NOT penguest.py -- CPython puts the
+# script's own directory (/tests) first on sys.path, so a script named
+# penguest.py would shadow the staged `penguest` package and `import penguest`
+# would import the driver itself.
 # reaching a host @portalcall handler, and penguest.log/report reaching the host
 # bridge (captured to <outdir>/penguest_guest.log).
 #
@@ -23,7 +28,7 @@ plugins:
         string: "PENGUEST test: passed"
       penguest_guest_retval:
         type: file_contains
-        file: shared/tests/penguest.py/stdout
+        file: shared/tests/penguest_probe.py/stdout
         string: "penguest portal_call retval correct"
       penguest_guest_log:
         type: file_contains
@@ -31,11 +36,11 @@ plugins:
         string: "penguest finding from guest"
       penguest_guest_vsock:
         type: file_contains
-        file: shared/tests/penguest.py/stdout
+        file: shared/tests/penguest_probe.py/stdout
         string: "penguest vsock roundtrip correct"
 
 static_files:
-  /tests/penguest.py:
+  /tests/penguest_probe.py:
     type: inline_file
     contents: |
       #!/igloo/utils/python3
