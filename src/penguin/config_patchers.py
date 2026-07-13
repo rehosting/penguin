@@ -197,7 +197,10 @@ class NvramHelper:
             "time_zone_x": "0",
             "rip_multicast": "0",
             "bs_trustedip_enable": "0",
-            "et0macaddr": "01:23:45:67:89:ab",
+            # NOTE: et0macaddr (Broadcom "et" Ethernet driver) is SDK-specific and
+            # now lives in the broadcom_hnd SDK profile, gated by its fingerprint,
+            # rather than being shipped to every target. Same for the "%d:macaddr"
+            # (Broadcom wl per-radio MAC) block generated below.
             "filter_rule_tbl": "",
             "pppoe2_schedule_config": "127:0:0:23:59",
             "schedule_config": "127:0:0:23:59",
@@ -223,7 +226,7 @@ class NvramHelper:
         _add_firmae_for_entries(nvram, "wla_ap_isolate_%d", "", 1, 5)
         _add_firmae_for_entries(nvram, "wlg_ap_isolate_%d", "", 1, 5)
         _add_firmae_for_entries(nvram, "wlg_allow_access_%d", "", 1, 5)
-        _add_firmae_for_entries(nvram, "%d:macaddr", "01:23:45:67:89:ab", 0, 3)
+        # "%d:macaddr" (Broadcom wl per-radio MAC) moved to the broadcom_hnd SDK profile.
         _add_firmae_for_entries(nvram, "lan%d_ifnames", "", 1, 10)
 
         return nvram

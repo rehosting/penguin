@@ -46,9 +46,16 @@ bundles:
       lan_proto: static
       lan_ifname: br0
       restore_defaults: "0"
+      # Broadcom "et" Ethernet-driver per-port MACs.
       et0macaddr: "00:11:22:33:44:50"
       et1macaddr: "00:11:22:33:44:51"
       et2macaddr: "00:11:22:33:44:52"
+      # Broadcom wl per-radio MACs (was an always-on FirmAE default; it is
+      # Broadcom-specific "unit:macaddr" nvram, so it belongs to this profile).
+      "0:macaddr": "01:23:45:67:89:ab"
+      "1:macaddr": "01:23:45:67:89:ab"
+      "2:macaddr": "01:23:45:67:89:ab"
+      "3:macaddr": "01:23:45:67:89:ab"
     pseudofiles:
       # Secondary Realtek RTL8365MB switch driven by /sbin/rtkswitch; satisfy its
       # ioctls so the switch-config calls stop failing in a tight loop.

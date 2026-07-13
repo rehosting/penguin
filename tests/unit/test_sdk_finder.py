@@ -118,6 +118,27 @@ class TestSdkFinder(unittest.TestCase):
         self.assertNotIn("sdk.broadcom_hnd", patches)
 
 
+class TestBroadcomNvramFold(unittest.TestCase):
+    """SDK-specific nvram defaults are gated behind the profile fingerprint
+    instead of being shipped to every target by the always-on nvram.04_defaults."""
+
+    def test_broadcom_macs_not_in_generic_defaults(self):
+        from penguin.config_patchers import NvramHelper
+
+        defaults = NvramHelper._get_default_nvram_values()
+        # Broadcom-specific keys moved into the broadcom_hnd profile.
+        self.assertNotIn("et0macaddr", defaults)
+        self.assertNotIn("0:macaddr", defaults)
+        # A genuinely generic key is still shipped to all targets.
+        self.assertIn("lan_ipaddr", defaults)
+
+    def test_broadcom_macs_in_profile_bundle(self):
+        _, patches = run(interfaces=["vlan1", "et"], symbols=["nvram_get"])
+        nvram = patches["sdk.broadcom_hnd"][0]["nvram"]
+        self.assertEqual(nvram["et0macaddr"], "00:11:22:33:44:50")
+        self.assertIn("0:macaddr", nvram)
+
+
 class TestFidelityTiers(unittest.TestCase):
     """The catalog exposes fidelity-tiered bundles (bundles.<tier>). Tier 0
     (libinject) ships; a tier with no bundle (e.g. the reserved `mtd`) emits no
