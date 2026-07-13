@@ -302,9 +302,13 @@ class Netdevs(Plugin):
     # fail (EEXIST). Worse, because the stub is a plain Ethernet device with no
     # bridge/bond semantics, every subsequent management ioctl on it
     # (brctl addif/setfd/stp, bond enslave, hwaddr set) returns EOPNOTSUPP, so
-    # the firmware's L2 topology never comes up. The scraped sysctl path is still
-    # served as a pseudofile, so reads/writes of conf/<dev>/... keep working
-    # whether or not the firmware ends up creating <dev>. A device explicitly
+    # the firmware's L2 topology never comes up. Not pre-creating the stub does
+    # mean the scraped conf/<dev>/... sysctl pseudofile is not served while the
+    # device is absent -- the kernel only creates the per-device conf/<dev>/
+    # directory when the device registers, and on kernels < 5.0 penguin won't
+    # fabricate that parent directory for a device that doesn't exist yet -- but
+    # once the firmware creates the real device the kernel serves those sysctls
+    # itself, which is what the firmware actually needs. A device explicitly
     # listed in the `netdevs` config is unaffected (that path calls
     # register_netdev directly, not through here), which is the escape hatch for
     # a target that genuinely needs a pre-created stub.
