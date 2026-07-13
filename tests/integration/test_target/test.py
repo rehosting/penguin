@@ -170,7 +170,9 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False, execution_mod
 
     # Start from a clean nvram_state.yaml; a test may ship a preset
     # (patches/tests/<test>.state.yaml) to exercise the persistence reload path.
-    state_dest = Path(TEST_DIR, "nvram_state.yaml")
+    state_dir = Path(TEST_DIR, "state")
+    state_dir.mkdir(exist_ok=True)
+    state_dest = state_dir / "nvram_state.yaml"
     if state_dest.exists():
         state_dest.unlink()
     if test_file:

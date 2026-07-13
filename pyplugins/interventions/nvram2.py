@@ -40,6 +40,7 @@ import os
 import hashlib
 import glob
 import re
+import shutil
 import yaml
 from pathlib import Path
 
@@ -327,6 +328,7 @@ class Nvram2(Plugin):
 
         config = self.get_arg("conf")
         proj_dir = self.get_arg("proj_dir")
+        state_dir = self.get_arg("statedir")
         self.logging_enabled = self.get_arg_bool("logging", default=True)
         self.persist = self.get_arg_bool("persist", default=False)
         self.logger.info(f"logging nvram accesses: {self.logging_enabled}")
@@ -337,7 +339,18 @@ class Nvram2(Plugin):
         if self.persist:
             self.log_mask |= NVRAM_LOG_SET
 
-        self.persist_path = os.path.join(proj_dir, persisted_file) if proj_dir else None
+        self.persist_path = os.path.join(state_dir, persisted_file) if state_dir else None
+
+        # Migrate legacy nvram_state.yaml from proj_dir root to statedir if present.
+        if self.persist and self.persist_path and proj_dir:
+            legacy_path = os.path.join(proj_dir, persisted_file)
+            if os.path.exists(legacy_path) and not os.path.exists(self.persist_path):
+                try:
+                    shutil.move(legacy_path, self.persist_path)
+                    self.logger.info(f"migrated nvram state from {legacy_path} to {self.persist_path}")
+                except Exception as e:
+                    self.logger.warning(f"failed to migrate nvram state from {legacy_path}: {e}")
+
         self.state = self._load_persisted()
         if self.persist and self.state:
             config_nvram = config["nvram"] if "nvram" in config else {}

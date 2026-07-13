@@ -253,7 +253,7 @@ class Plugin:
         A snapshot does not capture host-side plugin state; plugins that hold
         in-memory state needed for continuity after a cross-process restore
         should return it here. File-backed state (e.g. NVRAM's nvram_state.yaml)
-        can self-heal via the output dir and need not be returned. The returned
+        can self-heal via the statedir and need not be returned. The returned
         value is stored in the snapshot's host sidecar and handed back to
         :meth:`load_state` on restore.
         """
