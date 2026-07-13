@@ -479,9 +479,14 @@ penguin_run() {
         fi
     done
 
-    # If pydev mode we need to also map ./pkg to /pkg
+    # If pydev mode we need to also map the live Python trees into the container
+    # (src/ -> /pkg, pengutils/ -> /pengutils, pyplugins/ -> /pyplugins); PYTHONPATH
+    # is pointed at them below so imports resolve to the worktree, not the baked-in
+    # copies. src/ also carries resources/ (the image sets PENGUIN_RESOURCES=/pkg/
+    # resources), so guest init scripts / static_keys iterate live too.
     if $pydev; then
         maps+=("$(pwd)/src:/pkg")
+        maps+=("$(pwd)/pengutils:/pengutils")
         maps+=("$(pwd)/pyplugins:/pyplugins")
     fi
 
@@ -1158,24 +1163,29 @@ penguin_run() {
 
     # Add the command.
     #
-    # --pydev overlays the live worktree source (src/ -> /pkg and
-    # pyplugins/ -> /pyplugins, bind-mounted above) via PYTHONPATH rather than an
-    # in-container `pip install -e`. The image is an immutable
+    # --pydev overlays the live worktree source (src/ -> /pkg, pengutils/ ->
+    # /pengutils, pyplugins/ -> /pyplugins, bind-mounted above) via PYTHONPATH
+    # rather than an in-container `pip install -e`. The image is an immutable
     # python3.withPackages env: it has no pip, and its site-packages live in a
-    # read-only /nix/store. Prepending /pkg:/pyplugins makes `import penguin`
+    # read-only /nix/store. Prepending these makes `import penguin` / `pengutils`
     # (and plugin loading) resolve to the mounted tree instead of the baked-in
     # packages. No root/pip/sudo step is needed, so pydev shares the normal run
     # path below; output-file ownership is handled by -u like any other run.
     d=""
     if $pydev; then
-        echo "Running in Python development mode (--pydev): overlaying live source via PYTHONPATH (edits apply without a rebuild)"
+        echo "Running in Python development mode (--pydev): overlaying live source via PYTHONPATH (edits apply without a rebuild)."
+        echo "  live (edit -> just re-run): src/ (incl. resources/), pengutils/, pyplugins/"
+        echo "  NOT live (needs ./penguin --build): guest-side artifacts baked into the image --"
+        echo "    /igloo_static (kernels, igloo_driver, busybox/console/guesthopper/vpnguin/libnvram,"
+        echo "    native helpers, musl sysroots) and the qemu fork. For a local dep checkout add"
+        echo "    --build --override-input <input> path:/abs/checkout."
 
         # penguin opens penguin/version.txt at import; it is build-generated and
         # absent from the worktree, so mount a placeholder over the mounted /pkg.
         d=$(mktemp -d)
         echo "0.0.1.dev0+pydev" > "$d/version.txt"
         docker_cmd+=("-v" "$d/version.txt:/pkg/penguin/version.txt")
-        docker_cmd+=("-e" "PYTHONPATH=/pkg:/pyplugins")
+        docker_cmd+=("-e" "PYTHONPATH=/pkg:/pengutils:/pyplugins")
     fi
 
     # Ensure output files are owned by the caller. Under rootless podman we

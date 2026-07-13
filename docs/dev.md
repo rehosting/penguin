@@ -56,16 +56,27 @@ exist inside the image) — use it for everything that doesn't need a guest boot
 
 ### Plugin behavior in a running guest — `--pydev` (no rebuild)
 
-To iterate on `src/`/`pyplugins/` against a *real boot* without rebuilding, use
-`--pydev`: it bind-mounts `src/ -> /pkg` and `pyplugins/ -> /pyplugins` and
-prepends them to `PYTHONPATH` (the image is an immutable `python3.withPackages`
-env with no pip, so this overlays the live tree rather than reinstalling). Edits
-apply on the next `run` — no rebuild, no root/pip step.
+To iterate against a *real boot* without rebuilding, use `--pydev`: it
+bind-mounts the live Python trees (`src/ -> /pkg`, `pengutils/ -> /pengutils`,
+`pyplugins/ -> /pyplugins`) and prepends them to `PYTHONPATH` (the image is an
+immutable `python3.withPackages` env with no pip, so this overlays the live tree
+rather than reinstalling). Edits apply on the next `run` — no rebuild, no
+root/pip step.
 
 ```sh
-./penguin --pydev run projects/myfw     # edit src/ or pyplugins/ -> re-run
+./penguin --pydev run projects/myfw     # edit src/, pengutils/, or pyplugins/ -> re-run
 ./penguin --build --pydev run ...        # rebuild the image too (only if a baked-in dep changed)
 ```
+
+**What's live vs. not** (`--pydev` prints this on startup):
+
+- **Live** — `src/` (the `penguin` package *and* `src/resources/`: init scripts,
+  `source.d/`, `static_keys`, … via `PENGUIN_RESOURCES=/pkg/resources`),
+  `pengutils/`, and `pyplugins/`.
+- **Not live — needs `--build`** — anything baked into the image: `/igloo_static`
+  (kernels, `igloo_driver`, the guest tools busybox/console/guesthopper/vpnguin/
+  libnvram, native helpers, musl sysroots) and the qemu fork. For a local
+  sibling-repo checkout, combine with `--override-input` (see below).
 
 ## Dependency development
 
