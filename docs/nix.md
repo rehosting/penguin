@@ -23,8 +23,27 @@ for ~14 arches and pulls the qemu closure); with Cachix it is mostly downloads.
 
 ## Build and run the image
 
+The quickest path — `nix run` streams the image straight into your local
+Docker/Podman daemon (no multi-GB tarball realised in the store), tagged by the
+**nix build** rather than a shared `:latest`:
+
 ```sh
-# Build the image (result is a docker-loadable tarball)
+# Build + load into docker/podman, tagged rehosting/penguin:<nix-build-hash>
+nix run --accept-flake-config .          # (or `nix run .#load`)
+# ...
+# Loaded rehosting/penguin:zpfmbzp06f6pwf5yw9l4sfknyxjbwzdn
+# Run it with, e.g.:  ./penguin --image rehosting/penguin:<hash> run projects/your_fw
+```
+
+The tag is the image's layer-closure hash, so each distinct build loads under
+its own unique, reproducible reference: same inputs → same tag, any change → a
+new tag, and builds never clobber each other on `:latest`. The command prints
+the exact `--image` reference to run.
+
+Alternatively, build a tarball first (e.g. to inspect it or push it), then load:
+
+```sh
+# Build the image (result is a docker-loadable tarball, tagged :latest)
 nix build .#dockerImage --accept-flake-config
 
 # Load it into the local Docker daemon as rehosting/penguin:latest
@@ -37,6 +56,9 @@ docker load < result
 `nix build .#dockerImage` emits a `dockerTools.buildLayeredImage` tarball; the
 image is named `rehosting/penguin:latest`, layered on `ubuntu:22.04` (so it
 keeps a normal FHS userland + `apt`), with the Nix-built components on top.
+`nix run`/`.#load` instead uses the streaming variant
+(`dockerImageStreamHashed`, `streamLayeredImage` with `tag = null`) — same
+layers, but piped directly into the engine and content-hash-tagged.
 
 The `./penguin` wrapper's `--build` flag does exactly the above for you — it
 runs `nix build .#dockerImage`, loads the result into your container engine,
@@ -55,6 +77,8 @@ Built for both `x86_64-linux` and `aarch64-linux`. Build any with
 | Output | What it is |
 |--------|------------|
 | `dockerImage` | the full `rehosting/penguin:latest` image tarball |
+| `dockerImageStream` | streaming variant of `dockerImage` (`nix run .#dockerImageStream \| docker load`); no store tarball, still `:latest` |
+| `dockerImageStreamHashed` | streaming image tagged by the nix build hash (`:` `<hash>`), backing `nix run` / `.#load` |
 | `docsImage` | `rehosting/penguin:docs` — the runtime image plus the sphinx toolchain + texlive, used by the docs release job |
 | `pythonEnv` *(default)* | the interpreter the image runs: penguin + all runtime deps |
 | `penguin` | the penguin Python package alone |
