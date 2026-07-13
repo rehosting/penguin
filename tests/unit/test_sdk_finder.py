@@ -129,6 +129,11 @@ class TestBroadcomNvramFold(unittest.TestCase):
         # Broadcom-specific keys moved into the broadcom_hnd profile.
         self.assertNotIn("et0macaddr", defaults)
         self.assertNotIn("0:macaddr", defaults)
+        # Netgear ACOS keys moved into the netgear_acos profile.
+        self.assertNotIn("sku_name", defaults)
+        self.assertNotIn("time_zone_x", defaults)
+        self.assertNotIn("usb_info_dev0", defaults)
+        self.assertNotIn("wla_ap_isolate_1", defaults)
         # A genuinely generic key is still shipped to all targets.
         self.assertIn("lan_ipaddr", defaults)
 
@@ -137,6 +142,41 @@ class TestBroadcomNvramFold(unittest.TestCase):
         nvram = patches["sdk.broadcom_hnd"][0]["nvram"]
         self.assertEqual(nvram["et0macaddr"], "00:11:22:33:44:50")
         self.assertIn("0:macaddr", nvram)
+
+
+class TestNetgearAcosProfile(unittest.TestCase):
+    """The netgear_acos profile subsumes the retired sdk.netgear_acos alias
+    group: fingerprint + ACOS nvram defaults + the WAN_ith_CONFIG_GET shim."""
+
+    def _run(self, **kw):
+        return run(profile_classes=("NetgearAcosProfile",), **kw)
+
+    def _match(self, runner):
+        return runner.manager.plugins["SdkFinder"].verdict("netgear_acos")
+
+    def test_acos_symbol_plus_lib_enables(self):
+        # acosNvramConfig_get (symbol) + libacos_shared.so (file) = 2 signals.
+        runner, patches = self._run(
+            symbols=["acosNvramConfig_get", "nvram_get"],
+            files=["libacos_shared.so"],
+        )
+        v = self._match(runner)
+        self.assertEqual(v["score"], 2)
+        self.assertTrue(v["enabled"])
+
+        data, enabled = patches["sdk.netgear_acos"]
+        self.assertTrue(enabled)
+        # The ACOS nvram cluster (formerly always-on) rides the profile bundle...
+        self.assertEqual(data["nvram"]["time_zone_x"], "0")
+        self.assertIn("usb_info_dev101", data["nvram"])
+        # ...and the alias subsumed from the retired Slice-0 group.
+        self.assertEqual(data["lib_inject"]["aliases"]["WAN_ith_CONFIG_GET"],
+                         "libinject_WAN_ith_CONFIG_GET")
+
+    def test_broadcom_target_does_not_fire_acos(self):
+        runner, patches = self._run(interfaces=["vlan1", "et"], symbols=["nvram_get"])
+        self.assertIsNone(self._match(runner))
+        self.assertNotIn("sdk.netgear_acos", patches)
 
 
 class TestFidelityTiers(unittest.TestCase):

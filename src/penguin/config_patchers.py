@@ -179,8 +179,6 @@ class NvramHelper:
         nvram = {
             "console_loglevel": "7",
             "restore_defaults": "1",
-            "sku_name": "",
-            "wla_wlanstate": "",
             "lan_if": "br0",
             "lan_ipaddr": "192.168.0.50",
             "lan_bipaddr": "192.168.0.255",
@@ -194,14 +192,12 @@ class NvramHelper:
             "wan_ipaddr": "0.0.0.0",
             "wan_netmask": "255.255.255.0",
             "wanif": "eth0",
-            "time_zone_x": "0",
-            "rip_multicast": "0",
-            "bs_trustedip_enable": "0",
-            # NOTE: et0macaddr (Broadcom "et" Ethernet driver) is SDK-specific and
-            # now lives in the broadcom_hnd SDK profile, gated by its fingerprint,
-            # rather than being shipped to every target. Same for the "%d:macaddr"
-            # (Broadcom wl per-radio MAC) block generated below.
-            "filter_rule_tbl": "",
+            # NOTE: SDK-specific keys that used to be shipped to every target now
+            # live in their SDK profiles, gated by fingerprint:
+            #  - Broadcom "et" Ethernet driver + wl "%d:macaddr" -> broadcom_hnd
+            #  - Netgear ACOS (sku_name, wla_wlanstate, time_zone_x, rip_multicast,
+            #    bs_trustedip_enable, filter_rule_tbl, usb_info_dev, wla_/wlg_*)
+            #    -> netgear_acos
             "pppoe2_schedule_config": "127:0:0:23:59",
             "schedule_config": "127:0:0:23:59",
             "access_control_mode": "0",
@@ -215,18 +211,9 @@ class NvramHelper:
             for index in range(start, end + 1):
                 config_dict[pattern % index] = value
 
-        # TODO: do we want a config toggle for these entires seprately from the other defaults?
-        _add_firmae_for_entries(
-            nvram,
-            "usb_info_dev%d",
-            "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@",
-            0,
-            101,
-        )
-        _add_firmae_for_entries(nvram, "wla_ap_isolate_%d", "", 1, 5)
-        _add_firmae_for_entries(nvram, "wlg_ap_isolate_%d", "", 1, 5)
-        _add_firmae_for_entries(nvram, "wlg_allow_access_%d", "", 1, 5)
-        # "%d:macaddr" (Broadcom wl per-radio MAC) moved to the broadcom_hnd SDK profile.
+        # usb_info_dev / wla_ap_isolate / wlg_ap_isolate / wlg_allow_access are
+        # Netgear ACOS defaults; they moved to the netgear_acos SDK profile.
+        # "%d:macaddr" (Broadcom wl per-radio MAC) moved to the broadcom_hnd profile.
         _add_firmae_for_entries(nvram, "lan%d_ifnames", "", 1, 10)
 
         return nvram

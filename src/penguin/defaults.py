@@ -316,10 +316,14 @@ default_lib_aliases: dict[str, str] = {k: v for x in [
 # target's initial config. A profile bundle belongs in the config search as a
 # togglable candidate, not as an always-on default. Consumed by the per-SDK
 # LibInject alias patches in pyplugins/init/lib_inject.py.
+# NOTE: netgear_acos is intentionally absent here -- it graduated from a bare
+# alias group into a full SDK *profile* (pyplugins/init/profiles/netgear_acos.yaml
+# + NetgearAcosProfile), which owns the sdk.netgear_acos patch: fingerprint +
+# nvram defaults + the WAN_ith_CONFIG_GET alias together. The group still lives
+# in default_lib_aliases above as part of the LibInjectFixedAliases fallback.
 sdk_lib_aliases: dict[str, dict[str, str]] = {
     "atheros_broadcom": atheros_broadcom,
     "realtek": realtek,
-    "netgear_acos": netgear_acos,
     "zyxel_or_edimax": zyxel_or_edimax,
     "ralink": ralink,
 }

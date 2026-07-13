@@ -171,3 +171,12 @@ class QualcommQsdkProfile(InitPlugin):
 
     def patch(self, ctx: InitContext) -> dict | None:
         return _profile_patch(self, 'qualcomm_qsdk', tier='libinject')
+
+
+class NetgearAcosProfile(InitPlugin):
+    '''Netgear ACOS profile, Tier-0 libinject bundle (ACOS nvram defaults + WAN_ith_CONFIG_GET shim).'''
+    patch_name = 'sdk.netgear_acos'
+    order = 135
+
+    def patch(self, ctx: InitContext) -> dict | None:
+        return _profile_patch(self, 'netgear_acos', tier='libinject')

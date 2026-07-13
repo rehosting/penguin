@@ -34,8 +34,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BUILTIN_DIR = REPO_ROOT / "pyplugins" / "init"
 
 # A symbol export set spanning three SDK groups, the generic set, and one
-# genuinely-unmodeled nvram symbol. netgear_acos and zyxel_or_edimax are
-# deliberately absent so their patches should not materialize.
+# genuinely-unmodeled nvram symbol. zyxel_or_edimax is deliberately absent so
+# its patch should not materialize. (netgear_acos is no longer an alias group --
+# it graduated to the netgear_acos SDK profile.)
 EXPORTED = {
     # realtek
     "apmib_get", "apmib_set",
@@ -73,7 +74,6 @@ def _run():
             "LibInjectTailoredAliases",
             "SdkAtherosBroadcomAliases",
             "SdkRealtekAliases",
-            "SdkNetgearAcosAliases",
             "SdkZyxelOrEdimaxAliases",
             "SdkRalinkAliases",
         )
@@ -103,8 +103,8 @@ class TestSdkAliasPatches(unittest.TestCase):
             self.assertEqual(data, {"lib_inject": {"aliases": self._expected(table)}})
 
     def test_unmatched_sdk_groups_emit_no_patch(self):
-        # No netgear_acos / zyxel_or_edimax symbols were exported.
-        self.assertNotIn("sdk.netgear_acos", self.patches)
+        # No zyxel_or_edimax symbols were exported. (netgear_acos is no longer an
+        # alias group -- it graduated to the netgear_acos SDK profile.)
         self.assertNotIn("sdk.zyxel_or_edimax", self.patches)
 
     def test_every_sdk_group_has_a_discoverable_patch_class(self):

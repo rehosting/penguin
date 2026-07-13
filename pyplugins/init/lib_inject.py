@@ -18,7 +18,6 @@ from penguin.defaults import (
     default_lib_aliases,
     default_libinject_string_introspection,
     generic_lib_aliases,
-    netgear_acos,
     ralink,
     realtek,
     zyxel_or_edimax,
@@ -184,14 +183,10 @@ class SdkRealtekAliases(InitPlugin):
         return _sdk_alias_patch(self, realtek)
 
 
-class SdkNetgearAcosAliases(InitPlugin):
-    '''Netgear ACOS SDK config shim (WAN_ith_CONFIG_GET).'''
-    patch_name = 'sdk.netgear_acos'
-    order = 125
-    enabled = False
-
-    def patch(self, ctx: InitContext) -> dict | None:
-        return _sdk_alias_patch(self, netgear_acos)
+# NOTE: Netgear ACOS graduated from a bare alias group into a full SDK profile
+# (pyplugins/init/profiles/netgear_acos.yaml + NetgearAcosProfile), which owns
+# the sdk.netgear_acos patch and carries the WAN_ith_CONFIG_GET alias in its
+# bundle alongside the ACOS nvram defaults. Hence no SdkNetgearAcosAliases here.
 
 
 class SdkZyxelOrEdimaxAliases(InitPlugin):
