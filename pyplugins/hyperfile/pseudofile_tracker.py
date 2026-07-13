@@ -518,3 +518,74 @@ class PseudofileTracker(Plugin):
         """Plugin teardown logic ensures final metrics are written."""
         if self.log_missing:
             self.dump_results()
+
+    # --- snapshot / restore ------------------------------------------------- #
+    def save_state(self):
+        """Carry the -ENOENT/-ENOTTY failure telemetry across a snapshot restore.
+
+        pseudofiles_failures.yaml lives in the wiped out_dir and the restored
+        guest is past the failing syscalls, so without this the (CI-asserted)
+        failures ranking resets to empty. The internal record holds sets
+        (``callers`` of (name,pid) tuples, ``intents``) and an int-keyed
+        ``events["ioctl"]`` map — none JSON-safe — so it is flattened here and
+        rebuilt verbatim in load_state. Returns None when nothing has failed."""
+        if not self.file_failures:
+            return None
+        return {"file_failures": self._serialize_failures()}
+
+    def load_state(self, data) -> None:
+        """Rebuild file_failures from the flattened form (phase one, no I/O);
+        on_restore re-flushes the report."""
+        if not data:
+            return
+        self._deserialize_failures(data.get("file_failures", {}))
+
+    def on_restore(self, tag: str) -> None:
+        """Re-flush pseudofiles_failures.yaml into the wiped out_dir from the
+        restored telemetry. Silent — pure output. The crashes.yaml join re-reads
+        on every flush, so it self-corrects once the crashes plugin restores and
+        again at uninit."""
+        if self.log_missing:
+            self.dump_results()
+
+    def _serialize_failures(self):
+        """file_failures -> JSON-safe form (sets -> lists, int ioctl keys ->
+        [cmd, count] pairs)."""
+        out = {}
+        for path, rec in self.file_failures.items():
+            events = {}
+            for name, val in rec["events"].items():
+                if name == "ioctl":
+                    events["ioctl"] = [[cmd, meta["count"]]
+                                       for cmd, meta in val.items()]
+                else:
+                    e = {"count": val["count"]}
+                    if "details" in val:
+                        e["details"] = list(val["details"])
+                    events[name] = e
+            out[path] = {
+                "events": events,
+                "callers": [[name, pid] for name, pid in rec["callers"]],
+                "intents": sorted(rec["intents"]),
+            }
+        return out
+
+    def _deserialize_failures(self, data):
+        """Inverse of _serialize_failures — restores sets and int ioctl keys so
+        centralized_log / _render_failures see exactly the live shape."""
+        for path, rec in data.items():
+            events = {}
+            for name, val in rec.get("events", {}).items():
+                if name == "ioctl":
+                    events["ioctl"] = {int(cmd): {"count": count}
+                                       for cmd, count in val}
+                else:
+                    e = {"count": val["count"]}
+                    if "details" in val:
+                        e["details"] = list(val["details"])
+                    events[name] = e
+            self.file_failures[path] = {
+                "events": events,
+                "callers": {tuple(c) for c in rec.get("callers", [])},
+                "intents": set(rec.get("intents", [])),
+            }

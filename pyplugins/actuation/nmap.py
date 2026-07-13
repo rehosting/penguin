@@ -49,6 +49,12 @@ class Nmap(Plugin):
         self.subprocesses = []
         self.lock = Lock()
         self.custom_nmap = os.path.isfile("/usr/local/etc/nmap/.custom")
+        # Guest-side identities (guest_ip, guest_port) already scanned, so a
+        # repeated on_bind — notably VPN re-publishing every bridge it
+        # re-establishes after a snapshot restore — does not re-scan. Keyed on
+        # the guest side because host_port may be re-mapped across a restore.
+        # Restored in load_state; see save_state.
+        self._scanned = set()
 
     def nmap_on_bind(self, proto: str, guest_ip: str, guest_port: int, host_port: int, host_ip: str, procname: str) -> None:
         """
@@ -68,12 +74,37 @@ class Nmap(Plugin):
             # Let's just ignore entirely.
             return
 
+        key = (guest_ip, guest_port)
+        if key in self._scanned:
+            # Already scanned this service (or a snapshot restore replayed its
+            # bind) -> don't launch a duplicate scan.
+            return
+        self._scanned.add(key)
+
         f = self.outdir + f"/nmap_{proto}_{guest_port}_{host_port}.xml"
 
         # Launch a thread to analyze this request
         t = threading.Thread(target=self.scan_thread, args=(host_ip, guest_port, host_port, f))
         t.daemon = True
         t.start()
+
+    def save_state(self):
+        """Carry the set of already-scanned services across a snapshot restore.
+
+        On restore the VPN bridge re-publishes ``on_bind`` for every service it
+        re-establishes; without this the restored run would relaunch a full nmap
+        scan against every pre-snapshot service. Returns None when nothing has
+        been scanned."""
+        if not self._scanned:
+            return None
+        return {"scanned": sorted([ip, port] for ip, port in self._scanned)}
+
+    def load_state(self, data) -> None:
+        """Restore the scanned-service set (phase one, no side effects) so the
+        VPN's on_bind replay in on_restore is absorbed silently."""
+        if not data:
+            return
+        self._scanned = {(ip, port) for ip, port in data.get("scanned", [])}
 
     def scan_thread(self, host_ip: str, guest_port: int, host_port: int, log_file_name: str) -> None:
         """

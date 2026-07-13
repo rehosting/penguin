@@ -111,6 +111,9 @@ class Health(Plugin):
         #    for cls, details in self.events.items():
         #        f.write(f"  {cls}: {details[-1][1]}\n")
 
+        self._write_reports()
+
+    def _write_reports(self):
         # In case we are first, make sure outdir exists
         if not path.exists(self.outdir):
             path.makedirs(self.outdir)
@@ -132,3 +135,35 @@ class Health(Plugin):
         with open(f"{self.outdir}/health_procs_with_args.txt", "w") as f:
             for proc in sorted(self.procs_args):
                 f.write(f"{proc}\n")
+
+    # --- snapshot / restore ------------------------------------------------- #
+    def save_state(self):
+        """Carry the accumulated health tallies across a snapshot restore. The
+        health_* output files live in the wiped out_dir and the restored guest
+        is past its binds/execs/opens, so without this every pre-snapshot count
+        resets to zero. ``start_time`` (a host clock) and the unused ``events``
+        template are dropped. Returns None when nothing has been observed."""
+        if not (self.binds or self.procs or self.procs_args or self.devs):
+            return None
+        return {
+            "final_events": dict(self.final_events),
+            "binds": sorted([ipvn, port] for ipvn, port in self.binds),
+            "procs": sorted(self.procs),
+            "procs_args": sorted(self.procs_args),
+            "devs": sorted(self.devs),
+        }
+
+    def load_state(self, data) -> None:
+        """Rehydrate the tallies (phase one, no I/O); on_restore rewrites files."""
+        if not data:
+            return
+        self.final_events.update(data.get("final_events", {}))
+        self.binds |= {tuple(b) for b in data.get("binds", [])}
+        self.procs |= set(data.get("procs", []))
+        self.procs_args |= set(data.get("procs_args", []))
+        self.devs |= set(data.get("devs", []))
+
+    def on_restore(self, tag: str) -> None:
+        """Re-emit the health_* files into the wiped out_dir. Silent — pure
+        output, nothing downstream re-actuates."""
+        self._write_reports()

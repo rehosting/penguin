@@ -40,6 +40,10 @@ import yaml
 
 from penguin import Plugin, plugins
 
+# Bump when the host-sidecar envelope shape changes (not for per-plugin blob
+# changes — those version themselves inside `plugins`). See _save_host_state.
+_HOST_SIDECAR_SCHEMA = 1
+
 
 class Snapshot(Plugin):
     def __init__(self) -> None:
@@ -246,8 +250,13 @@ class Snapshot(Plugin):
             return
         path = self._host_sidecar_path(tag)
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        # Versioned envelope: the sidecar can outlive the penguin version that
+        # wrote it (it travels with the qcow), so restore keys off schema_version
+        # rather than assuming today's shape. Per-plugin blobs carry their own
+        # versions inside `plugins` (see Plugin.save_state).
         with open(path, "w") as f:
-            json.dump(states, f)
+            json.dump({"schema_version": _HOST_SIDECAR_SCHEMA,
+                       "plugins": states}, f)
         self.logger.info("Saved host-side state for %d plugin(s) to %s",
                          len(states), path)
 
@@ -257,7 +266,18 @@ class Snapshot(Plugin):
             self.logger.debug("No host sidecar for snapshot '%s'", tag)
             return
         with open(path) as f:
-            states = json.load(f)
+            raw = json.load(f)
+        # New format is a versioned envelope; tolerate a bare {name: data} map
+        # written by an older penguin (backward-compatible read).
+        if isinstance(raw, dict) and "plugins" in raw:
+            ver = raw.get("schema_version")
+            if ver != _HOST_SIDECAR_SCHEMA:
+                self.logger.warning(
+                    "host sidecar schema_version %r != %d; attempting restore anyway",
+                    ver, _HOST_SIDECAR_SCHEMA)
+            states = raw.get("plugins") or {}
+        else:
+            states = raw
         by_name = {p.name: p for p in self._iter_plugins()}
         for name, data in states.items():
             p = by_name.get(name)

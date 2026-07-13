@@ -12,6 +12,16 @@ class Sysctl(Plugin):
         self.proj_dir = self.get_arg("proj_dir")
         self._pending_sysctls: List[Tuple[str, SysctlFile]] = []
         self._sysctls: Dict[str, SysctlFile] = {}
+
+        # Snapshot restore: {fname -> [tramp_id, tramp_addr]} for the custom
+        # proc_handler wired into each guest sysctl node. The node survives
+        # savevm but the host tramp_id->callback map is lost on a cross-process
+        # -loadvm; on restore we re-bind rather than re-create (re-creating would
+        # double-register at the guest, and the install drain never runs on a
+        # -loadvm boot anyway). Only customized sysctls have a handler.
+        self._ops_tramps: Dict[str, list] = {}
+        self._restored_ops_tramps: Dict[str, list] = {}
+
         plugins.portal.register_interrupt_handler(
             "sysctl", self._sysctl_interrupt_handler)
 
@@ -47,6 +57,35 @@ class Sysctl(Plugin):
             return kffi.callback(meth, func_type=op_signature)
         return None
 
+    def _proc_handler_signature(self):
+        """Extract the DWARF signature for ctl_table.proc_handler (the subtype
+        behind the function-pointer member), or None. Pure metadata lookup -- no
+        guest I/O -- so it is safe to call from on_restore."""
+        ctl_table_type = plugins.kffi.ffi.get_type("struct ctl_table")
+        if not (ctl_table_type and hasattr(ctl_table_type, "fields")
+                and "proc_handler" in ctl_table_type.fields):
+            return None
+        member_type = ctl_table_type.fields["proc_handler"].type_info
+        if member_type and member_type.get("kind") == "pointer":
+            return member_type.get("subtype")
+        return member_type
+
+    def _rebind_ops(self, fname: str, sysctl_file: SysctlFile) -> bool:
+        """Re-bind a surviving sysctl node's custom proc_handler after a restore.
+        Returns True if the node had a persisted trampoline and was re-bound."""
+        tramp = self._restored_ops_tramps.pop(fname, None)
+        if not tramp:
+            return False
+        tid, taddr = tramp
+        plugins.kffi.rebind_callback(
+            sysctl_file.proc_handler, tid, taddr,
+            func_type=self._proc_handler_signature())
+        self._ops_tramps[fname] = tramp  # keep for a subsequent re-save
+        self.logger.info(
+            f"Re-bound sysctl '{fname}' proc_handler to the surviving guest node "
+            "after snapshot restore (no re-create)")
+        return True
+
     def register(self, sysctl_file: SysctlFile, path: Optional[str] = None):
         return self.register_sysctl(sysctl_file, path)
 
@@ -81,12 +120,23 @@ class Sysctl(Plugin):
             raise ValueError(
                 f"Cannot register '{fname}': A sysctl is already registered at this path.")
 
+        self._sysctls[fname] = sysctl_file
+
+        # Restore fast-path: the guest node for this sysctl survived the snapshot,
+        # so re-installing it would double-register at the guest (and the install
+        # drain never runs on a -loadvm boot anyway). If a custom handler for this
+        # path was captured before the snapshot, just re-bind it and skip the
+        # queue. Covers owners that re-register after load_state (e.g. from a
+        # hypercall handler this boot won't re-fire, like core_pattern_guard).
+        if fname in self._restored_ops_tramps:
+            self._rebind_ops(fname, sysctl_file)
+            return
+
         # Add to interrupt queue
         # Check against tuple (fname, sysctl_file)
         if not any(f == fname for f, _ in self._pending_sysctls):
             plugins.portal.queue_interrupt("sysctl")
             self._pending_sysctls.append((fname, sysctl_file))
-        self._sysctls[fname] = sysctl_file
 
     # Subtrees of /proc/sys that are not sysctls at all but separate
     # filesystems mounted there (binfmt_misc is the canonical example). The
@@ -149,21 +199,11 @@ class Sysctl(Plugin):
             # If any VFS-style or raw handler is present, we use the unified handler
             handler_ptr = 0
             if self._is_customized(sysctl_file):
-                # Look up the struct ctl_table definition in dwarffi
-                ctl_table_type = kffi.ffi.get_type("struct ctl_table")
-                op_signature = None
-
-                # Dynamically extract the proc_handler signature to ensure correct argument packing
-                if ctl_table_type and hasattr(ctl_table_type, "fields") and "proc_handler" in ctl_table_type.fields:
-                    member_type = ctl_table_type.fields["proc_handler"].type_info
-
-                    if member_type and member_type.get("kind") == "pointer":
-                        op_signature = member_type.get("subtype")
-                    else:
-                        op_signature = member_type
-
-                # We always wrap the unified proc_handler entry point using the discovered signature
-                handler_ptr = yield from kffi.callback(sysctl_file.proc_handler, func_type=op_signature)
+                # We always wrap the unified proc_handler entry point using the
+                # discovered signature so argument packing is correct.
+                handler_ptr = yield from kffi.callback(
+                    sysctl_file.proc_handler,
+                    func_type=self._proc_handler_signature())
 
             init_data = {
                 "dir_path": dir_path.encode("latin-1", errors="ignore"),
@@ -192,6 +232,14 @@ class Sysctl(Plugin):
                 continue
             self.logger.debug(
                 f"Registered sysctl '{fname}' with kernel (id={result})")
+            # Record the custom proc_handler trampoline now that it's wired, so a
+            # later snapshot restore can re-bind it to the surviving guest node.
+            if self._is_customized(sysctl_file):
+                fn = sysctl_file.proc_handler
+                tid = kffi.get_callback_id(fn)
+                taddr = kffi._tramp_addresses.get(fn)
+                if tid is not None and taddr is not None:
+                    self._ops_tramps[fname] = [int(tid), int(taddr)]
 
     def _sysctl_interrupt_handler(self) -> Generator[bool, None, bool]:
         """
@@ -212,3 +260,31 @@ class Sysctl(Plugin):
         if self._pending_sysctls:
             plugins.portal.queue_interrupt("sysctl")
         return False
+
+    # --- snapshot / restore ------------------------------------------------ #
+    def save_state(self):
+        """Persist the per-sysctl custom-handler trampolines so a restore can
+        re-bind the surviving guest nodes. The SysctlFile objects and their
+        proc_handlers are re-created by their owners on the restore boot; only
+        the guest ids/addrs need carrying. Returns None when nothing custom is
+        registered."""
+        return {"ops_tramps": self._ops_tramps} if self._ops_tramps else None
+
+    def load_state(self, data) -> None:
+        """Phase one: stash the saved trampoline map. Re-binding happens in
+        on_restore (owners that re-register in __init__) and in register_sysctl
+        (owners that re-register later, e.g. core_pattern_guard from a hypercall
+        handler this boot won't re-fire)."""
+        if not data:
+            return
+        self._restored_ops_tramps = {
+            fname: list(v) for fname, v in data.get("ops_tramps", {}).items()
+        }
+
+    def on_restore(self, tag: str) -> None:
+        """Re-bind every already-registered sysctl (owners that re-registered in
+        their __init__) to its surviving guest node. Sysctls whose owner
+        re-registers later are handled inline by register_sysctl."""
+        for fname, sysctl_file in list(self._sysctls.items()):
+            if fname in self._restored_ops_tramps:
+                self._rebind_ops(fname, sysctl_file)

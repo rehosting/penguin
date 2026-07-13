@@ -56,6 +56,7 @@ Example
 from __future__ import annotations
 
 import inspect
+import json
 import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -233,6 +234,44 @@ def drive(gen: Any, responses: Optional[List[Any]] = None,
             y = gen.send(next(resp_iter, None))
     except StopIteration as e:
         return (e.value, yielded) if collect else e.value
+
+
+def snapshot_roundtrip(src: "LoadedPlugin", dst: "LoadedPlugin",
+                       tag: str = "boot") -> Any:
+    """Simulate a cross-process snapshot restore of a plugin's host-side state.
+
+    Models exactly what ``core/snapshot.py`` does across a ``savevm`` / cold
+    ``-loadvm`` cycle, which is the case that actually loses state: the guest
+    comes back past its setup and never re-issues the events a plugin reacted
+    to, and ``penguin_run`` wipes ``out_dir`` on the restore run — so anything a
+    plugin held only in memory (or wrote only to ``out_dir``) is gone unless it
+    round-trips through the host sidecar.
+
+    ``src`` is a producer that has been driven to build up state; ``dst`` is a
+    freshly loaded instance (a new ``out_dir``) standing in for the restored
+    process. This helper:
+
+    1. calls ``src.plugin.save_state()`` and **JSON round-trips the result** —
+       the real sidecar is ``json.dump``\\ ed to disk (``snapshot.py``
+       ``_save_host_state``), so a value that isn't JSON-serialisable (a thread,
+       an ffi handle, a ``set``) is a real bug this surfaces here;
+    2. hands it to ``dst.plugin.load_state(...)`` **only when non-None**, mirroring
+       ``_restore_host_state`` (which stores only non-None states and only calls
+       ``load_state`` for those);
+    3. fires ``dst.plugin.on_restore(tag)`` unconditionally, mirroring
+       ``_dispatch_lifecycle("on_restore", ...)`` (called for every plugin).
+
+    Returns the (JSON-normalised) state dict, so a test can assert on what was
+    carried. Assert restored behaviour on ``dst`` — files re-written into its
+    ``out_dir``, in-memory records, and ``dst.published`` for the
+    no-double-actuation rule.
+    """
+    state = src.plugin.save_state()
+    if state is not None:
+        state = json.loads(json.dumps(state))
+        dst.plugin.load_state(state)
+    dst.plugin.on_restore(tag)
+    return state
 
 
 # --- real ISF path: load the published driver ISF through dwarffi ----------- #

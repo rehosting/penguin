@@ -90,6 +90,11 @@ class KFFI(Plugin):
         self.ffi = DFFI([self.igloo_ko_isf, self.isf])
         self._tramp_callbacks = {}
         self._tramp_addresses = {}
+        # Snapshot restore: qualname -> (tramp_id, tramp_addr) to re-attach, and
+        # the igloo.ko base shift to re-apply (see save_state / on_restore).
+        self._restored_tramps = {}
+        self._restored_shift = None
+        self._igloo_base_shift = None
         self.tramp_init = False
         self._is_32bit = self.panda.bits == 32
         self._is_big_endian = getattr(self.panda, "endianness", "little") == "big"
@@ -358,6 +363,13 @@ class KFFI(Plugin):
         return None
 
     def _fixup_igloo_module_baseaddr(self, addr):
+        # Idempotent per process: the shift is applied once -- from the
+        # IGLOO_MODULE_BASE hypercall at driver init, or re-applied from a
+        # snapshot on restore (on_restore), since that hypercall does not re-fire
+        # on a -loadvm boot. A double shift would corrupt every igloo.ko symbol.
+        if self._igloo_base_shift is not None:
+            return
+        self._igloo_base_shift = addr
         self.ffi.vtypejsons[self.igloo_ko_isf].shift_symbol_addresses(addr)
 
     def _prepare_ffi_call(self, func_ptr: int, args: list, func_name: str = None) -> Generator[Tuple[bytes, Optional[int], Optional[dict], bool], Any, Any]:
@@ -738,25 +750,24 @@ class KFFI(Plugin):
         Immediately generates the trampoline, sets up the interrupt handler, and returns an integer address.
         """
         # 1. Automatic Signature Extraction from dwarffi Ptr objects
-        if func_type is not None:
-            # Check if it's a Ptr object (duck-typing for the .signature property)
-            if hasattr(func_type, "signature"):
-                sig = func_type.signature
-                if sig is not None:
-                    # Use the VtypeFunction object directly
-                    func_type = sig
-                else:
-                    # Fallback to points_to_type_info if it's an older/raw dict
-                    pt_info = getattr(func_type, "points_to_type_info", None)
-                    if pt_info and isinstance(pt_info, dict) and pt_info.get("kind") == "function":
-                        func_type = pt_info
-                    else:
-                        raise ValueError("The provided Ptr does not point to a function signature.")
+        func_type = self._normalize_func_type(func_type)
 
-            # If it's a VtypeFunction object, convert it to a dictionary so the
-            # hypervisor can serialize it into the trampoline manager
-            if hasattr(func_type, "to_dict"):
-                func_type = func_type.to_dict()
+        qn = getattr(func, "__qualname__", None)
+        if qn and qn in self._restored_tramps and func not in self._tramp_addresses:
+            # A trampoline generated before the snapshot survives in guest RAM at
+            # the same address (the guest still has it wired into its structures);
+            # re-bind to the saved id/addr instead of generating a new one, so the
+            # caller gets back the SAME guest address its pre-snapshot state uses.
+            tramp_id, tramp_addr = self._restored_tramps.pop(qn)
+            num_args = len(inspect.signature(func).parameters)
+            self._tramp_callbacks[tramp_id] = (func, num_args, func_type)
+            self._tramp_callbacks[func] = tramp_id
+            self._tramp_addresses[tramp_id] = tramp_addr
+            self._tramp_addresses[func] = tramp_addr
+            self.logger.info(
+                f"Re-attached trampoline {qn} to id={tramp_id} "
+                f"addr={tramp_addr:#x} after snapshot restore (no regen)")
+            return tramp_addr
 
         if func in self._tramp_addresses:
             return self._tramp_addresses[func]
@@ -771,6 +782,59 @@ class KFFI(Plugin):
         self._tramp_addresses[tramp_id] = tramp_addr
         self._tramp_addresses[func] = tramp_addr
         return tramp_addr
+
+    def _normalize_func_type(self, func_type):
+        """Coerce a dwarffi Ptr / VtypeFunction into the plain-dict signature the
+        trampoline manager serializes. A raw dict (already-extracted subtype) or
+        None passes through unchanged."""
+        if func_type is None:
+            return None
+        # Check if it's a Ptr object (duck-typing for the .signature property)
+        if hasattr(func_type, "signature"):
+            sig = func_type.signature
+            if sig is not None:
+                func_type = sig
+            else:
+                # Fallback to points_to_type_info if it's an older/raw dict
+                pt_info = getattr(func_type, "points_to_type_info", None)
+                if pt_info and isinstance(pt_info, dict) and pt_info.get("kind") == "function":
+                    func_type = pt_info
+                else:
+                    raise ValueError("The provided Ptr does not point to a function signature.")
+        # If it's a VtypeFunction object, convert it to a dictionary so the
+        # hypervisor can serialize it into the trampoline manager
+        if hasattr(func_type, "to_dict"):
+            func_type = func_type.to_dict()
+        return func_type
+
+    def rebind_callback(self, func, tramp_id, tramp_addr, func_type=None) -> None:
+        """Re-bind a fresh Python callback to a trampoline that survived a
+        snapshot (its guest-side address is baked into surviving guest
+        structures, e.g. a modeled-pseudofile ops pointer). Unlike callback(),
+        this generates nothing and issues no guest I/O -- it only rebuilds the
+        host-side tramp_id->callback map that a cross-process -loadvm dropped, so
+        an already-wired guest call routes back to ``func``.
+
+        Pseudofile registrars (devfs/sysctl/...) call this from on_restore /
+        re-registration, having persisted {path -> (tramp_id, tramp_addr)} across
+        the snapshot. Keying on the concrete (path, op) rather than the callback
+        qualname avoids the collision when several instances of one model class
+        each own a distinct trampoline for the same method."""
+        func_type = self._normalize_func_type(func_type)
+        num_args = len(inspect.signature(func).parameters)
+        self._tramp_callbacks[tramp_id] = (func, num_args, func_type)
+        self._tramp_callbacks[func] = tramp_id
+        self._tramp_addresses[tramp_id] = tramp_addr
+        self._tramp_addresses[func] = tramp_addr
+        # If a qualname-keyed restore entry also exists, consume it so the lazy
+        # callback() path doesn't later re-bind the same trampoline to a
+        # different sibling instance's method.
+        qn = getattr(func, "__qualname__", None)
+        if qn:
+            self._restored_tramps.pop(qn, None)
+        self.logger.info(
+            f"Re-bound trampoline id={tramp_id} addr={tramp_addr:#x} to "
+            f"{getattr(func, '__qualname__', func)} after snapshot restore")
 
     def get_callback_id(self, f: Union[int, Any]) -> Optional[int]:
         """
@@ -820,6 +884,55 @@ class KFFI(Plugin):
             else:
                 self.logger.error(f"Failed to register trampoline callback for {func.__name__}")
         return False
+
+    # --- snapshot / restore ------------------------------------------------ #
+    def save_state(self):
+        """Carry trampoline registrations and the igloo.ko base shift across a
+        snapshot restore. Trampolines are installed guest-side (the guest holds
+        the tramp_addr in its own structures) and survive savevm, so the host
+        must re-bind tramp_id->callback and hand callers back the SAME address
+        rather than regenerate. The base shift (igloo.ko load offset) is derived
+        from a one-time hypercall a -loadvm boot never re-issues, so it too is
+        carried. Callbacks/signatures aren't serialisable -- they come fresh from
+        the owner re-calling callback() on the restore boot; only ids/addr are."""
+        state = {}
+        if self._igloo_base_shift is not None:
+            state["igloo_base_shift"] = self._igloo_base_shift
+        tramps = {}
+        for key, val in self._tramp_callbacks.items():
+            if isinstance(key, int):  # tramp_id -> (func, num_args, func_type)
+                func = val[0]
+                qn = getattr(func, "__qualname__", None)
+                addr = self._tramp_addresses.get(key)
+                if qn and addr is not None:
+                    tramps[qn] = [key, addr]
+        if tramps:
+            state["trampolines"] = tramps
+        return state or None
+
+    def load_state(self, data) -> None:
+        """Phase one: stash the base shift + qualname->(id,addr) map (no guest
+        I/O). on_restore re-applies the shift; callback() re-attaches lazily."""
+        if not data:
+            return
+        self._restored_shift = data.get("igloo_base_shift")
+        self._restored_tramps = {qn: tuple(v)
+                                 for qn, v in data.get("trampolines", {}).items()}
+
+    def on_restore(self, tag: str) -> None:
+        """Re-apply the igloo.ko base shift -- the IGLOO_MODULE_BASE hypercall
+        that normally drives it does not re-fire on a -loadvm boot. Trampoline
+        re-attach is lazy (in callback()/rebind_callback, when the owner
+        re-registers)."""
+        # The IGLOO_HYP_TRAMP_HIT hypercall handler is normally registered the
+        # first time a trampoline is generated. On a restore boot no trampoline
+        # is *generated* (surviving ones are re-bound instead), so wire the hit
+        # handler up explicitly -- otherwise every surviving trampoline's hit
+        # (modeled-pseudofile ops, re-attached kffi callbacks) is dropped and the
+        # guest silently reads dead nodes.
+        self.__init_tramp_functionality()
+        if self._restored_shift is not None:
+            self._fixup_igloo_module_baseaddr(self._restored_shift)
 
     def _on_tramp_hit_hypercall(self, cpu):
         """

@@ -110,6 +110,48 @@ mixins), not a `Plugin` subclass. `load_module(path, doubles=...)` imports the
 null manager bound as `plugins`, and returns `(module, manager)`. Instantiate
 the class and `drive()` its generator methods directly.
 
+### `snapshot_roundtrip(src, dst)` — test a plugin's snapshot restore
+
+A plugin that holds host-side state accumulated from guest events must survive a
+snapshot restore. The contract (on the base `Plugin`) is two-phase:
+
+- **`save_state()`** returns a **JSON-serialisable** dict (or `None` to carry
+  nothing). It is bundled into a host sidecar; a cross-process `-loadvm` restore
+  starts a fresh run whose `out_dir` is *wiped*, so anything held only in memory
+  or written only to `out_dir` is lost unless returned here.
+- **`load_state(data)`** — restore phase one: **apply your data, no side
+  effects.** Runs for *every* plugin before *any* `on_restore`.
+- **`on_restore(tag)`** — restore phase two: **actuate** — re-publish events,
+  replay work, re-write output files.
+
+The two phases exist so that state applied in `load_state` is visible to
+siblings during their `on_restore`. That drives the **no-double-actuation rule**:
+if another plugin will replay state you also observe (the VPN bridge
+re-publishes `on_bind` for every service it restores), do *not* re-emit it — restore
+your view of it **silently in `load_state`** so the upstream replay lands on
+already-restored state. Only re-actuate ground truth *no one else saved*.
+
+`snapshot_roundtrip` models exactly what `core/snapshot.py` does — including
+JSON round-tripping `save_state()`, so a non-serialisable value (a thread, an
+ffi handle, a raw `set`) fails loudly:
+
+```python
+from penguin.testing import load_pyplugin, snapshot_roundtrip
+
+def test_restores_state(tmp_path):
+    src = load_pyplugin(PLUGIN, outdir=tmp_path / "a")
+    # ... drive src so it accumulates state ...
+    dst = load_pyplugin(PLUGIN, outdir=tmp_path / "b")   # fresh, wiped out_dir
+    state = snapshot_roundtrip(src, dst)                 # save -> load -> on_restore
+    # assert dst reproduced files/records; and for a downstream consumer:
+    assert dst.published == []                           # no double-actuation
+```
+
+See `test_readiness.py` (re-creates its marker files on restore, re-broadcasts a
+ground-truth event) and `test_netbinds_lifecycle.py` (silent restore of
+already-announced sockets) for the producer/consumer shapes. The Snapshot
+plugin's own sidecar marshalling is covered host-side in `test_snapshot_sidecar.py`.
+
 ## Plugins behind the FFI-enum boundary: `real_isf=`
 
 A plugin that imports `hyper.portal` / `hyper.consts` / `apis.syscalls`

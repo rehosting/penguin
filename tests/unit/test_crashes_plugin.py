@@ -12,7 +12,7 @@ from pathlib import Path
 
 import yaml
 
-from penguin.testing import load_pyplugin
+from penguin.testing import load_pyplugin, snapshot_roundtrip
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CRASHES = REPO_ROOT / "pyplugins" / "analysis" / "crashes.py"
@@ -42,6 +42,7 @@ class FakeEvent:
 
 
 def _load(tmp_path, signals=("SIGSEGV", "SIGABRT")):
+    Path(tmp_path).mkdir(parents=True, exist_ok=True)  # crashes writes at init
     return load_pyplugin(
         str(CRASHES),
         outdir=str(tmp_path),
@@ -130,3 +131,33 @@ def test_finalize_rewrites_report(tmp_path):
     lp.finalize()  # uninit() rewrites crashes.yaml
     (rec,) = _records(tmp_path)
     assert rec["signame"] == "SIGSEGV"
+
+
+# --------------------------------------------------------------------------- #
+# Snapshot / restore
+# --------------------------------------------------------------------------- #
+def test_save_state_none_when_idle(tmp_path):
+    lp = _load(tmp_path)
+    assert lp.plugin.save_state() is None  # no crashes -> nothing to carry
+
+
+def test_snapshot_restores_crash_records(tmp_path):
+    # Producer: two SIGSEGVs at one site (count 2) and one SIGABRT elsewhere.
+    src = _load(tmp_path / "a")
+    src.dispatch("signal_deliver", None, FakeEvent(11, "httpd", 412, 0x4013A8))
+    src.dispatch("signal_deliver", None, FakeEvent(11, "httpd", 412, 0x4013A8))
+    src.dispatch("signal_deliver", None, FakeEvent(6, "ftpd", 77, 0x8000))
+
+    # Consumer: restored run starts with an empty (wiped) report, then rehydrates.
+    dst = _load(tmp_path / "b")
+    assert _records(tmp_path / "b") == []
+    snapshot_roundtrip(src, dst)
+
+    recs = _records(tmp_path / "b")
+    assert {(r["proc"], r["signal"], r["pc"], r["count"]) for r in recs} == {
+        ("httpd", 11, "0x004013a8", 2), ("ftpd", 6, "0x00008000", 1)}
+    # The dedup key was rebuilt: a further identical delivery folds in (count 3),
+    # rather than creating a duplicate record.
+    dst.dispatch("signal_deliver", None, FakeEvent(11, "httpd", 999, 0x4013A8))
+    (httpd_rec,) = [r for r in _records(tmp_path / "b") if r["proc"] == "httpd"]
+    assert httpd_rec["count"] == 3

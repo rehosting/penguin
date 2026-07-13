@@ -19,7 +19,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from penguin.testing import load_module, load_pyplugin
+from penguin.testing import load_module, load_pyplugin, snapshot_roundtrip
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TRACKER = str(REPO_ROOT / "pyplugins" / "hyperfile" / "pseudofile_tracker.py")
@@ -54,6 +54,7 @@ class _Osi:
 
 
 def _load(tmp_path, isf, mem=None, osi=None, args=None):
+    Path(tmp_path).mkdir(parents=True, exist_ok=True)  # tracker writes at init
     lp = load_pyplugin(
         TRACKER, outdir=tmp_path, real_isf=isf, args=dict(args or {}),
         doubles={"mem": mem or _Mem(), "osi": osi or _Osi()},
@@ -320,3 +321,45 @@ def test_ranking_by_impact_with_crash_join(tmp_path, igloo_ko_isf):
     assert data["/dev/mtd"]["impact"]["crashing_callers"] == 0
     assert "callers" not in data["/sys/foo/missing"]
     assert "# TODO" in text
+
+
+# --- snapshot / restore ------------------------------------------------------ #
+
+def test_save_state_none_when_idle(tmp_path, igloo_ko_isf):
+    lp = _load(tmp_path, igloo_ko_isf)
+    assert lp.plugin.save_state() is None
+
+
+def test_snapshot_restores_failures(tmp_path, igloo_ko_isf):
+    # Producer: an -ENOENT open with two callers/intents, an -ENOTTY ioctl, and
+    # a default-model hit with details -> exercises every branch of the flatten.
+    src = _load(tmp_path / "a", igloo_ko_isf)
+    t = src.plugin
+    t.centralized_log("/dev/watchdog", "open", caller=("watchdogd", 412),
+                      intents={"read", "write"})
+    t.centralized_log("/dev/watchdog", "open", caller=("init", 1),
+                      intents={"read"})
+    t.log_ioctl_failure("/dev/watchdog", 0x80045700, caller=("watchdogd", 412))
+    t.record_default_hit("/dev/stub", "ioctl", details="cmd 0x31f")
+    _, before = _failures(src)
+
+    # Consumer: fresh restored run; the failures file would be empty without the
+    # carried telemetry.
+    dst = _load(tmp_path / "b", igloo_ko_isf)
+    assert _failures(dst)[1] == {}
+    snapshot_roundtrip(src, dst)
+
+    _, after = _failures(dst)
+    assert after == before  # the ranked YAML is reproduced verbatim
+
+    # The nested internal structure was rebuilt, not just the rendered output:
+    rec = dst.plugin.file_failures["/dev/watchdog"]
+    assert rec["events"]["ioctl"] == {0x80045700: {"count": 1}}  # int key restored
+    assert rec["callers"] == {("watchdogd", 412), ("init", 1)}   # set of tuples
+    assert rec["intents"] == {"read", "write"}                   # set
+    assert dst.plugin.file_failures["/dev/stub"]["events"]["default_ioctl"]["details"] \
+        == ["cmd 0x31f"]
+    # Dedup keys live: a further ioctl failure folds into the restored count.
+    dst.plugin.log_ioctl_failure("/dev/watchdog", 0x80045700,
+                                 caller=("watchdogd", 412))
+    assert rec["events"]["ioctl"][0x80045700]["count"] == 2

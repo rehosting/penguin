@@ -84,6 +84,13 @@ class FetchWeb(Plugin):
         else:
             self.fetch_delay = 20
         self.task_queue = queue.Queue()
+        # Guest-side identities (guest_ip, guest_port) already fetched, so a
+        # repeated on_bind — in particular VPN re-publishing every bridge it
+        # re-establishes after a snapshot restore — does not re-fetch (and, with
+        # shutdown_after_www, does not re-trigger end_analysis and kill the
+        # restored run). Keyed on the guest side because the host_port may be
+        # re-mapped across a restore. Restored in load_state; see save_state.
+        self._handled = set()
         plugins.subscribe(plugins.VPN, "on_bind", self.fetchweb_on_bind)
         self.shutting_down = False
 
@@ -110,8 +117,33 @@ class FetchWeb(Plugin):
         if self.shutting_down or proto != "tcp" or guest_port not in [80, 443]:
             return
 
+        key = (guest_ip, guest_port)
+        if key in self._handled:
+            # Already fetched this service (or a snapshot restore replayed its
+            # bind) -> nothing new to do.
+            return
+        self._handled.add(key)
+
         log_file_name = os.path.join(self.outdir, f"web_{guest_ip}_{guest_port}")
         self.task_queue.put((guest_ip, host_ip, guest_port, host_port, log_file_name))
+
+    def save_state(self):
+        """Carry the set of already-fetched services across a snapshot restore.
+
+        On restore the VPN bridge re-publishes ``on_bind`` for every service it
+        re-establishes; without this the restored run would re-fetch every
+        pre-snapshot web service (and, under ``shutdown_after_www``, immediately
+        end the analysis again). Returns None when nothing has been fetched."""
+        if not self._handled:
+            return None
+        return {"handled": sorted([ip, port] for ip, port in self._handled)}
+
+    def load_state(self, data) -> None:
+        """Restore the fetched-service set (phase one, no side effects) so the
+        VPN's on_bind replay in on_restore is absorbed silently."""
+        if not data:
+            return
+        self._handled = {(ip, port) for ip, port in data.get("handled", [])}
 
     def worker(self) -> None:
         """

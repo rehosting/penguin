@@ -360,6 +360,46 @@ jobs:
           name: compose-artifacts
           path: ${{ github.workspace }}/tests/integration/compose/compose_projects/
 
+  run_snapshots:
+    # The snapshot save/restore re-attach smokes (kprobe / devfs / sysctl /
+    # core_pattern) verify host-side state survives a cross-process -loadvm.
+    # The mechanism is arch-independent, and each smoke is two full guest boots,
+    # so this runs once on a representative arch outside the per-arch matrix
+    # instead of multiplying CI cost by 10 (same rationale as run_compose).
+    needs: [changes, build_container]
+    runs-on: rehosting-arc
+    # Job-level gate: skip the runner entirely on docs-only PRs.
+    if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Set up penguin image
+        uses: rehosting/ci/actions/pull-image@v1
+        with:
+          registry: ${{ env.REGISTRY }}
+          target: ${{ env.TARGET }}
+          image: rehosting/penguin
+          tag: ${{ github.sha }}
+          local-tag: rehosting/penguin:${{ github.sha }}
+          username: ${{ env.USER }}
+          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
+          install-python: "true"
+          install-cert: "false"
+
+      - name: Snapshot re-attach smokes (armel/4.10)
+        run: timeout 20m python3 $GITHUB_WORKSPACE/tests/integration/basic_target/snapshots.py --arch armel --kernel 4.10 --image rehosting/penguin:${{ github.sha }}
+
+      - name: Snapshot debug info
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-artifacts
+          path: ${{ github.workspace }}/tests/integration/basic_target/*_*.txt
+
   # Single required status check for branch protection + the merge queue.
   #
   # The per-arch run_tests matrix and build_container are conditionally skipped
@@ -373,7 +413,7 @@ jobs:
   ci_gate:
     if: ${{ always() }}
     runs-on: ubuntu-latest
-    needs: [changes, lint, unit_tests, build_container, run_tests, run_compose]
+    needs: [changes, lint, unit_tests, build_container, run_tests, run_compose, run_snapshots]
     steps:
       - name: Require no gated job to have failed
         run: |
@@ -384,6 +424,7 @@ jobs:
             [build_container]='${{ needs.build_container.result }}'
             [run_tests]='${{ needs.run_tests.result }}'
             [run_compose]='${{ needs.run_compose.result }}'
+            [run_snapshots]='${{ needs.run_snapshots.result }}'
           )
           ok=true
           for job in "${!r[@]}"; do
