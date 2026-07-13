@@ -229,9 +229,16 @@ def add_lib_inject_all_abis(conf, cache_dir, proj_dir=None, build_log_path=None)
         type="symlink",
         target=f"/igloo/lib_inject_{arch_info['default_abi']}.so",
     )
+    # Use the bare soname (not the absolute /igloo/dylibs path, which is
+    # symlinked to the default ABI) so the loader resolves lib_inject per-ABI
+    # via the /lib symlinks placed next to each libc.so.  On a mixed 32/64-bit
+    # target the absolute path pins the default (64-bit) class, so 32-bit
+    # daemons hit "wrong ELF class ELFCLASS64: ignored" and get no
+    # interception.  A slashless entry is class-filtered by the loader, matching
+    # the env LD_PRELOAD=lib_inject.so mechanism.
     conf["static_files"]["/etc/ld.so.preload"] = dict(
         type="inline_file",
-        contents="/igloo/dylibs/lib_inject.so\n",
+        contents="lib_inject.so\n",
         mode=0o644,
     )
 
