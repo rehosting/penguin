@@ -118,6 +118,11 @@ exactly and to avoid arches that might route `sendto()` through the legacy
   with no extra setup. `PYTHONPATH` is scoped to the wrapper and is **not**
   leaked into the firmware's own environment.
 
+> **Don't name your script `penguest.py`.** CPython puts a script's own
+> directory first on `sys.path`, so a script literally named `penguest.py`
+> shadows the staged package and `import penguest` imports the script itself.
+> Name drivers/probes something else (e.g. `penguest_probe.py`).
+
 ## Testing
 
 - **Host unit tests** (`tests/unit/test_penguest.py`): the `portal_call` packing
