@@ -33,6 +33,7 @@ patches:
   - ./patches/tests/compat_dev_collision.yaml
   - ./patches/tests/hypercall.yaml
   - ./patches/tests/portalcall.yaml
+  - ./patches/tests/penguest.yaml
   - ./patches/tests/net_missing.yaml
   - ./patches/tests/netbinds.yaml
   - ./patches/tests/netbinds_lifecycle.yaml
