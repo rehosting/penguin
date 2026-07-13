@@ -118,6 +118,36 @@ class TestSdkFinder(unittest.TestCase):
         self.assertNotIn("sdk.broadcom_hnd", patches)
 
 
+class TestFidelityTiers(unittest.TestCase):
+    """The catalog exposes fidelity-tiered bundles (bundles.<tier>). Tier 0
+    (libinject) ships; a tier with no bundle (e.g. the reserved `mtd`) emits no
+    patch even when the fingerprint fires."""
+
+    def test_libinject_tier_is_emitted(self):
+        _, patches = run(interfaces=["vlan1", "et"], symbols=["nvram_get"])
+        data, enabled = patches["sdk.broadcom_hnd"]
+        self.assertTrue(enabled)
+        self.assertIn("netdevs", data)  # sourced from bundles.libinject
+
+    def test_unbuilt_tier_emits_no_patch(self):
+        # Drive _profile_patch directly for the reserved mtd tier: the fingerprint
+        # corroborates but broadcom_hnd defines no bundles.mtd -> no patch.
+        profile_cls = _builtin("BroadcomHndProfile")
+        _profile_patch = profile_cls.patch.__globals__["_profile_patch"]
+
+        classes = make_analysis_stubs(interfaces=["vlan1", "et"], symbols=["nvram_get"]) + [
+            _builtin("SdkFinder"),
+            profile_cls,
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            runner, _, _ = run_plugins(classes, tmp)
+        finder = runner.manager.plugins["SdkFinder"]
+        profile = runner.manager.plugins["BroadcomHndProfile"]
+        # Sanity: the profile did fire for Tier 0.
+        self.assertIsNotNone(finder.verdict("broadcom_hnd"))
+        self.assertIsNone(_profile_patch(profile, "broadcom_hnd", tier="mtd"))
+
+
 class TestQualcommQsdkProfile(unittest.TestCase):
     def _run(self, **kw):
         return run(profile_classes=("QualcommQsdkProfile",), **kw)

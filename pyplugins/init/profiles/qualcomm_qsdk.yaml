@@ -20,21 +20,26 @@ fingerprint:
 enable_if:
   min_signals: 2
 
-# SDK-general fix (verified in a Qualcomm-QSDK ASUSWRT reference rehost): the
-# uClibc loader ignores LD_PRELOAD and /etc/ld.so.preload, so Penguin's default
-# preload interception never loads. Replace the firmware's libnvram.so (which
-# rc/nvram/libshared all DT_NEEDED) with lib_inject, and alias the ASUS-specific
-# nvram symbols uClibc binds eagerly onto lib_inject helpers. (Model-identity
-# seeding like productid is per-device, not part of this SDK profile.)
-bundle:
-  static_files:
-    /usr/lib/libnvram.so:
-      type: shim
-      target: /igloo/dylibs/lib_inject.so
-  lib_inject:
-    aliases:
-      get_nvram_space: libinject_nvram_get_nvramspace
-      nvram_xfr: libinject_ret_0_arg
-      nvram_get_salt: libinject_ret_0_arg
-      nvram_file2nvram: libinject_ret_0
-      nvram_nvram2file: libinject_ret_0
+# Fidelity-tiered bundles, both keyed off the fingerprint above. Only Tier 0
+# (libinject) exists for this SDK; a Tier-1 `mtd` model would back the QSDK
+# nvram partition once its flash format is reversed.
+bundles:
+  # Tier 0: SDK-general fix (verified in a Qualcomm-QSDK ASUSWRT reference
+  # rehost): the uClibc loader ignores LD_PRELOAD and /etc/ld.so.preload, so
+  # Penguin's default preload interception never loads. Replace the firmware's
+  # libnvram.so (which rc/nvram/libshared all DT_NEEDED) with lib_inject, and
+  # alias the ASUS-specific nvram symbols uClibc binds eagerly onto lib_inject
+  # helpers. (Model-identity seeding like productid is per-device, not part of
+  # this SDK profile.)
+  libinject:
+    static_files:
+      /usr/lib/libnvram.so:
+        type: shim
+        target: /igloo/dylibs/lib_inject.so
+    lib_inject:
+      aliases:
+        get_nvram_space: libinject_nvram_get_nvramspace
+        nvram_xfr: libinject_ret_0_arg
+        nvram_get_salt: libinject_ret_0_arg
+        nvram_file2nvram: libinject_ret_0
+        nvram_nvram2file: libinject_ret_0

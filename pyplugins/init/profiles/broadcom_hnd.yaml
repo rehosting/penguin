@@ -1,10 +1,10 @@
 # SDK profile: ASUSWRT on Broadcom HND (et/robo switch + CFE bootloader nvram).
 #
-# A profile is fingerprint + bundle. SdkFinder scores the fingerprint against
-# static analyses that already run; SdkProfilePatch (BroadcomHndProfile) emits
-# the bundle as the named patch `sdk.broadcom_hnd`, ENABLED when the fingerprint
-# corroborates (>= enable_if.min_signals) and DISABLED (a search candidate)
-# otherwise.
+# A profile is fingerprint + fidelity-tiered bundles. SdkFinder scores the
+# fingerprint against static analyses that already run; BroadcomHndProfile emits
+# bundles.libinject as the named patch `sdk.broadcom_hnd`, ENABLED when the
+# fingerprint corroborates (>= enable_if.min_signals) and DISABLED (a search
+# candidate) otherwise.
 name: broadcom_hnd
 description: ASUSWRT on Broadcom HND (et/robo switch + CFE nvram)
 
@@ -23,42 +23,54 @@ fingerprint:
 enable_if:
   min_signals: 2
 
-# The config this SDK tends to need. Verified as the shared intersection of two
-# Broadcom-HND ASUSWRT reference rehosts.
-bundle:
-  netdevs:
-    # Broadcom LAN switch is exposed as the VLAN device vlan1 (primary br0
-    # member); vlan2/vlan3 are WAN/guest; et is the Broadcom eth/switch device.
-    - vlan1
-    - vlan2
-    - et
-  nvram:
-    # ASUSWRT derives lan_ipaddr from the CFE var IpAddr_Lan, written at the
-    # factory into CFE flash and absent under emulation. Seed the CFE source and
-    # skip restore_defaults (which otherwise blanks lan_ipaddr on first boot).
-    IpAddr_Lan: 192.168.1.1
-    lan_ipaddr: 192.168.1.1
-    lan_netmask: 255.255.255.0
-    lan_proto: static
-    lan_ifname: br0
-    restore_defaults: "0"
-    et0macaddr: "00:11:22:33:44:50"
-    et1macaddr: "00:11:22:33:44:51"
-    et2macaddr: "00:11:22:33:44:52"
-  pseudofiles:
-    # Secondary Realtek RTL8365MB switch driven by /sbin/rtkswitch; satisfy its
-    # ioctls so the switch-config calls stop failing in a tight loop.
-    /dev/rtkswitch:
-      read: {model: zero}
-      write: {model: discard}
-      ioctl:
-        '*': {model: return_const, val: 1}
-    # CFE/flash partition table + boot partition, read by ASUSWRT board code to
-    # locate the CFE nvram region.
-    /proc/mtd:
-      read: {model: const_buf, val: "AAAAAAAAAAAAAA FLSH\0"}
-    /dev/mtd0:
-      read: {model: const_buf, val: "BBBBBBBBBBBBBB FLSH CCCCCCCCCC\0"}
-      ioctl:
-        '2149600513': {model: return_const, val: 0}   # MEMGETINFO
-        '*': {model: return_const, val: 0}
+# Fidelity-tiered bundles for this SDK, both keyed off the single fingerprint
+# above. Tier 0 (libinject) ships now; Tier 1 (mtd) is reserved -- see below.
+bundles:
+  # Tier 0: shim the switch/nvram surface at the library/pseudofile layer and
+  # answer from config. Verified as the shared intersection of two Broadcom-HND
+  # ASUSWRT reference rehosts.
+  libinject:
+    netdevs:
+      # Broadcom LAN switch is exposed as the VLAN device vlan1 (primary br0
+      # member); vlan2/vlan3 are WAN/guest; et is the Broadcom eth/switch device.
+      - vlan1
+      - vlan2
+      - et
+    nvram:
+      # ASUSWRT derives lan_ipaddr from the CFE var IpAddr_Lan, written at the
+      # factory into CFE flash and absent under emulation. Seed the CFE source and
+      # skip restore_defaults (which otherwise blanks lan_ipaddr on first boot).
+      IpAddr_Lan: 192.168.1.1
+      lan_ipaddr: 192.168.1.1
+      lan_netmask: 255.255.255.0
+      lan_proto: static
+      lan_ifname: br0
+      restore_defaults: "0"
+      et0macaddr: "00:11:22:33:44:50"
+      et1macaddr: "00:11:22:33:44:51"
+      et2macaddr: "00:11:22:33:44:52"
+    pseudofiles:
+      # Secondary Realtek RTL8365MB switch driven by /sbin/rtkswitch; satisfy its
+      # ioctls so the switch-config calls stop failing in a tight loop.
+      /dev/rtkswitch:
+        read: {model: zero}
+        write: {model: discard}
+        ioctl:
+          '*': {model: return_const, val: 1}
+      # CFE/flash partition table + boot partition, read by ASUSWRT board code to
+      # locate the CFE nvram region.
+      /proc/mtd:
+        read: {model: const_buf, val: "AAAAAAAAAAAAAA FLSH\0"}
+      /dev/mtd0:
+        read: {model: const_buf, val: "BBBBBBBBBBBBBB FLSH CCCCCCCCCC\0"}
+        ioctl:
+          '2149600513': {model: return_const, val: 0}   # MEMGETINFO
+          '*': {model: return_const, val: 0}
+
+  # Tier 1 (reserved, not built): model the real CFE nvram MTD partition via the
+  # native MTD device (hyperfile/mtd.py) with a backing image whose bytes are a
+  # real Broadcom `FLSH`-header nvram blob, so ASUSWRT's own nvram library parses
+  # it (exercising CRC/commit/erase). Emitted as a separate disabled
+  # `sdk.broadcom_hnd.mtd` candidate once the flash format is authored.
+  # mtd:
+  #   devices: {...}
