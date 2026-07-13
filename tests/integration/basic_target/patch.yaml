@@ -3,6 +3,15 @@ core:
   # Keep the default firmware scoping on so the default path stays covered.
   analysis_scope: firmware
 
+lib_inject:
+  # Declarative stub: exercises the full schema -> generated C shim ->
+  # clang cross-compile -> --defsym alias path on the real per-arch toolchain.
+  # A failed codegen/link would abort `penguin run` before assertions.
+  stubs:
+    libplaceholder.so:
+      igloo_stub_probe:
+        return: 43981   # 0xABCD
+
 env:
   igloo_init: /init.sh
 

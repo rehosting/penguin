@@ -10,7 +10,8 @@ what the run produces. They are the slow integration gate — run in CI by the
   fixtures; pass/fail is decided by a guest-side `verifier` plugin emitting
   JUnit `verifier.xml`.
 - `basic_target/` — smoke test: `init`/`refresh`/boot, C drop-in + lib_inject
-  markers (plus the `snapshot_*_test.py` save/restore/VPN tests).
+  markers, and a declarative `lib_inject.stubs` return-stub compiled through the
+  real per-arch toolchain (plus the `snapshot_*_test.py` save/restore/VPN tests).
 - `compose/` — two-guest network end-to-end test (arch-independent).
 
 These contain stand-alone configs realized without a rootfs, to test failure

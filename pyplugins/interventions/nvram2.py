@@ -91,7 +91,11 @@ def add_lib_inject_for_abi(config, abi, cache_dir, proj_dir=None, build_log_path
     headers_dir = f"/igloo_static/musl-headers/{abi_info['musl_arch_name']}/include"
     libnvram_arch_name = abi_info.get(
         'libnvram_arch_name', None) or arch_info['libnvram_arch_name']
-    aliases = lib_inject.get("aliases", dict())
+    # Local copy: the declarative `stubs` section is compiled into extra
+    # aliases below, and this function is called once per ABI. Mutating the
+    # shared config dict would leak stub aliases into later ABIs (and make the
+    # precedence check misfire), so never touch lib_inject["aliases"] in place.
+    aliases = dict(lib_inject.get("aliases", dict()))
 
     cache_dir = Path(cache_dir)
     os.makedirs(cache_dir, exist_ok=True)
@@ -100,6 +104,42 @@ def add_lib_inject_for_abi(config, abi, cache_dir, proj_dir=None, build_log_path
     dropin_include = []
     if dropin_c or dropin_h:
         dropin_include = ["-I", str(Path(proj_dir) / "lib_inject.d")]
+
+    # Declarative `lib_inject.stubs` -> generated C shims + --defsym aliases.
+    # The generated .c files live under a dotted subdir of lib_inject.d/ so the
+    # hand-authored dropin scanner (which skips dotfiles) never double-compiles
+    # them; we wire them into the build explicitly here and hash their bytes.
+    stub_c_paths = []
+    stub_include = []
+    stub_signature = []
+    stubs_cfg = lib_inject.get("stubs", dict())
+    if stubs_cfg and proj_dir:
+        from penguin import stubs as stubs_mod
+        resolver = None
+        fs_rel = config.get("core", dict()).get("fs")
+        if fs_rel:
+            resolver = stubs_mod.make_fs_resolver(os.path.join(proj_dir, fs_rel))
+        try:
+            files, stub_aliases = stubs_mod.generate(
+                stubs_cfg, resolver=resolver, existing_aliases=aliases
+            )
+        except stubs_mod.StubError as e:
+            print(f"FATAL: {e}")
+            raise
+        gen_dir = Path(proj_dir) / "lib_inject.d" / ".generated"
+        stub_c_paths = stubs_mod.write_files(gen_dir, files)
+        stub_include = ["-I", str(gen_dir)]
+        aliases.update(stub_aliases)
+        for p in stub_c_paths:
+            try:
+                stub_signature.append((Path(p).name, Path(p).read_bytes()))
+            except Exception:
+                pass
+        _append_build_log(
+            build_log_path,
+            f"[{arch}/{abi}] stubs: {len(stub_aliases)} symbol(s) -> "
+            f"{sorted(stub_aliases)}",
+        )
 
     hash_options = "-Wl,--hash-style=both" if "mips" not in arch else ""
 
@@ -119,11 +159,13 @@ def add_lib_inject_for_abi(config, abi, cache_dir, proj_dir=None, build_log_path
             f"-DCONFIG_{libnvram_arch_name.upper()}=1",
         ]
         + dropin_include
+        + stub_include
         + [
             "/igloo_static/libnvram/nvram.c",
             "/igloo_static/guest-utils/ltrace/inject_ltrace.c",
         ]
         + [str(p) for p in dropin_c]
+        + [str(p) for p in stub_c_paths]
         + [
             "--language",
             "c",
@@ -164,10 +206,12 @@ def add_lib_inject_for_abi(config, abi, cache_dir, proj_dir=None, build_log_path
         except Exception:
             pass
 
-    hash_input = str((arch, abi, aliases, lib_inject.get("extra", ""), args, [n for n, _ in dropin_signature])).encode()
+    hash_input = str((arch, abi, aliases, lib_inject.get("extra", ""), args, [n for n, _ in dropin_signature], [n for n, _ in stub_signature])).encode()
     for content in source_files_content:
         hash_input += content
     for _, content in dropin_signature:
+        hash_input += content
+    for _, content in stub_signature:
         hash_input += content
     cache_key = hashlib.sha256(hash_input).hexdigest()
     cache_path = cache_dir / f"lib_inject_{arch}_{abi}_{cache_key}.so"
@@ -283,6 +327,30 @@ def prep_config(conf, cache_dir, proj_dir=None, build_log_path=None):
 
     _append_build_log(build_log_path, "lib_inject build log start")
     add_lib_inject_all_abis(conf, cache_dir, proj_dir=proj_dir, build_log_path=build_log_path)
+
+    # Assembly-body stubs (lib_inject.stubs with a `body:`) compile down to a
+    # static_files binary_patch. This is arch-independent, so emit it once here
+    # rather than per-ABI in add_lib_inject_for_abi.
+    lib_inject = conf.get("lib_inject", dict())
+    stubs_cfg = lib_inject.get("stubs", dict())
+    if stubs_cfg and proj_dir:
+        from penguin import stubs as stubs_mod
+
+        fs_rel = conf.get("core", dict()).get("fs")
+        if fs_rel:
+            resolver = stubs_mod.make_fs_offset_resolver(os.path.join(proj_dir, fs_rel))
+            try:
+                patches = stubs_mod.generate_patches(stubs_cfg, resolver)
+                if patches:
+                    conf.setdefault("static_files", dict())
+                    stubs_mod.merge_patches_into_static_files(conf["static_files"], patches)
+                    _append_build_log(
+                        build_log_path,
+                        f"stubs: emitted binary_patch for {sorted(patches)}",
+                    )
+            except stubs_mod.StubError as e:
+                print(f"FATAL: {e}")
+                raise
 
 
 class Nvram2(Plugin):
