@@ -172,6 +172,8 @@ penguin_run() {
     local build=false
     local build_singularity=false
     local pydev=false
+    local pydev_root="" # --pydev source root; resolved below (flag > env > auto > cwd)
+    local pydev_root_explicit=false # whether --pydev-root was passed
     local verbose=false
     local reproduce=false
     local shell_mode=false
@@ -198,7 +200,9 @@ penguin_run() {
                 echo "           With no --image, builds and runs the localhost/penguin:dev tag so a local build never"
                 echo "           shadows the default rehosting/penguin:latest run image. Pass --image to choose another tag."
                 echo "  --build-singularity: Build the PENGUIN container and then convert it to singularity. No command will be run"
-                echo "  --pydev: Map local python package and plugin code into container and reinstall before running the specified command."
+                echo "  --pydev: Overlay the live penguin worktree (src/, pengutils/, pyplugins/) into the container via PYTHONPATH so edits apply without a rebuild."
+                echo "  --pydev-root: Path to the penguin worktree to overlay under --pydev. Defaults to walking up from the cwd for a src/penguin/ dir, then the cwd."
+                echo "                May also be set via PENGUIN_PYDEV_ROOT. Precedence: --pydev-root > PENGUIN_PYDEV_ROOT > auto-detect > cwd."
                 echo "  --subnet: IP subnet to use. For example --subnet 192.168.0.0/24 would produce a network with firmware reachable at 192.168.0.2."
                 echo "            Default: automatically find next free /24 subnet in 192.168.x.x"
                 echo "            Set to 'none' to disable network creation."
@@ -242,6 +246,11 @@ penguin_run() {
             --pydev)
                 pydev=true
                 shift
+                ;;
+            --pydev-root)
+                pydev_root="$2"
+                pydev_root_explicit=true
+                shift 2
                 ;;
             --subnet)
                 subnet="$2"
@@ -324,6 +333,42 @@ penguin_run() {
         fi
     fi
 
+    # Resolve the --pydev source root (the penguin worktree whose src/, pengutils/,
+    # and pyplugins/ get bind-mounted live). Historically this was hardwired to the
+    # cwd; now it is configurable so the wrapper works from a subdirectory or when
+    # the installed `penguin` command targets a checkout elsewhere.
+    # Precedence: --pydev-root > PENGUIN_PYDEV_ROOT > auto (walk up for src/penguin) > cwd.
+    if $pydev; then
+        if $pydev_root_explicit; then
+            :
+        elif [ -n "${PENGUIN_PYDEV_ROOT:-}" ]; then
+            pydev_root="$PENGUIN_PYDEV_ROOT"
+        else
+            # Walk up looking for a penguin worktree root (marked by src/penguin/).
+            local _d="$(pwd)"
+            while [ -n "$_d" ]; do
+                if [ -d "$_d/src/penguin" ]; then
+                    pydev_root="$_d"
+                    break
+                fi
+                [ "$_d" = "/" ] && break
+                _d="$(dirname "$_d")"
+            done
+            [ -z "$pydev_root" ] && pydev_root="$(pwd)"
+        fi
+        # Normalize to an absolute path and validate the expected layout early so a
+        # bad root fails loudly here instead of silently mounting empty dirs.
+        pydev_root="$(cd "$pydev_root" 2>/dev/null && pwd)" || {
+            echo "Error: --pydev source root '$pydev_root' does not exist." >&2
+            exit 1
+        }
+        if [ ! -d "$pydev_root/src/penguin" ]; then
+            echo "Error: --pydev source root '$pydev_root' is not a penguin worktree" >&2
+            echo "       (no src/penguin/ there). Pass --pydev-root PATH or set PENGUIN_PYDEV_ROOT." >&2
+            exit 1
+        fi
+    fi
+
     # If verbose, log all wrapper args and command
     if $verbose; then
         echo "${BOLD}Wrapper args:${RESET}"
@@ -331,6 +376,7 @@ penguin_run() {
         echo "  build: $build"
         echo "  build_singularity: $build_singularity"
         echo "  pydev: $pydev"
+        $pydev && echo "  pydev_root: $pydev_root"
         echo "  subnet: $subnet"
         echo "  name: $container_name"
         echo "  extra_docker_args: $extra_docker_args"
@@ -485,9 +531,9 @@ penguin_run() {
     # copies. src/ also carries resources/ (the image sets PENGUIN_RESOURCES=/pkg/
     # resources), so guest init scripts / static_keys iterate live too.
     if $pydev; then
-        maps+=("$(pwd)/src:/pkg")
-        maps+=("$(pwd)/pengutils:/pengutils")
-        maps+=("$(pwd)/pyplugins:/pyplugins")
+        maps+=("$pydev_root/src:/pkg")
+        maps+=("$pydev_root/pengutils:/pengutils")
+        maps+=("$pydev_root/pyplugins:/pyplugins")
     fi
 
     # Sort mappings by path length
@@ -1174,6 +1220,7 @@ penguin_run() {
     d=""
     if $pydev; then
         echo "Running in Python development mode (--pydev): overlaying live source via PYTHONPATH (edits apply without a rebuild)."
+        echo "  source root: $pydev_root"
         echo "  live (edit -> just re-run): src/ (incl. resources/), pengutils/, pyplugins/"
         echo "  NOT live (needs ./penguin --build): guest-side artifacts baked into the image --"
         echo "    /igloo_static (kernels, igloo_driver, busybox/console/guesthopper/vpnguin/libnvram,"
