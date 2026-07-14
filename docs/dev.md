@@ -54,35 +54,35 @@ python3 -m penguin ...                       # host tooling against live sources
 This can't run emulation (PANDA-QEMU, `/igloo_static`, and the guest tools only
 exist inside the image) — use it for everything that doesn't need a guest boot.
 
-### Plugin behavior in a running guest — `--pydev` (no rebuild)
+### Plugin behavior in a running guest — `--dev` (no rebuild)
 
-To iterate against a *real boot* without rebuilding, use `--pydev`: it
+To iterate against a *real boot* without rebuilding, use `--dev`: it
 bind-mounts the live Python trees (`src/ -> /pkg`, `pengutils/ -> /pengutils`,
 `pyplugins/ -> /pyplugins`) and prepends them to `PYTHONPATH` (the image is an
 immutable `python3.withPackages` env with no pip, so this overlays the live tree
 rather than reinstalling). Edits apply on the next `run` — no rebuild, no
-root/pip step.
+root/pip step. (`--pydev` still works as a deprecated alias.)
 
 ```sh
-./penguin --pydev run projects/myfw     # edit src/, pengutils/, or pyplugins/ -> re-run
-./penguin --build --pydev run ...        # rebuild the image too (only if a baked-in dep changed)
+./penguin --dev run projects/myfw     # edit src/, pengutils/, or pyplugins/ -> re-run
+./penguin --build --dev run ...        # rebuild the image too (only if a baked-in dep changed)
 ```
 
-By default `--pydev` finds the worktree to overlay by walking up from the
+By default `--dev` finds the worktree to overlay by walking up from the
 current directory for a `src/penguin/` dir (falling back to the cwd), so it
 works from a subdirectory. To overlay a checkout elsewhere — e.g. when the
 installed `penguin` command runs from outside the repo — point it explicitly:
 
 ```sh
-./penguin --pydev --pydev-root /abs/path/to/penguin run projects/myfw
-PENGUIN_PYDEV_ROOT=/abs/path/to/penguin penguin --pydev run projects/myfw
+./penguin --dev --dev-root /abs/path/to/penguin run projects/myfw
+PENGUIN_DEV_ROOT=/abs/path/to/penguin penguin --dev run projects/myfw
 ```
 
-Precedence: `--pydev-root` > `PENGUIN_PYDEV_ROOT` > auto-detect > cwd. A root
+Precedence: `--dev-root` > `PENGUIN_DEV_ROOT` > auto-detect > cwd. A root
 that isn't a penguin worktree (no `src/penguin/`) fails loudly instead of
 silently mounting empty directories.
 
-**What's live vs. not** (`--pydev` prints this on startup):
+**What's live vs. not** (`--dev` prints this on startup):
 
 - **Live** — `src/` (the `penguin` package *and* `src/resources/`: init scripts,
   `source.d/`, `static_keys`, … via `PENGUIN_RESOURCES=/pkg/resources`),
