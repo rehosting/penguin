@@ -226,9 +226,10 @@ The image is an immutable `python3.withPackages` env (no pip, read-only
   resolves to the worktree. For host-side plugin logic, `tests/unit/`,
   `gen_docs`, and linting — no container, no boot. (Not emulation: PANDA-QEMU
   and `/igloo_static` only exist in the image.)
-- **`./penguin --pydev run ...`** — iterate on `src/`/`pyplugins/` against a
-  real guest boot without a rebuild: bind-mounts `src/`→`/pkg` and
-  `pyplugins/`→`/pyplugins` and prepends them to `PYTHONPATH`.
+- **`./penguin --dev run ...`** — iterate on `src/`/`pengutils/`/`pyplugins/`
+  against a real guest boot without a rebuild: bind-mounts `src/`→`/pkg`,
+  `pengutils/`→`/pengutils`, `pyplugins/`→`/pyplugins` and prepends them to
+  `PYTHONPATH`. (`--pydev` is a deprecated alias.)
 - **`./penguin --build`** — a full image rebuild (`nix build .#dockerImage`),
   needed only when something *baked into the image* changes (guest tools, qemu,
   kernel, native helpers). For a local dep checkout, add `--override-input
