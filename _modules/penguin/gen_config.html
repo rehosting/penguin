@@ -1,0 +1,1112 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><link rel="index" title="Index" href="../../genindex.html"><link rel="search" title="Search" href="../../search.html">
+
+    <!-- Generated with Sphinx 8.1.3 and Furo 2025.12.19 -->
+        <title>penguin.gen_config - Penguin Docs</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=acfd86a5" />
+    <link rel="stylesheet" type="text/css" href="../../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../../index.html"><div class="brand">Penguin Docs</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../../index.html">
+  
+  <span class="sidebar-brand-text">Penguin Docs</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Documentation</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/README.html">Penguin: Configuration Based Rehosting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/README.html#installation">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/README.html#learn-more-about-penguin">Learn more about Penguin</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/compose.html"><code class="docutils literal notranslate"><span class="pre">penguin</span> <span class="pre">compose</span></code> — Multi-Device Firmware Rehosting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/dev.html">Penguin Development Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/dev.html#example-local-kernel-development">Example: Local kernel development</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/kprobes.html">Kprobes Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/lib_inject.html">Library injection (<code class="docutils literal notranslate"><span class="pre">lib_inject</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/local_plugins.html">Local Plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/playbook.html">Penguin Playbook</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/plugin_args.html">Plugin arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/plugins.html">Penguin Plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/portal.html">Portal</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/pseudofile_models.html">Pseudofile model catalog</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/pyplugin_architecture.html">Plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/schema_doc.html">Penguin Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/scripts.html">Scripting Plugins in Penguin</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/singularity.html">Singularity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/syscalls.html">Syscalls Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/testing.html">Testing pyplugins host-side</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/uprobes.html">Uprobes Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../docs/workflow.html">Example Rehosting Workflow</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Packages</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../penguin.html">penguin package</a><input aria-label="Toggle navigation of penguin package" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../penguin.penguin_config.html">penguin.penguin_config package</a><input aria-label="Toggle navigation of penguin.penguin_config package" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3 has-children"><a class="reference internal" href="../../penguin.penguin_config.versions.html">penguin.penguin_config.versions package</a><input aria-label="Toggle navigation of penguin.penguin_config.versions package" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../penguin.penguin_config.versions.v2.html">penguin.penguin_config.versions.v2 module</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../penguin.penguin_config.errors.html">penguin.penguin_config.errors module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../penguin.penguin_config.gen_docs.html">penguin.penguin_config.gen_docs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../penguin.penguin_config.structure.html">penguin.penguin_config.structure module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../penguin.penguin_config.templating.html">penguin.penguin_config.templating module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../penguin.testing.html">penguin.testing package</a><input aria-label="Toggle navigation of penguin.testing package" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../penguin.testing.harness.html">penguin.testing.harness module</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.abi_info.html">penguin.abi_info module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.analyses.html">penguin.analyses module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.arch.html">penguin.arch module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.arch_registry.html">penguin.arch_registry module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.boot_env.html">penguin.boot_env module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.common.html">penguin.common module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.compose.html">penguin.compose module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.config_patchers.html">penguin.config_patchers module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.defaults.html">penguin.defaults module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.dropin_compile.html">penguin.dropin_compile module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.gen_config.html">penguin.gen_config module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.gen_image.html">penguin.gen_image module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.graphs.html">penguin.graphs module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.init_plugin.html">penguin.init_plugin module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.init_runner.html">penguin.init_runner module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.manager.html">penguin.manager module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.penguin_prep.html">penguin.penguin_prep module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.penguin_run.html">penguin.penguin_run module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.plugin_manager.html">penguin.plugin_manager module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.q_config.html">penguin.q_config module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.run_summary.html">penguin.run_summary module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.static_analyses.html">penguin.static_analyses module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.stubs.html">penguin.stubs module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.utils.html">penguin.utils module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../penguin.utils_cli.html">penguin.utils_cli module</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../pengutils.html">pengutils package</a><input aria-label="Toggle navigation of pengutils package" class="toctree-checkbox" id="toctree-checkbox-5" name="toctree-checkbox-5" role="switch" type="checkbox"/><label for="toctree-checkbox-5"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../pengutils.events.html">pengutils.events package</a><input aria-label="Toggle navigation of pengutils.events package" class="toctree-checkbox" id="toctree-checkbox-6" name="toctree-checkbox-6" role="switch" type="checkbox"/><label for="toctree-checkbox-6"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../pengutils.events.base.html">pengutils.events.base module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pengutils.events.types.html">pengutils.events.types module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../pengutils.utils.html">pengutils.utils package</a><input aria-label="Toggle navigation of pengutils.utils package" class="toctree-checkbox" id="toctree-checkbox-7" name="toctree-checkbox-7" role="switch" type="checkbox"/><label for="toctree-checkbox-7"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../pengutils.utils.cli_breakpoint.html">pengutils.utils.cli_breakpoint module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pengutils.utils.cli_db.html">pengutils.utils.cli_db module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pengutils.utils.cli_guest_cmd.html">pengutils.utils.cli_guest_cmd module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pengutils.utils.cli_pengutils.html">pengutils.utils.cli_pengutils module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pengutils.utils.cli_plugins.html">pengutils.utils.cli_plugins module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pengutils.utils.cli_snapshot.html">pengutils.utils.cli_snapshot module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pengutils.utils.util_base.html">pengutils.utils.util_base module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pengutils.utils.util_events.html">pengutils.utils.util_events module</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../pyplugins.html">pyplugins package</a><input aria-label="Toggle navigation of pyplugins package" class="toctree-checkbox" id="toctree-checkbox-8" name="toctree-checkbox-8" role="switch" type="checkbox"/><label for="toctree-checkbox-8"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../pyplugins.actuation.html">pyplugins.actuation package</a><input aria-label="Toggle navigation of pyplugins.actuation package" class="toctree-checkbox" id="toctree-checkbox-9" name="toctree-checkbox-9" role="switch" type="checkbox"/><label for="toctree-checkbox-9"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.actuation.fetch_web.html">pyplugins.actuation.fetch_web module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.actuation.nmap.html">pyplugins.actuation.nmap module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.actuation.vpn.html">pyplugins.actuation.vpn module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../pyplugins.analysis.html">pyplugins.analysis package</a><input aria-label="Toggle navigation of pyplugins.analysis package" class="toctree-checkbox" id="toctree-checkbox-10" name="toctree-checkbox-10" role="switch" type="checkbox"/><label for="toctree-checkbox-10"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.analysis.crashes.html">pyplugins.analysis.crashes module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.analysis.env.html">pyplugins.analysis.env module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.analysis.ficd.html">pyplugins.analysis.ficd module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.analysis.health.html">pyplugins.analysis.health module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.analysis.hooklogger.html">pyplugins.analysis.hooklogger module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.analysis.indiv_debug.html">pyplugins.analysis.indiv_debug module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.analysis.interfaces.html">pyplugins.analysis.interfaces module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.analysis.netbinds.html">pyplugins.analysis.netbinds module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.analysis.repl.html">pyplugins.analysis.repl module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../pyplugins.apis.html">pyplugins.apis package</a><input aria-label="Toggle navigation of pyplugins.apis package" class="toctree-checkbox" id="toctree-checkbox-11" name="toctree-checkbox-11" role="switch" type="checkbox"/><label for="toctree-checkbox-11"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.events.html">pyplugins.apis.events module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.execs.html">pyplugins.apis.execs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.fs.html">pyplugins.apis.fs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.hypercall.html">pyplugins.apis.hypercall module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.kffi.html">pyplugins.apis.kffi module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.kprobes.html">pyplugins.apis.kprobes module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.mem.html">pyplugins.apis.mem module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.net.html">pyplugins.apis.net module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.osi.html">pyplugins.apis.osi module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.portalcall.html">pyplugins.apis.portalcall module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.send_hypercall.html">pyplugins.apis.send_hypercall module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.signal_monitor.html">pyplugins.apis.signal_monitor module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.signals.html">pyplugins.apis.signals module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.static_fs.html">pyplugins.apis.static_fs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.symbols.html">pyplugins.apis.symbols module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.syscalls.html">pyplugins.apis.syscalls module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.unwind.html">pyplugins.apis.unwind module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.apis.uprobes.html">pyplugins.apis.uprobes module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../pyplugins.compat.html">pyplugins.compat package</a><input aria-label="Toggle navigation of pyplugins.compat package" class="toctree-checkbox" id="toctree-checkbox-12" name="toctree-checkbox-12" role="switch" type="checkbox"/><label for="toctree-checkbox-12"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.compat.coverage.html">pyplugins.compat.coverage module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.compat.qemu_compat.html">pyplugins.compat.qemu_compat module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../pyplugins.core.html">pyplugins.core package</a><input aria-label="Toggle navigation of pyplugins.core package" class="toctree-checkbox" id="toctree-checkbox-13" name="toctree-checkbox-13" role="switch" type="checkbox"/><label for="toctree-checkbox-13"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.core.core.html">pyplugins.core.core module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.core.igloodriver.html">pyplugins.core.igloodriver module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.core.live_image.html">pyplugins.core.live_image module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.core.readiness.html">pyplugins.core.readiness module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.core.scope.html">pyplugins.core.scope module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.core.snapshot.html">pyplugins.core.snapshot module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../pyplugins.hyper.html">pyplugins.hyper package</a><input aria-label="Toggle navigation of pyplugins.hyper package" class="toctree-checkbox" id="toctree-checkbox-14" name="toctree-checkbox-14" role="switch" type="checkbox"/><label for="toctree-checkbox-14"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.hyper.bash_command.html">pyplugins.hyper.bash_command module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.hyper.canary.html">pyplugins.hyper.canary module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.hyper.consts.html">pyplugins.hyper.consts module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.hyper.portal.html">pyplugins.hyper.portal module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.hyper.shell.html">pyplugins.hyper.shell module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.hyper.uboot.html">pyplugins.hyper.uboot module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../pyplugins.hyperfile.html">pyplugins.hyperfile package</a><input aria-label="Toggle navigation of pyplugins.hyperfile package" class="toctree-checkbox" id="toctree-checkbox-15" name="toctree-checkbox-15" role="switch" type="checkbox"/><label for="toctree-checkbox-15"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.hyperfile.anonfs.html">pyplugins.hyperfile.anonfs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.hyperfile.devfs.html">pyplugins.hyperfile.devfs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.hyperfile.mtd.html">pyplugins.hyperfile.mtd module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.hyperfile.procfs.html">pyplugins.hyperfile.procfs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.hyperfile.pseudofile_tracker.html">pyplugins.hyperfile.pseudofile_tracker module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.hyperfile.pseudofiles.html">pyplugins.hyperfile.pseudofiles module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.hyperfile.qemu_mem.html">pyplugins.hyperfile.qemu_mem module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.hyperfile.sysctl.html">pyplugins.hyperfile.sysctl module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.hyperfile.sysfs.html">pyplugins.hyperfile.sysfs module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../pyplugins.interventions.html">pyplugins.interventions package</a><input aria-label="Toggle navigation of pyplugins.interventions package" class="toctree-checkbox" id="toctree-checkbox-16" name="toctree-checkbox-16" role="switch" type="checkbox"/><label for="toctree-checkbox-16"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.interventions.core_pattern_guard.html">pyplugins.interventions.core_pattern_guard module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.interventions.hyperfile.html">pyplugins.interventions.hyperfile module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.interventions.kernelversion.html">pyplugins.interventions.kernelversion module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.interventions.kmods.html">pyplugins.interventions.kmods module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.interventions.lifeguard.html">pyplugins.interventions.lifeguard module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.interventions.mount.html">pyplugins.interventions.mount module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.interventions.nvram2.html">pyplugins.interventions.nvram2 module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.interventions.remotectrl.html">pyplugins.interventions.remotectrl module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.interventions.symex.html">pyplugins.interventions.symex module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../pyplugins.loggers.html">pyplugins.loggers package</a><input aria-label="Toggle navigation of pyplugins.loggers package" class="toctree-checkbox" id="toctree-checkbox-17" name="toctree-checkbox-17" role="switch" type="checkbox"/><label for="toctree-checkbox-17"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.loggers.db.html">pyplugins.loggers.db module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.loggers.exec_logger.html">pyplugins.loggers.exec_logger module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.loggers.rw_logger.html">pyplugins.loggers.rw_logger module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.loggers.syscalls_logger.html">pyplugins.loggers.syscalls_logger module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../pyplugins.wrappers.html">pyplugins.wrappers package</a><input aria-label="Toggle navigation of pyplugins.wrappers package" class="toctree-checkbox" id="toctree-checkbox-18" name="toctree-checkbox-18" role="switch" type="checkbox"/><label for="toctree-checkbox-18"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.wrappers.generic.html">pyplugins.wrappers.generic module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.wrappers.osi_wrap.html">pyplugins.wrappers.osi_wrap module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../pyplugins.wrappers.ptregs_wrap.html">pyplugins.wrappers.ptregs_wrap module</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <h1>Source code for penguin.gen_config</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">penguin.gen_config</span>
+<span class="sd">==================</span>
+
+<span class="sd">Configuration generation utilities for the Penguin emulation environment.</span>
+
+<span class="sd">This module provides functions and classes for analyzing extracted filesystems,</span>
+<span class="sd">running static analyses, generating configuration files and patches, and handling</span>
+<span class="sd">config creation via CLI or programmatically.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">click</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">shutil</span>
+<span class="kn">import</span> <span class="nn">subprocess</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">tempfile</span>
+<span class="kn">import</span> <span class="nn">yaml</span>
+
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span> <span class="nn">penguin</span> <span class="kn">import</span> <span class="n">getColoredLogger</span>
+
+<span class="kn">from</span> <span class="nn">.defaults</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">default_plugin_path</span><span class="p">,</span>
+    <span class="n">default_version</span> <span class="k">as</span> <span class="n">DEFAULT_VERSION</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">.init_plugin</span> <span class="kn">import</span> <span class="n">InitContext</span>
+<span class="kn">from</span> <span class="nn">.init_runner</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">InitPluginRunner</span><span class="p">,</span>
+    <span class="n">_norm_name</span><span class="p">,</span>
+    <span class="n">discover_init_plugins</span><span class="p">,</span>
+    <span class="n">load_manifest</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">penguin.penguin_config</span> <span class="kn">import</span> <span class="n">dump_config</span><span class="p">,</span> <span class="n">load_unpatched_config</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">getColoredLogger</span><span class="p">(</span><span class="s2">&quot;penguin.gen_config&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="init_plugin_search_dirs">
+<a class="viewcode-back" href="../../penguin.gen_config.html#penguin.gen_config.init_plugin_search_dirs">[docs]</a>
+<span class="k">def</span> <span class="nf">init_plugin_search_dirs</span><span class="p">(</span><span class="n">proj_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="n">extra_dirs</span><span class="o">=</span><span class="p">())</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Directories scanned for init plugins, lowest to highest precedence:</span>
+<span class="sd">    built-ins under &lt;plugin_path&gt;/init, then the project&#39;s plugins.d/, then</span>
+<span class="sd">    any explicitly passed directories.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">[</span>
+        <span class="n">Path</span><span class="p">(</span><span class="n">default_plugin_path</span><span class="p">,</span> <span class="s2">&quot;init&quot;</span><span class="p">),</span>
+        <span class="n">Path</span><span class="p">(</span><span class="n">proj_dir</span><span class="p">,</span> <span class="s2">&quot;plugins.d&quot;</span><span class="p">),</span>
+        <span class="o">*</span><span class="p">[</span><span class="n">Path</span><span class="p">(</span><span class="n">d</span><span class="p">)</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">extra_dirs</span><span class="p">],</span>
+    <span class="p">]</span></div>
+
+
+
+<div class="viewcode-block" id="ConfigBuilder">
+<a class="viewcode-back" href="../../penguin.gen_config.html#penguin.gen_config.ConfigBuilder">[docs]</a>
+<span class="k">class</span> <span class="nc">ConfigBuilder</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Given a filesystem and an output directory, create a configuration</span>
+<span class="sd">    and initialize the output directory as necessary.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="n">PATCH_DIR</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;static_patches&quot;</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">fs_archive</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
+        <span class="n">jobs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">init_plugin_dirs</span><span class="o">=</span><span class="p">(),</span>
+        <span class="n">enable</span><span class="o">=</span><span class="p">(),</span>
+        <span class="n">disable</span><span class="o">=</span><span class="p">(),</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># Create a &#39;base&#39; directory for analysis results, copy fs into it</span>
+        <span class="n">base_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="s2">&quot;base&quot;</span><span class="p">)</span>
+        <span class="n">base_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">archive_fs</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">base_dir</span><span class="p">,</span> <span class="s2">&quot;fs.tar.gz&quot;</span><span class="p">)</span>
+        <span class="n">shutil</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="n">fs_archive</span><span class="p">,</span> <span class="n">archive_fs</span><span class="p">)</span>
+
+        <span class="c1"># Extract the filesystem into base_dir/fs</span>
+        <span class="n">extracted_fs</span> <span class="o">=</span> <span class="n">base_dir</span> <span class="o">/</span> <span class="s2">&quot;extracted&quot;</span>
+        <span class="n">extract_fs_archive</span><span class="p">(</span><span class="n">archive_fs</span><span class="p">,</span> <span class="n">extracted_fs</span><span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># Run the init plugins: static analyses inform config generation</span>
+            <span class="c1"># (e.g., what&#39;s the arch, what&#39;s the init prog) and subsequent</span>
+            <span class="c1"># analyses after a run (i.e., guiding refinement); patch plugins</span>
+            <span class="c1"># produce the config patches.</span>
+            <span class="n">ctx</span> <span class="o">=</span> <span class="n">InitContext</span><span class="p">(</span>
+                <span class="n">fs_archive</span><span class="o">=</span><span class="n">archive_fs</span><span class="p">,</span>
+                <span class="n">extracted_fs</span><span class="o">=</span><span class="n">extracted_fs</span><span class="p">,</span>
+                <span class="n">proj_dir</span><span class="o">=</span><span class="n">output_dir</span><span class="p">,</span>
+                <span class="n">static_dir</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="s2">&quot;static&quot;</span><span class="p">),</span>
+                <span class="n">patch_dir</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">PATCH_DIR</span><span class="p">),</span>
+                <span class="n">options</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;enable&quot;</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">enable</span><span class="p">)},</span>
+            <span class="p">)</span>
+            <span class="n">all_classes</span> <span class="o">=</span> <span class="n">discover_init_plugins</span><span class="p">(</span>
+                <span class="n">init_plugin_search_dirs</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="n">init_plugin_dirs</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">all_classes</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+                    <span class="s2">&quot;No init plugins discovered - is the plugin path &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="n">default_plugin_path</span><span class="si">}</span><span class="s2">/init) available?&quot;</span>
+                <span class="p">)</span>
+            <span class="n">disabled</span> <span class="o">=</span> <span class="p">{</span><span class="n">_norm_name</span><span class="p">(</span><span class="n">d</span><span class="p">)</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">disable</span><span class="p">}</span>
+            <span class="n">plugin_classes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">all_classes</span> <span class="k">if</span> <span class="n">_norm_name</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">disabled</span>
+            <span class="p">]</span>
+            <span class="c1"># Recorded in the generated config; drives `penguin refresh`</span>
+            <span class="n">init_plugin_record</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="n">c</span><span class="o">.</span><span class="vm">__name__</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;enabled&quot;</span><span class="p">:</span> <span class="n">_norm_name</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">disabled</span><span class="p">}</span>
+                <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">all_classes</span>
+            <span class="p">}</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Running </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">plugin_classes</span><span class="p">)</span><span class="si">}</span><span class="s2"> init plugins&quot;</span><span class="p">)</span>
+            <span class="n">runner</span> <span class="o">=</span> <span class="n">InitPluginRunner</span><span class="p">(</span><span class="n">plugin_classes</span><span class="p">,</span> <span class="n">ctx</span><span class="p">,</span> <span class="n">jobs</span><span class="o">=</span><span class="n">jobs</span><span class="p">)</span>
+            <span class="n">patches</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+            <span class="n">runner</span><span class="o">.</span><span class="n">render_patches</span><span class="p">(</span><span class="n">patches</span><span class="p">)</span>
+
+            <span class="c1"># Generate our base config including our list of patches</span>
+            <span class="n">config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">generate_initial_config</span><span class="p">(</span><span class="n">patches</span><span class="p">,</span> <span class="n">init_plugin_record</span><span class="p">)</span>
+
+            <span class="c1"># Dump it to disk</span>
+            <span class="n">dump_config</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="s2">&quot;config.yaml&quot;</span><span class="p">))</span>
+
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="c1"># Always clean up extracted filesystem</span>
+            <span class="n">shutil</span><span class="o">.</span><span class="n">rmtree</span><span class="p">(</span><span class="n">extracted_fs</span><span class="p">)</span>
+
+<div class="viewcode-block" id="ConfigBuilder.generate_initial_config">
+<a class="viewcode-back" href="../../penguin.gen_config.html#penguin.gen_config.ConfigBuilder.generate_initial_config">[docs]</a>
+    <span class="k">def</span> <span class="nf">generate_initial_config</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">patches</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span> <span class="n">init_plugins</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Generate the initial configuration dictionary.</span>
+
+<span class="sd">        :param patches: Dictionary of patches.</span>
+<span class="sd">        :type patches: dict</span>
+<span class="sd">        :param init_plugins: Init plugin record for the init_plugins section.</span>
+<span class="sd">        :return: Initial configuration dictionary.</span>
+<span class="sd">        :rtype: dict</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+
+        <span class="n">patch_filenames</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">for</span> <span class="n">patch_name</span><span class="p">,</span> <span class="p">(</span><span class="n">_</span><span class="p">,</span> <span class="n">enabled</span><span class="p">)</span> <span class="ow">in</span> <span class="n">patches</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">enabled</span><span class="p">:</span>
+                <span class="n">patch_filenames</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">PATCH_DIR</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">patch_name</span><span class="si">}</span><span class="s2">.yaml&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;core&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;root_shell&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                <span class="s2">&quot;show_output&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                <span class="s2">&quot;strace&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                <span class="s2">&quot;ltrace&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                <span class="s2">&quot;version&quot;</span><span class="p">:</span> <span class="n">DEFAULT_VERSION</span><span class="p">,</span>
+                <span class="s2">&quot;auto_patching&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+            <span class="p">},</span>
+            <span class="s2">&quot;patches&quot;</span><span class="p">:</span> <span class="n">patch_filenames</span><span class="p">,</span>
+            <span class="s2">&quot;env&quot;</span><span class="p">:</span> <span class="p">{},</span>
+            <span class="s2">&quot;blocked_signals&quot;</span><span class="p">:</span> <span class="p">[],</span>
+            <span class="s2">&quot;netdevs&quot;</span><span class="p">:</span> <span class="p">[],</span>
+            <span class="s2">&quot;lib_inject&quot;</span><span class="p">:</span> <span class="p">{},</span>
+            <span class="s2">&quot;pseudofiles&quot;</span><span class="p">:</span> <span class="p">{},</span>
+            <span class="s2">&quot;static_files&quot;</span><span class="p">:</span> <span class="p">{},</span>
+            <span class="s2">&quot;plugins&quot;</span><span class="p">:</span> <span class="p">{},</span>
+            <span class="s2">&quot;init_plugins&quot;</span><span class="p">:</span> <span class="n">init_plugins</span> <span class="ow">or</span> <span class="p">{},</span>
+            <span class="s2">&quot;nvram&quot;</span><span class="p">:</span> <span class="p">{},</span>
+        <span class="p">}</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="extract_fs_archive">
+<a class="viewcode-back" href="../../penguin.gen_config.html#penguin.gen_config.extract_fs_archive">[docs]</a>
+<span class="k">def</span> <span class="nf">extract_fs_archive</span><span class="p">(</span><span class="n">archive</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="n">dest</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Extract a root filesystem archive and normalize permissions so the</span>
+<span class="sd">    current (fakeroot) user can read everything.&quot;&quot;&quot;</span>
+    <span class="n">dest</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">dest</span><span class="p">)</span>
+    <span class="n">dest</span><span class="o">.</span><span class="n">mkdir</span><span class="p">()</span>
+    <span class="n">subprocess</span><span class="o">.</span><span class="n">check_output</span><span class="p">([</span><span class="s2">&quot;tar&quot;</span><span class="p">,</span> <span class="s2">&quot;-xf&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">archive</span><span class="p">),</span> <span class="s2">&quot;-C&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">dest</span><span class="p">)])</span>
+
+    <span class="c1"># ensure every file is readable by the current user</span>
+    <span class="n">subprocess</span><span class="o">.</span><span class="n">check_output</span><span class="p">(</span>
+        <span class="p">[</span><span class="s2">&quot;find&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">dest</span><span class="p">),</span> <span class="s2">&quot;-type&quot;</span><span class="p">,</span> <span class="s2">&quot;f&quot;</span><span class="p">,</span> <span class="s2">&quot;-exec&quot;</span><span class="p">,</span> <span class="s2">&quot;chmod&quot;</span><span class="p">,</span> <span class="s2">&quot;u+r&quot;</span><span class="p">,</span> <span class="s2">&quot;</span><span class="si">{}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;+&quot;</span><span class="p">])</span>
+
+    <span class="c1"># ensure every directory is readable by the current user (requires exec)</span>
+    <span class="n">subprocess</span><span class="o">.</span><span class="n">check_output</span><span class="p">(</span>
+        <span class="p">[</span><span class="s2">&quot;find&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">dest</span><span class="p">),</span> <span class="s2">&quot;-type&quot;</span><span class="p">,</span> <span class="s2">&quot;d&quot;</span><span class="p">,</span> <span class="s2">&quot;-exec&quot;</span><span class="p">,</span> <span class="s2">&quot;chmod&quot;</span><span class="p">,</span> <span class="s2">&quot;u+rx&quot;</span><span class="p">,</span> <span class="s2">&quot;</span><span class="si">{}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;+&quot;</span><span class="p">])</span></div>
+
+
+
+<div class="viewcode-block" id="initialize_and_build_config">
+<a class="viewcode-back" href="../../penguin.gen_config.html#penguin.gen_config.initialize_and_build_config">[docs]</a>
+<span class="k">def</span> <span class="nf">initialize_and_build_config</span><span class="p">(</span>
+    <span class="n">fs</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">out</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">artifacts_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">jobs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">init_plugin_dirs</span><span class="o">=</span><span class="p">(),</span>
+    <span class="n">enable</span><span class="o">=</span><span class="p">(),</span>
+    <span class="n">disable</span><span class="o">=</span><span class="p">(),</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Given a filesystem as a .tar.gz analyze it to create a configuration file.</span>
+<span class="sd">    Out is the path to the config to produce.</span>
+<span class="sd">    Use artifacts_dir as scratch space while analyzing.</span>
+
+<span class="sd">    :param fs: Path to filesystem archive (.tar.gz).</span>
+<span class="sd">    :type fs: str</span>
+<span class="sd">    :param out: Path to output config file.</span>
+<span class="sd">    :type out: str or None</span>
+<span class="sd">    :param artifacts_dir: Path to artifacts directory.</span>
+<span class="sd">    :type artifacts_dir: str or None</span>
+<span class="sd">    :param jobs: Init plugin thread pool size (default: cpu count).</span>
+<span class="sd">    :param init_plugin_dirs: Extra directories to search for init plugins.</span>
+<span class="sd">    :param enable: Init plugin names to force-enable (their patches join the</span>
+<span class="sd">        config&#39;s patches list even if disabled by default).</span>
+<span class="sd">    :param disable: Init plugin names to skip entirely.</span>
+
+<span class="sd">    :return: Path to generated config file.</span>
+<span class="sd">    :rtype: str</span>
+
+<span class="sd">    :raises RuntimeError: If firmware file is not found.</span>
+<span class="sd">    :raises ValueError: If input file is not a .tar.gz archive.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Generating new configuration for </span><span class="si">{</span><span class="n">fs</span><span class="si">}</span><span class="s2">...&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isfile</span><span class="p">(</span><span class="n">fs</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Fatal: firmware file not found: </span><span class="si">{</span><span class="n">fs</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">fs</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s2">&quot;.tar.gz&quot;</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Penguin should begin post extraction and be given a .tar.gz archive of a root fs, not </span><span class="si">{</span><span class="n">fs</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">artifacts_dir</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">tmpdir</span> <span class="o">=</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">TemporaryDirectory</span><span class="p">()</span>
+        <span class="n">output_dir</span> <span class="o">=</span> <span class="n">tmpdir</span><span class="o">.</span><span class="n">name</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">tmpdir</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">output_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">artifacts_dir</span><span class="p">)</span>
+        <span class="n">output_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">out</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="o">*</span><span class="p">[</span><span class="n">output_dir</span><span class="p">,</span> <span class="s2">&quot;base&quot;</span><span class="p">,</span> <span class="s2">&quot;config.yaml&quot;</span><span class="p">])</span>
+
+    <span class="c1"># If we create files (e.g., base/*.yaml, output/*.yaml), we want them to be</span>
+    <span class="c1"># readable/writable by everyone since non-container users will want to access them</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">umask</span><span class="p">(</span><span class="mo">0o000</span><span class="p">)</span>
+
+    <span class="c1"># Generate our config and patches</span>
+    <span class="n">ConfigBuilder</span><span class="p">(</span>
+        <span class="n">fs</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">,</span>
+        <span class="n">jobs</span><span class="o">=</span><span class="n">jobs</span><span class="p">,</span>
+        <span class="n">init_plugin_dirs</span><span class="o">=</span><span class="n">init_plugin_dirs</span><span class="p">,</span>
+        <span class="n">enable</span><span class="o">=</span><span class="n">enable</span><span class="p">,</span>
+        <span class="n">disable</span><span class="o">=</span><span class="n">disable</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">outfile</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="s2">&quot;config.yaml&quot;</span><span class="p">)</span>
+
+    <span class="c1"># config is a path to output_dir/base/config.yaml</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">shutil</span><span class="o">.</span><span class="n">_samefile</span><span class="p">(</span><span class="n">outfile</span><span class="p">,</span> <span class="n">out</span><span class="p">):</span>
+        <span class="n">shutil</span><span class="o">.</span><span class="n">copyfile</span><span class="p">(</span><span class="n">outfile</span><span class="p">,</span> <span class="n">out</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">tmpdir</span><span class="p">:</span>
+        <span class="n">tmpdir</span><span class="o">.</span><span class="n">cleanup</span><span class="p">()</span>
+
+    <span class="k">return</span> <span class="n">out</span></div>
+
+
+
+<div class="viewcode-block" id="refresh_project">
+<a class="viewcode-back" href="../../penguin.gen_config.html#penguin.gen_config.refresh_project">[docs]</a>
+<span class="k">def</span> <span class="nf">refresh_project</span><span class="p">(</span>
+    <span class="n">proj_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">jobs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">init_plugin_dirs</span><span class="o">=</span><span class="p">(),</span>
+    <span class="n">enable</span><span class="o">=</span><span class="p">(),</span>
+    <span class="n">disable</span><span class="o">=</span><span class="p">(),</span>
+    <span class="n">only</span><span class="o">=</span><span class="p">(),</span>
+    <span class="n">update_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Re-run init plugins inside an existing project, refreshing static/ and</span>
+<span class="sd">    static_patches/ and (optionally) reconciling the config&#39;s patches list.</span>
+
+<span class="sd">    The user&#39;s config.yaml is never rewritten wholesale: only the `patches:`</span>
+<span class="sd">    and `init_plugins:` sections are updated, after backing the file up to</span>
+<span class="sd">    config.yaml.bak. Patch files the user edited since generation are</span>
+<span class="sd">    preserved (new content lands in &lt;name&gt;.yaml.new).</span>
+
+<span class="sd">    The config&#39;s init_plugins: section is the source of truth for which</span>
+<span class="sd">    plugins run; entries with enabled=false are skipped. CLI --enable/--disable</span>
+<span class="sd">    override per-invocation, and --only restricts execution to the named</span>
+<span class="sd">    plugins (everything else keeps its current outputs; shared analyses are</span>
+<span class="sd">    still computed on demand).</span>
+
+<span class="sd">    :return: True on success.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">proj</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">proj_dir</span><span class="p">)</span>
+    <span class="n">config_path</span> <span class="o">=</span> <span class="n">proj</span> <span class="o">/</span> <span class="s2">&quot;config.yaml&quot;</span>
+    <span class="n">fs_archive</span> <span class="o">=</span> <span class="n">proj</span> <span class="o">/</span> <span class="s2">&quot;base&quot;</span> <span class="o">/</span> <span class="s2">&quot;fs.tar.gz&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">config_path</span><span class="o">.</span><span class="n">is_file</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;No config.yaml in </span><span class="si">{</span><span class="n">proj</span><span class="si">}</span><span class="s2"> - not a penguin project?&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">fs_archive</span><span class="o">.</span><span class="n">is_file</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;No base/fs.tar.gz in </span><span class="si">{</span><span class="n">proj</span><span class="si">}</span><span class="s2"> - cannot re-analyze&quot;</span><span class="p">)</span>
+
+    <span class="n">config</span> <span class="o">=</span> <span class="n">load_unpatched_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
+    <span class="n">recorded</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;init_plugins&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
+
+    <span class="n">all_classes</span> <span class="o">=</span> <span class="n">discover_init_plugins</span><span class="p">(</span>
+        <span class="n">init_plugin_search_dirs</span><span class="p">(</span><span class="n">proj</span><span class="p">,</span> <span class="n">init_plugin_dirs</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">all_classes</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+            <span class="s2">&quot;No init plugins discovered - is the plugin path &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="n">default_plugin_path</span><span class="si">}</span><span class="s2">/init) available?&quot;</span>
+        <span class="p">)</span>
+
+    <span class="c1"># Which plugins should run: recorded enabled=false and CLI --disable skip;</span>
+    <span class="c1"># CLI --enable overrides a recorded disable; --only restricts further.</span>
+    <span class="n">cli_enable</span> <span class="o">=</span> <span class="p">{</span><span class="n">_norm_name</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">enable</span><span class="p">}</span>
+    <span class="n">cli_disable</span> <span class="o">=</span> <span class="p">{</span><span class="n">_norm_name</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">disable</span><span class="p">}</span>
+    <span class="n">recorded_disabled</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="n">_norm_name</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">recorded</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;enabled&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">False</span>
+    <span class="p">}</span>
+    <span class="n">skip</span> <span class="o">=</span> <span class="p">(</span><span class="n">recorded_disabled</span> <span class="o">-</span> <span class="n">cli_enable</span><span class="p">)</span> <span class="o">|</span> <span class="n">cli_disable</span>
+    <span class="k">if</span> <span class="n">only</span><span class="p">:</span>
+        <span class="n">only_norm</span> <span class="o">=</span> <span class="p">{</span><span class="n">_norm_name</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">only</span><span class="p">}</span>
+        <span class="n">unknown</span> <span class="o">=</span> <span class="n">only_norm</span> <span class="o">-</span> <span class="p">{</span><span class="n">_norm_name</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">all_classes</span><span class="p">}</span>
+        <span class="k">if</span> <span class="n">unknown</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--only names not found: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">unknown</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">skip</span> <span class="o">|=</span> <span class="p">{</span>
+            <span class="n">_norm_name</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">all_classes</span>
+            <span class="k">if</span> <span class="n">_norm_name</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">only_norm</span>
+        <span class="p">}</span>
+
+    <span class="n">previous_manifest</span> <span class="o">=</span> <span class="n">load_manifest</span><span class="p">(</span><span class="n">proj</span> <span class="o">/</span> <span class="s2">&quot;static&quot;</span><span class="p">)</span>
+
+    <span class="n">extracted_fs</span> <span class="o">=</span> <span class="n">proj</span> <span class="o">/</span> <span class="s2">&quot;base&quot;</span> <span class="o">/</span> <span class="s2">&quot;extracted.refresh&quot;</span>
+    <span class="k">if</span> <span class="n">extracted_fs</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="n">shutil</span><span class="o">.</span><span class="n">rmtree</span><span class="p">(</span><span class="n">extracted_fs</span><span class="p">)</span>
+    <span class="n">extract_fs_archive</span><span class="p">(</span><span class="n">fs_archive</span><span class="p">,</span> <span class="n">extracted_fs</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">ctx</span> <span class="o">=</span> <span class="n">InitContext</span><span class="p">(</span>
+            <span class="n">fs_archive</span><span class="o">=</span><span class="n">fs_archive</span><span class="p">,</span>
+            <span class="n">extracted_fs</span><span class="o">=</span><span class="n">extracted_fs</span><span class="p">,</span>
+            <span class="n">proj_dir</span><span class="o">=</span><span class="n">proj</span><span class="p">,</span>
+            <span class="n">static_dir</span><span class="o">=</span><span class="n">proj</span> <span class="o">/</span> <span class="s2">&quot;static&quot;</span><span class="p">,</span>
+            <span class="n">patch_dir</span><span class="o">=</span><span class="n">proj</span> <span class="o">/</span> <span class="n">ConfigBuilder</span><span class="o">.</span><span class="n">PATCH_DIR</span><span class="p">,</span>
+            <span class="n">options</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;enable&quot;</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">enable</span><span class="p">)},</span>
+        <span class="p">)</span>
+        <span class="n">runner</span> <span class="o">=</span> <span class="n">InitPluginRunner</span><span class="p">(</span><span class="n">all_classes</span><span class="p">,</span> <span class="n">ctx</span><span class="p">,</span> <span class="n">jobs</span><span class="o">=</span><span class="n">jobs</span><span class="p">,</span> <span class="n">skip</span><span class="o">=</span><span class="n">skip</span><span class="p">)</span>
+        <span class="n">patches</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+        <span class="n">runner</span><span class="o">.</span><span class="n">merge_previous_manifest</span><span class="p">(</span><span class="n">previous_manifest</span><span class="p">)</span>
+        <span class="n">rendered</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">render_patches</span><span class="p">(</span><span class="n">patches</span><span class="p">,</span> <span class="n">previous_manifest</span><span class="o">=</span><span class="n">previous_manifest</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">shutil</span><span class="o">.</span><span class="n">rmtree</span><span class="p">(</span><span class="n">extracted_fs</span><span class="p">)</span>
+
+    <span class="n">ran</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span><span class="o">.</span><span class="vm">__name__</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">all_classes</span> <span class="k">if</span> <span class="n">_norm_name</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">skip</span><span class="p">]</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Refreshed </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">ran</span><span class="p">)</span><span class="si">}</span><span class="s2"> init plugins&quot;</span>
+        <span class="o">+</span> <span class="p">(</span><span class="sa">f</span><span class="s2">&quot; (</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">rendered</span><span class="p">[</span><span class="s1">&#39;preserved&#39;</span><span class="p">])</span><span class="si">}</span><span class="s2"> user-edited patch files preserved)&quot;</span>
+           <span class="k">if</span> <span class="n">rendered</span><span class="p">[</span><span class="s2">&quot;preserved&quot;</span><span class="p">]</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">update_config</span><span class="p">:</span>
+        <span class="n">_reconcile_config</span><span class="p">(</span>
+            <span class="n">config_path</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">patches</span><span class="p">,</span> <span class="n">rendered</span><span class="p">,</span> <span class="n">runner</span><span class="o">.</span><span class="n">manifest</span><span class="p">,</span>
+            <span class="n">all_classes</span><span class="p">,</span> <span class="n">skip</span><span class="p">,</span> <span class="n">recorded</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="kc">True</span></div>
+
+
+
+<span class="k">def</span> <span class="nf">_reconcile_config</span><span class="p">(</span>
+    <span class="n">config_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+    <span class="n">patches</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+    <span class="n">rendered</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+    <span class="n">manifest</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+    <span class="n">all_classes</span><span class="p">,</span>
+    <span class="n">skip</span><span class="p">:</span> <span class="nb">set</span><span class="p">,</span>
+    <span class="n">recorded</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Update the patches: and init_plugins: sections of an existing config.</span>
+<span class="sd">    Everything else in the file is left untouched (but yaml comments and</span>
+<span class="sd">    formatting are not preserved; a backup is written to config.yaml.bak).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">patch_dir</span> <span class="o">=</span> <span class="n">ConfigBuilder</span><span class="o">.</span><span class="n">PATCH_DIR</span>
+    <span class="n">existing</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;patches&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[])</span>
+
+    <span class="c1"># Order lookup for insertion position, from the (merged) manifest</span>
+    <span class="n">order_of</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">manifest</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+        <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;patch_file&quot;</span><span class="p">):</span>
+            <span class="n">order_of</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">patch_dir</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">entry</span><span class="p">[</span><span class="s1">&#39;patch_file&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;order&quot;</span><span class="p">,</span> <span class="mi">1000</span><span class="p">)</span>
+
+    <span class="n">added</span><span class="p">,</span> <span class="n">removed</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[]</span>
+
+    <span class="c1"># Add newly generated+enabled patches missing from the list, at the</span>
+    <span class="c1"># position their order implies (entries with unknown order are skipped</span>
+    <span class="c1"># when comparing - user patches keep their place).</span>
+    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="p">(</span><span class="n">_data</span><span class="p">,</span> <span class="n">enabled</span><span class="p">)</span> <span class="ow">in</span> <span class="n">patches</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="n">fname</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">patch_dir</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.yaml&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">enabled</span> <span class="ow">or</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">rendered</span><span class="p">[</span><span class="s2">&quot;written&quot;</span><span class="p">]</span> <span class="ow">or</span> <span class="n">fname</span> <span class="ow">in</span> <span class="n">existing</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="n">idx</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">entry</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">existing</span><span class="p">):</span>
+            <span class="n">entry_order</span> <span class="o">=</span> <span class="n">order_of</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">entry_order</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">entry_order</span> <span class="o">&lt;=</span> <span class="n">order_of</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="mi">1000</span><span class="p">):</span>
+                <span class="n">idx</span> <span class="o">=</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">1</span>
+        <span class="n">existing</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="n">fname</span><span class="p">)</span>
+        <span class="n">added</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fname</span><span class="p">)</span>
+
+    <span class="c1"># Drop entries whose patch files no longer exist</span>
+    <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">existing</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">patch_dir</span><span class="si">}</span><span class="s2">/&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">Path</span><span class="p">(</span><span class="n">config_path</span><span class="o">.</span><span class="n">parent</span><span class="p">,</span> <span class="n">entry</span><span class="p">)</span><span class="o">.</span><span class="n">is_file</span><span class="p">():</span>
+            <span class="n">existing</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span>
+            <span class="n">removed</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span>
+
+    <span class="c1"># Refresh the init_plugins record: keep user&#39;s enabled=false entries,</span>
+    <span class="c1"># append newly discovered plugins.</span>
+    <span class="n">new_record</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">recorded</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">all_classes</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">c</span><span class="o">.</span><span class="vm">__name__</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">new_record</span><span class="p">:</span>
+            <span class="n">new_record</span><span class="p">[</span><span class="n">c</span><span class="o">.</span><span class="vm">__name__</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;enabled&quot;</span><span class="p">:</span> <span class="n">_norm_name</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">skip</span><span class="p">}</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Recording newly discovered init plugin </span><span class="si">{</span><span class="n">c</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">added</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">removed</span> <span class="ow">and</span> <span class="n">new_record</span> <span class="o">==</span> <span class="n">recorded</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Config already up to date&quot;</span><span class="p">)</span>
+        <span class="k">return</span>
+
+    <span class="n">backup</span> <span class="o">=</span> <span class="n">config_path</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s2">&quot;.yaml.bak&quot;</span><span class="p">)</span>
+    <span class="n">shutil</span><span class="o">.</span><span class="n">copy2</span><span class="p">(</span><span class="n">config_path</span><span class="p">,</span> <span class="n">backup</span><span class="p">)</span>
+    <span class="n">config</span><span class="p">[</span><span class="s2">&quot;patches&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">existing</span>
+    <span class="n">config</span><span class="p">[</span><span class="s2">&quot;init_plugins&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_record</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">config_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">yaml</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">sort_keys</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">fname</span> <span class="ow">in</span> <span class="n">added</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;config patches: added </span><span class="si">{</span><span class="n">fname</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">fname</span> <span class="ow">in</span> <span class="n">removed</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;config patches: removed </span><span class="si">{</span><span class="n">fname</span><span class="si">}</span><span class="s2"> (file no longer exists)&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Updated </span><span class="si">{</span><span class="n">config_path</span><span class="si">}</span><span class="s2"> (backup at </span><span class="si">{</span><span class="n">backup</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="fakeroot_gen_config">
+<a class="viewcode-back" href="../../penguin.gen_config.html#penguin.gen_config.fakeroot_gen_config">[docs]</a>
+<span class="k">def</span> <span class="nf">fakeroot_gen_config</span><span class="p">(</span>
+    <span class="n">fs</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">out</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">artifacts_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">verbose</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">jobs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">init_plugin_dirs</span><span class="o">=</span><span class="p">(),</span>
+    <span class="n">enable</span><span class="o">=</span><span class="p">(),</span>
+    <span class="n">disable</span><span class="o">=</span><span class="p">(),</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Run config generation under fakeroot.</span>
+
+<span class="sd">    :param fs: Path to filesystem archive.</span>
+<span class="sd">    :type fs: str</span>
+<span class="sd">    :param out: Path to output config file.</span>
+<span class="sd">    :type out: str</span>
+<span class="sd">    :param artifacts_dir: Path to artifacts directory.</span>
+<span class="sd">    :type artifacts_dir: str</span>
+<span class="sd">    :param verbose: Verbosity level.</span>
+<span class="sd">    :type verbose: int</span>
+<span class="sd">    :param jobs: Init plugin thread pool size.</span>
+<span class="sd">    :param init_plugin_dirs: Extra directories to search for init plugins.</span>
+<span class="sd">    :param enable: Init plugin names to force-enable.</span>
+<span class="sd">    :param disable: Init plugin names to skip entirely.</span>
+<span class="sd">    :return: Path to generated config file or None.</span>
+<span class="sd">    :rtype: str or None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">o</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
+    <span class="n">cmd</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="s2">&quot;fakeroot&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;gen_config&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;generate&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;--fs&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">fs</span><span class="p">),</span>
+        <span class="s2">&quot;--out&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">o</span><span class="p">),</span>
+        <span class="s2">&quot;--artifacts&quot;</span><span class="p">,</span> <span class="n">artifacts_dir</span><span class="p">,</span>
+    <span class="p">]</span>
+    <span class="k">if</span> <span class="n">jobs</span><span class="p">:</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;--jobs&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">jobs</span><span class="p">)])</span>
+    <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">init_plugin_dirs</span><span class="p">:</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;--init-plugin-path&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">d</span><span class="p">)])</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">enable</span><span class="p">:</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;--enable&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">])</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">disable</span><span class="p">:</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;--disable&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">])</span>
+    <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;--verbose&quot;</span><span class="p">])</span>
+    <span class="n">p</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">Popen</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">stdout</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+    <span class="n">p</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">o</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">o</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="fakeroot_refresh">
+<a class="viewcode-back" href="../../penguin.gen_config.html#penguin.gen_config.fakeroot_refresh">[docs]</a>
+<span class="k">def</span> <span class="nf">fakeroot_refresh</span><span class="p">(</span>
+    <span class="n">proj_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">verbose</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">jobs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">init_plugin_dirs</span><span class="o">=</span><span class="p">(),</span>
+    <span class="n">enable</span><span class="o">=</span><span class="p">(),</span>
+    <span class="n">disable</span><span class="o">=</span><span class="p">(),</span>
+    <span class="n">only</span><span class="o">=</span><span class="p">(),</span>
+    <span class="n">update_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Run `gen_config refresh` under fakeroot (always in a fresh subprocess so</span>
+<span class="sd">    the plugin-manager singleton never collides with a running emulation).</span>
+
+<span class="sd">    :return: True if the refresh subprocess succeeded.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">cmd</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="s2">&quot;fakeroot&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;gen_config&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;refresh&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;--project&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">proj_dir</span><span class="p">),</span>
+    <span class="p">]</span>
+    <span class="k">if</span> <span class="n">jobs</span><span class="p">:</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;--jobs&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">jobs</span><span class="p">)])</span>
+    <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">init_plugin_dirs</span><span class="p">:</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;--init-plugin-path&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">d</span><span class="p">)])</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">enable</span><span class="p">:</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;--enable&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">])</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">disable</span><span class="p">:</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;--disable&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">])</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">only</span><span class="p">:</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;--only&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">])</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">update_config</span><span class="p">:</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;--no-update-config&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;--verbose&quot;</span><span class="p">)</span>
+    <span class="n">p</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">Popen</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">stdout</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+    <span class="n">p</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">p</span><span class="o">.</span><span class="n">returncode</span> <span class="o">==</span> <span class="mi">0</span></div>
+
+
+
+<span class="nd">@click</span><span class="o">.</span><span class="n">group</span><span class="p">()</span>
+<span class="k">def</span> <span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Penguin config generation (runs under fakeroot).&quot;&quot;&quot;</span>
+
+
+<span class="nd">@main</span><span class="o">.</span><span class="n">command</span><span class="p">()</span>
+<span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--fs&quot;</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to a filesystem archive&quot;</span><span class="p">)</span>
+<span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--out&quot;</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to a config to be created&quot;</span><span class="p">)</span>
+<span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--artifacts&quot;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to a directory for artifacts&quot;</span><span class="p">)</span>
+<span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--jobs&quot;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Init plugin thread pool size (default: cpu count)&quot;</span><span class="p">)</span>
+<span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--init-plugin-path&quot;</span><span class="p">,</span> <span class="n">multiple</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Extra directory to search for init plugins (repeatable)&quot;</span><span class="p">)</span>
+<span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--enable&quot;</span><span class="p">,</span> <span class="n">multiple</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Init plugin name to force-enable (repeatable)&quot;</span><span class="p">)</span>
+<span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--disable&quot;</span><span class="p">,</span> <span class="n">multiple</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Init plugin name to skip (repeatable)&quot;</span><span class="p">)</span>
+<span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;-v&quot;</span><span class="p">,</span> <span class="s2">&quot;--verbose&quot;</span><span class="p">,</span> <span class="n">count</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">generate</span><span class="p">(</span>
+    <span class="n">fs</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">out</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">artifacts</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">jobs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">init_plugin_path</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">,</span>
+    <span class="n">enable</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">,</span>
+    <span class="n">disable</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">,</span>
+    <span class="n">verbose</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Generate a new config from a filesystem archive.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">DEBUG</span><span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># Return a path to a config if we generate one</span>
+        <span class="k">return</span> <span class="n">initialize_and_build_config</span><span class="p">(</span>
+            <span class="n">fs</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">artifacts</span><span class="p">,</span>
+            <span class="n">jobs</span><span class="o">=</span><span class="n">jobs</span><span class="p">,</span>
+            <span class="n">init_plugin_dirs</span><span class="o">=</span><span class="n">init_plugin_path</span><span class="p">,</span>
+            <span class="n">enable</span><span class="o">=</span><span class="n">enable</span><span class="p">,</span>
+            <span class="n">disable</span><span class="o">=</span><span class="n">disable</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">except</span> <span class="ne">NotImplementedError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="c1"># Raised for unsupported architecture - don&#39;t need a full traceback, place in result file</span>
+        <span class="n">result_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">result_dir</span><span class="p">):</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">result_dir</span><span class="p">)</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">result_dir</span><span class="p">,</span> <span class="s2">&quot;result&quot;</span><span class="p">),</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">+</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>  <span class="c1"># Here we use .error to print the message without the traceback</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="c1"># Otherwise log error to results directory and with logger</span>
+        <span class="c1"># Then return None</span>
+        <span class="c1"># Ensure we have a directory to write result into</span>
+        <span class="n">result_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">result_dir</span><span class="p">):</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">result_dir</span><span class="p">)</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">result_dir</span><span class="p">,</span> <span class="s2">&quot;result&quot;</span><span class="p">),</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">+</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error! Could not generate config for </span><span class="si">{</span><span class="n">fs</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>  <span class="c1"># Full traceback</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+
+<span class="nd">@main</span><span class="o">.</span><span class="n">command</span><span class="p">()</span>
+<span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--project&quot;</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to an existing penguin project&quot;</span><span class="p">)</span>
+<span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--jobs&quot;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Init plugin thread pool size (default: cpu count)&quot;</span><span class="p">)</span>
+<span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--init-plugin-path&quot;</span><span class="p">,</span> <span class="n">multiple</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Extra directory to search for init plugins (repeatable)&quot;</span><span class="p">)</span>
+<span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--enable&quot;</span><span class="p">,</span> <span class="n">multiple</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Init plugin name to force-enable (repeatable)&quot;</span><span class="p">)</span>
+<span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--disable&quot;</span><span class="p">,</span> <span class="n">multiple</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Init plugin name to skip (repeatable)&quot;</span><span class="p">)</span>
+<span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--only&quot;</span><span class="p">,</span> <span class="n">multiple</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Only re-run these init plugins (repeatable)&quot;</span><span class="p">)</span>
+<span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--update-config/--no-update-config&quot;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+              <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Reconcile the config&#39;s patches/init_plugins sections (default: on)&quot;</span><span class="p">)</span>
+<span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;-v&quot;</span><span class="p">,</span> <span class="s2">&quot;--verbose&quot;</span><span class="p">,</span> <span class="n">count</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">refresh</span><span class="p">(</span>
+    <span class="n">project</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">jobs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">init_plugin_path</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">,</span>
+    <span class="n">enable</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">,</span>
+    <span class="n">disable</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">,</span>
+    <span class="n">only</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">,</span>
+    <span class="n">update_config</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+    <span class="n">verbose</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Re-run init plugins inside an existing project.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">DEBUG</span><span class="p">)</span>
+
+    <span class="c1"># Match init&#39;s umask: generated files must be usable by non-container users</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">umask</span><span class="p">(</span><span class="mo">0o000</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">refresh_project</span><span class="p">(</span>
+            <span class="n">project</span><span class="p">,</span>
+            <span class="n">jobs</span><span class="o">=</span><span class="n">jobs</span><span class="p">,</span>
+            <span class="n">init_plugin_dirs</span><span class="o">=</span><span class="n">init_plugin_path</span><span class="p">,</span>
+            <span class="n">enable</span><span class="o">=</span><span class="n">enable</span><span class="p">,</span>
+            <span class="n">disable</span><span class="o">=</span><span class="n">disable</span><span class="p">,</span>
+            <span class="n">only</span><span class="o">=</span><span class="n">only</span><span class="p">,</span>
+            <span class="n">update_config</span><span class="o">=</span><span class="n">update_config</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Refresh failed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">SystemExit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span>
+</pre></div>
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          
+          
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer no-toc">
+      
+      
+      
+    </aside>
+  </div>
+</div><script src="../../_static/documentation_options.js?v=1bb704b8"></script>
+    <script src="../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/scripts/furo.js?v=46bd48cc"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=f281be69"></script>
+    </body>
+</html>
