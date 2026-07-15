@@ -76,4 +76,6 @@ include-package-data = true
 # packages = find: (setup.cfg) — discover from the src/ project root.
 
 [tool.setuptools.package-data]
-penguin = ["scripts/*.sh", "resources/*"]
+# resources/** (recursive) ships nested resource trees such as the guest-side
+# `penguest` binding (resources/penguest/); resources/* alone is non-recursive.
+penguin = ["scripts/*.sh", "resources/*", "resources/**/*"]

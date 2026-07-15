@@ -9,9 +9,15 @@ library injection mappings used throughout Penguin.
 """
 
 from copy import deepcopy
-from os.path import dirname
+from os.path import dirname, join
 
 vnc_password: str = "IGLOOPassw0rd!"
+
+# Packaged guest/host resources (shipped as package data; see src/pyproject.toml).
+resources_dir: str = join(dirname(dirname(__file__)), "resources")
+# The guest-side `penguest` Python binding (draft 16). Staged into the guest at
+# /igloo/pylib/penguest and put on the in-guest python3's PYTHONPATH.
+penguest_src_dir: str = join(resources_dir, "penguest")
 
 default_version: int = 2
 static_dir: str = "/igloo_static/"
@@ -82,6 +88,10 @@ default_plugins: dict[str, dict] = {
     "snapshot": {},
     "indiv_debug": {},
     "scope": {},
+    # Host bridge for the guest `penguest` binding (guest -> host logging, etc.).
+    "penguest": {},
+    # Host vsock endpoint for the guest `penguest.vsock` client (no-op without vsock).
+    "penguest_vsock": {},
 }
 
 # We add ioctl wildcard -> 0 in single-iteration mode
