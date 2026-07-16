@@ -305,13 +305,14 @@
             )
           );
 
-          # Forked guest tools that now build themselves. Their dists are the
+          # Forked guest tools that build themselves. Their dists are the
           # /igloo_static fragment each tool owns; mk-igloo-static.nix `cp -a`s
-          # them in AFTER penguin-tools, so they win over any stale copy still
-          # shipped in the penguin-tools tarball during the transition. Always
-          # sourced from the x86_64-linux cross-build (guest binaries are
-          # host-independent; the real build host + CI is x86_64-linux, matching
-          # penguin-tools' own x86_64-only flake).
+          # them in AFTER penguin-tools. penguin-tools no longer ships these
+          # tools (dropped as of v0.0.25), so the ordering is a defensive
+          # belt-and-suspenders rather than a live override. Always sourced from
+          # the x86_64-linux cross-build (guest binaries are host-independent;
+          # the real build host + CI is x86_64-linux, matching penguin-tools'
+          # own x86_64-only flake).
           toolDists = [
             console.packages.x86_64-linux.dist
             busybox.packages.x86_64-linux.dist

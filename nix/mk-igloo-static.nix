@@ -3,8 +3,10 @@
 # Sources (release tarballs, top-level dir stripped by the nix tarball fetcher):
 #   kernels       -> /igloo_static/kernels/<ver>/   (bzImage/vmlinux/zImage + osi/cosi)
 #   igloo-driver  -> /igloo_static/kernels/<ver>/   (igloo.ko.<arch>, merged in)
-#   penguin-tools -> /igloo_static/                 (closures, dylibs, sysroots,
-#                                                    <arch>/, guesthopper, vpn, libnvram)
+#   penguin-tools -> /igloo_static/                 (debug-tool closures, dylibs,
+#                                                    musl sysroots; slimmed as of
+#                                                    v0.0.25 -- no longer the forked
+#                                                    guest tools, which come from toolDists)
 #   guest-utils   -> /igloo_static/guest-utils      (repo source; Dockerfile COPY)
 #
 # Then the symlink staging from Dockerfile lines 612-638 (utils.source, arch-name
@@ -19,7 +21,8 @@
   penguin-tools,
   toolDists, # list of forked-guest-tool dists (guesthopper, vpnguin, ...) that
              # build themselves; each is a /igloo_static fragment, cp'd in AFTER
-             # penguin-tools so it wins over any stale copy in that tarball.
+             # penguin-tools. penguin-tools no longer ships these (dropped in
+             # v0.0.25), so the ordering is now just defensive.
   libnvram,  # libnvram source tree (.c/.h); penguin compiles lib_inject from it
              # per project, so we ship the sources, not a prebuilt .so.
   guestUtils,
@@ -42,8 +45,8 @@ pkgs.runCommand "igloo-static"
     chmod -R u+w "$out/igloo_static/kernels"
     cp -a ${igloo-driver}/. "$out/igloo_static/kernels/"
 
-    # penguin-tools provides the rest of /igloo_static (closures/dylibs/sysroots/
-    # per-arch tool dirs/guesthopper/vpn/libnvram + its own compat symlinks).
+    # penguin-tools provides the debug-tool closures, dylibs, and musl sysroots
+    # (slimmed as of v0.0.25 -- the forked guest tools come from toolDists below).
     # `cp -a src/.` stamps the source dir's 0555 mode onto igloo_static, so make
     # it writable again before adding more into it.
     cp -a ${penguin-tools}/. "$out/igloo_static/"
@@ -51,8 +54,8 @@ pkgs.runCommand "igloo-static"
 
     # Forked guest tools that build themselves (guesthopper, vpnguin, ...). Each
     # dist is a fragment of /igloo_static (e.g. <arch>/vpn, guesthopper/*), laid
-    # in AFTER penguin-tools so a tool's own build overrides any stale copy the
-    # penguin-tools tarball may still ship during the transition. Use plain
+    # in AFTER penguin-tools. penguin-tools stopped shipping these in v0.0.25, so
+    # this is now the sole source for them (the ordering is defensive). Use plain
     # `cp -a` to preserve the 0555 exec mode from the nix store (NOT
     # --no-preserve=mode, which creates fresh files 0644 and strips the execute
     # bit off the guest binaries). chmod u+w AFTER EACH tool so the next tool can
@@ -67,7 +70,6 @@ pkgs.runCommand "igloo-static"
 
     # libnvram source (arch-independent): penguin globs /igloo_static/libnvram/*.{c,h}
     # to compile lib_inject per project. Ship the .c/.h set only (no prebuilt .so).
-    # Overwrites any copy still shipped by the penguin-tools tarball.
     mkdir -p "$out/igloo_static/libnvram"
     cp -a --no-preserve=mode ${libnvram}/*.c ${libnvram}/*.h "$out/igloo_static/libnvram/"
     chmod -R u+w "$out/igloo_static/libnvram"
