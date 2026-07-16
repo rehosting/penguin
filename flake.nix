@@ -53,7 +53,7 @@
   # cross toolchains + rust closures shared through Cachix (no duplicate
   # closures). Pinned to version tags (reproducible); bump on a new tool release.
   inputs.console = {
-    url = "github:rehosting/console/v1.0.9";
+    url = "github:rehosting/console/v1.0.10";
     inputs.nixpkgs.follows = "nixpkgs";
   };
   # busybox is fetched via git+https (not the github: tarball) because the repo
@@ -64,25 +64,25 @@
   # with submodules=1 is content-deterministic and avoids that mismatch. The rev
   # is v0.0.20's commit; pinned explicitly so the tag ref can't drift.
   inputs.busybox = {
-    url = "git+https://github.com/rehosting/busybox?ref=refs/tags/v0.0.20&rev=34a9307c35b7d1b5e1672d86bd6b26877c2f0639&submodules=1";
+    url = "git+https://github.com/rehosting/busybox?ref=refs/tags/v0.0.21&rev=1d57627d3e53ce9f5bdf955fdb3df6df418007a6&submodules=1";
     inputs.nixpkgs.follows = "nixpkgs";
   };
   inputs.guesthopper = {
-    url = "github:rehosting/guesthopper/v1.0.23";
+    url = "github:rehosting/guesthopper/v1.0.24";
     inputs.nixpkgs.follows = "nixpkgs";
   };
   # vpnguin v1.0.29 carries the owned-interface datapaths matching penguin's
   # vpn.py (WAN bridge / --own-iface). This pin is what fixes the old skew where
   # penguin-tools deliberately held vpnguin at v1.0.26 (4-field) behind penguin.
   inputs.vpnguin = {
-    url = "github:rehosting/vpnguin/v1.0.29";
+    url = "github:rehosting/vpnguin/v1.0.30";
     inputs.nixpkgs.follows = "nixpkgs";
   };
   # libnvram: source only -- penguin compiles nvram.c into lib_inject per
   # project (clang-20), so we just need the .c/.h tree, not a build. Consumed
   # directly here rather than routed through penguin-tools.
   inputs.libnvram = {
-    url = "github:rehosting/libnvram/e013c0686facbb62df09b30d0d5b92dd75fd4d58";
+    url = "github:rehosting/libnvram/v0.0.26";
     flake = false;
   };
 
