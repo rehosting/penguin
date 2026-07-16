@@ -24,18 +24,18 @@
         ]
       },
       "locked": {
-        "lastModified": 1783560442,
-        "narHash": "sha256-q1A0CsuWSD1iuVTY6yzPW0VDql6CJmwA6OOgaEZFrng=",
-        "ref": "refs/tags/v0.0.20",
-        "rev": "34a9307c35b7d1b5e1672d86bd6b26877c2f0639",
-        "revCount": 17651,
+        "lastModified": 1783694409,
+        "narHash": "sha256-J/Drii/6mlpudaLTiVhm399tF1EDJGTwJUKRwkOBLpc=",
+        "ref": "refs/tags/v0.0.21",
+        "rev": "1d57627d3e53ce9f5bdf955fdb3df6df418007a6",
+        "revCount": 17653,
         "submodules": true,
         "type": "git",
         "url": "https://github.com/rehosting/busybox"
       },
       "original": {
-        "ref": "refs/tags/v0.0.20",
-        "rev": "34a9307c35b7d1b5e1672d86bd6b26877c2f0639",
+        "ref": "refs/tags/v0.0.21",
+        "rev": "1d57627d3e53ce9f5bdf955fdb3df6df418007a6",
         "submodules": true,
         "type": "git",
         "url": "https://github.com/rehosting/busybox"
@@ -48,16 +48,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1783560386,
-        "narHash": "sha256-TBNEX61hCv9L65YDKT7lVxHgZ5UjvAqHVPkI4eVQSjg=",
+        "lastModified": 1783694382,
+        "narHash": "sha256-r8UxaQas88iBarZIkS3qfvGDqLEg55K4Rg2hE3EAWyE=",
         "owner": "rehosting",
         "repo": "console",
-        "rev": "abb4f3f20f830d461fab200cb4da085b817aaf7a",
+        "rev": "82a5a46e1cf0e444cf98e051c29dd995de588326",
         "type": "github"
       },
       "original": {
         "owner": "rehosting",
-        "ref": "v1.0.9",
+        "ref": "v1.0.10",
         "repo": "console",
         "type": "github"
       }
@@ -123,16 +123,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1783560297,
-        "narHash": "sha256-YvD1jGvuO5GQUKiwUqvOh472PUQYsjI4DRLyTjAgc6A=",
+        "lastModified": 1783692973,
+        "narHash": "sha256-rwt0tj/x2EOmftVwY3jZ6So1d+HmkhogUuNDXyjkiMc=",
         "owner": "rehosting",
         "repo": "guesthopper",
-        "rev": "4195992a25085407455e4c9e4de7c666e98451ee",
+        "rev": "cbd4327e71f6e7ce4fddabfdc9fc26984013373c",
         "type": "github"
       },
       "original": {
         "owner": "rehosting",
-        "ref": "v1.0.23",
+        "ref": "v1.0.24",
         "repo": "guesthopper",
         "type": "github"
       }
@@ -192,8 +192,8 @@
       },
       "original": {
         "owner": "rehosting",
+        "ref": "v0.0.26",
         "repo": "libnvram",
-        "rev": "e013c0686facbb62df09b30d0d5b92dd75fd4d58",
         "type": "github"
       }
     },
@@ -354,16 +354,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1783560347,
-        "narHash": "sha256-ZMVUvLLjLN6C7PrFmNkWn0Aytb8ta5HxqNOGbnJOBLk=",
+        "lastModified": 1783693009,
+        "narHash": "sha256-a1Rf9/OC1+u7as8cAtI4HKPBuZahqYPAGWu6SpgafHY=",
         "owner": "rehosting",
         "repo": "vpnguin",
-        "rev": "1def9441fd51a2858ac5875ba340521102d59e7d",
+        "rev": "0c0579aa110db738e2b44bfabb047de2df3851ec",
         "type": "github"
       },
       "original": {
         "owner": "rehosting",
-        "ref": "v1.0.29",
+        "ref": "v1.0.30",
         "repo": "vpnguin",
         "type": "github"
       }
