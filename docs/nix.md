@@ -189,15 +189,27 @@ the Docker build:
 
 ## Updating pinned inputs
 
-All external artifacts are flake inputs pinned in `flake.lock`:
+All external artifacts are flake inputs pinned in `flake.lock`. The easy path
+is `./nix-dev.sh`, which knows each input's URL shape (github tag,
+release-tarball URL, busybox's git ref+rev) and rewrites `flake.nix` for you:
+
+```sh
+./nix-dev.sh pins                 # every versioned input: pinned vs latest upstream tag
+./nix-dev.sh bump vpnguin         # bump one input to its latest tag + relock
+./nix-dev.sh bump kernels v3.6.4  # or to a specific tag
+```
+
+The raw mechanism underneath (also what you use for the rev-pinned inputs like
+`fw2tar` and `nixpkgs`, which `bump` doesn't cover):
 
 ```sh
 nix flake metadata                         # show every input + its pin
-nix flake update <input> --accept-flake-config   # bump one (e.g. kernels, igloo-driver)
-nix flake update --accept-flake-config            # bump all
+nix flake update <input> --accept-flake-config   # relock one after editing its url
+nix flake update --accept-flake-config            # relock all
 ```
 
-Inputs include `penguin-qemu`, `kernels`, `igloo-driver`, `penguin-tools`,
+Inputs include `penguin-qemu`, `kernels`, `igloo-driver`, `penguin-tools`, the
+guest tools (`console`, `busybox`, `guesthopper`, `vpnguin`, `libnvram`),
 `musl-src`, `ltrace-src`, `vhost-device`, and `fw2tar` (whose closure supplies
 the firmware-extraction stack). Re-run `nix build .#dockerImage` after any bump.
 
@@ -209,7 +221,10 @@ pinned as flake inputs, so to test a local change to a sibling repo (qemu,
 kernels, igloo-driver, …) point its input at your checkout:
 
 ```sh
-# Build against a local qemu checkout instead of the pinned release:
+# Build + load the image with a local checkout substituted in:
+./nix-dev.sh override vpnguin ../vpnguin
+
+# Or the raw form, for a plain build:
 nix build .#dockerImage --override-input penguin-qemu path:/abs/path/to/qemu --accept-flake-config
 ```
 
