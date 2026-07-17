@@ -174,6 +174,8 @@ penguin_run() {
     local dev=false
     local dev_root="" # --dev source root; resolved below (flag > env > auto > cwd)
     local dev_root_explicit=false # whether --dev-root was passed
+    local dev_static=() # --dev-static /igloo_static overlay fragment dirs (repeatable)
+    local dev_static_mounts=() # resolved "hostfile:relpath" pairs, built below
     local verbose=false
     local reproduce=false
     local shell_mode=false
@@ -203,6 +205,12 @@ penguin_run() {
                 echo "  --dev: Overlay the live penguin worktree (src/, pengutils/, pyplugins/) into the container via PYTHONPATH so edits apply without a rebuild. (--pydev is a deprecated alias.)"
                 echo "  --dev-root: Path to the penguin worktree to overlay under --dev. Defaults to walking up from the cwd for a src/penguin/ dir, then the cwd."
                 echo "              May also be set via PENGUIN_DEV_ROOT. Precedence: --dev-root > PENGUIN_DEV_ROOT > auto-detect > cwd."
+                echo "  --dev-static: Overlay an /igloo_static fragment (a dir mirroring /igloo_static, e.g. a guest-tool"
+                echo "                flake's dist output: nix build ../vpnguin#dist, then --dev-static ../vpnguin/result)."
+                echo "                Each file in the fragment is bind-mounted read-only over its path in the image's"
+                echo "                /igloo_static -- no image rebuild. Repeatable; later fragments win on overlap."
+                echo "                Covers guest tools, kernels/ and igloo.ko (unpack the tarball under kernels/ in"
+                echo "                your fragment), guest-utils/, libnvram/. Does NOT cover the qemu fork."
                 echo "  --subnet: IP subnet to use. For example --subnet 192.168.0.0/24 would produce a network with firmware reachable at 192.168.0.2."
                 echo "            Default: automatically find next free /24 subnet in 192.168.x.x"
                 echo "            Set to 'none' to disable network creation."
@@ -250,6 +258,10 @@ penguin_run() {
             --dev-root|--pydev-root)
                 dev_root="$2"
                 dev_root_explicit=true
+                shift 2
+                ;;
+            --dev-static)
+                dev_static+=("$2")
                 shift 2
                 ;;
             --subnet)
@@ -369,6 +381,46 @@ penguin_run() {
         fi
     fi
 
+    # Resolve --dev-static fragments into per-file mounts over /igloo_static.
+    # Each fragment dir mirrors /igloo_static (this is exactly the guest-tool
+    # flakes' `dist` layout, e.g. armel/vpn, guesthopper/guest_cmd.py). We mount
+    # per FILE, not per dir: a fragment's armel/ holds only its own tool, and a
+    # dir mount over /igloo_static/armel would hide the image's other armel
+    # binaries. The flat vpn/vpn.<arch> / utils.bin/* link dirs in the image are
+    # runtime-absolute symlinks back into /igloo_static/<arch>/, so they resolve
+    # through these mounts untouched.
+    if [[ ${#dev_static[@]} -gt 0 ]]; then
+        local _frag _frag_arg _f _rel
+        local _raw_mounts=()
+        for _frag_arg in "${dev_static[@]}"; do
+            _frag="$(realpath "$_frag_arg" 2>/dev/null)" || _frag=""
+            if [ -z "$_frag" ] || [ ! -d "$_frag" ]; then
+                echo "Error: --dev-static fragment '$_frag_arg' is not a directory." >&2
+                exit 1
+            fi
+            local _found=false
+            while IFS= read -r _f; do
+                _found=true
+                _raw_mounts+=("$_f:${_f#$_frag/}")
+            done < <(find -L "$_frag" -type f 2>/dev/null)
+            if ! $_found; then
+                echo "Error: --dev-static fragment '$_frag' contains no files." >&2
+                exit 1
+            fi
+        done
+        # Later fragments win on overlapping paths (docker rejects duplicate
+        # mount targets outright, so dedupe here): walk in reverse, keep first.
+        local _seen=$'\n' _i
+        for ((_i=${#_raw_mounts[@]}-1; _i>=0; _i--)); do
+            _rel="${_raw_mounts[$_i]##*:}"
+            case "$_seen" in
+                *$'\n'"$_rel"$'\n'*) continue ;;
+            esac
+            _seen+="$_rel"$'\n'
+            dev_static_mounts+=("${_raw_mounts[$_i]}")
+        done
+    fi
+
     # If verbose, log all wrapper args and command
     if $verbose; then
         echo "${BOLD}Wrapper args:${RESET}"
@@ -377,6 +429,7 @@ penguin_run() {
         echo "  build_singularity: $build_singularity"
         echo "  dev: $dev"
         $dev && echo "  dev_root: $dev_root"
+        [[ ${#dev_static[@]} -gt 0 ]] && echo "  dev_static: ${dev_static[*]} (${#dev_static_mounts[@]} file mounts)"
         echo "  subnet: $subnet"
         echo "  name: $container_name"
         echo "  extra_docker_args: $extra_docker_args"
@@ -493,6 +546,10 @@ penguin_run() {
 
         if $dev; then
             echo "Reproduce command does not support the --dev flag. Please remove it."
+            exit 1
+        fi
+        if [[ ${#dev_static[@]} -gt 0 ]]; then
+            echo "Reproduce command does not support the --dev-static flag. Please remove it."
             exit 1
         fi
 
@@ -1222,10 +1279,10 @@ penguin_run() {
         echo "Running in Python development mode (--dev): overlaying live source via PYTHONPATH (edits apply without a rebuild)."
         echo "  source root: $dev_root"
         echo "  live (edit -> just re-run): src/ (incl. resources/), pengutils/, pyplugins/"
-        echo "  NOT live (needs ./penguin --build): guest-side artifacts baked into the image --"
-        echo "    /igloo_static (kernels, igloo_driver, busybox/console/guesthopper/vpnguin/libnvram,"
-        echo "    native helpers, musl sysroots) and the qemu fork. For a local dep checkout add"
-        echo "    --build --override-input <input> path:/abs/checkout."
+        echo "  NOT live: guest-side artifacts baked into the image. For /igloo_static contents"
+        echo "    (kernels, igloo_driver, busybox/console/guesthopper/vpnguin/libnvram) overlay a"
+        echo "    built fragment with --dev-static <dist> -- no rebuild. The qemu fork still needs"
+        echo "    ./penguin --build --override-input <input> path:/abs/checkout."
 
         # penguin opens penguin/version.txt at import; it is build-generated and
         # absent from the worktree, so mount a placeholder over the mounted /pkg.
@@ -1233,6 +1290,20 @@ penguin_run() {
         echo "0.0.1.dev0+dev" > "$d/version.txt"
         docker_cmd+=("-v" "$d/version.txt:/pkg/penguin/version.txt")
         docker_cmd+=("-e" "PYTHONPATH=/pkg:/pengutils:/pyplugins")
+    fi
+
+    # --dev-static: bind each resolved fragment file read-only over its path in
+    # the image's /igloo_static (see the resolution block above). The mount
+    # target's parent dirs are store symlinks; the engine resolves them inside
+    # the container when creating the mountpoint.
+    if [[ ${#dev_static_mounts[@]} -gt 0 ]]; then
+        echo "Overlaying /igloo_static fragments (--dev-static): ${#dev_static_mounts[@]} file(s) mounted"
+        echo "  over the image's copies, read-only -- edits to a fragment apply on re-run, no rebuild."
+        local _m
+        for _m in "${dev_static_mounts[@]}"; do
+            $verbose && echo "    ${_m%%:*} -> /igloo_static/${_m##*:}"
+            docker_cmd+=("-v" "${_m%%:*}:/igloo_static/${_m##*:}:ro")
+        done
     fi
 
     # Ensure output files are owned by the caller. Under rootless podman we

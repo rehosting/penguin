@@ -87,10 +87,42 @@ silently mounting empty directories.
 - **Live** — `src/` (the `penguin` package *and* `src/resources/`: init scripts,
   `source.d/`, `static_keys`, … via `PENGUIN_RESOURCES=/pkg/resources`),
   `pengutils/`, and `pyplugins/`.
-- **Not live — needs `--build`** — anything baked into the image: `/igloo_static`
-  (kernels, `igloo_driver`, the guest tools busybox/console/guesthopper/vpnguin/
-  libnvram, native helpers, musl sysroots) and the qemu fork. For a local
-  sibling-repo checkout, combine with `--override-input` (see below).
+- **Live with `--dev-static`** — anything under `/igloo_static` (the guest tools
+  busybox/console/guesthopper/vpnguin, kernels, `igloo.ko`, libnvram sources,
+  guest-utils): overlay a built fragment at run time, no image rebuild (next
+  section).
+- **Not live — needs `--build`** — the qemu fork and the debug-tool closures.
+  For a local sibling-repo checkout, combine with `--override-input` (see below).
+
+### Guest binaries in a running guest — `--dev-static` (no rebuild)
+
+Everything binary that penguin uses at runtime lives under one directory in the
+image, `/igloo_static`, and the tool flakes' `dist` outputs are exactly
+fragments of that tree. `--dev-static <dir>` bind-mounts each **file** in a
+fragment read-only over its path in the image's `/igloo_static` — so a guest
+tool (or kernel) iteration loop needs no image rebuild at all:
+
+```sh
+cd ../vpnguin && nix build .#dist       # seconds once deps are cached
+cd ../penguin
+./penguin --dev --dev-static ../vpnguin/result run projects/myfw
+```
+
+Notes:
+
+- The flag is **repeatable**; on overlapping paths the **later fragment wins**.
+- Mounts are per-file, so a fragment only replaces what it ships — the rest of
+  `/igloo_static` (other tools in the same `<arch>/` dir, sysroots, …) is
+  untouched. The image's flat `vpn/vpn.<arch>` / `utils.bin/*` symlinks resolve
+  through the mounts automatically.
+- A **new** file (one the image doesn't ship) is mounted in fine, but the flat
+  `utils.bin/<bin>.<arch>` links are generated at image build, so a brand-new
+  tool won't get one — reference it by its full `/igloo_static/<arch>/<bin>`
+  path, or do a real `--build` when adding a tool for keeps.
+- For kernels / the driver: unpack the built tarball so its contents sit under
+  `kernels/` inside your fragment dir (mirroring `/igloo_static/kernels/`).
+- Doesn't cover the qemu fork (lives at `/usr/local`, not `/igloo_static`) —
+  use `--override-input penguin-qemu` with a rebuild for that.
 
 ## Dependency development
 
