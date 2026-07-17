@@ -179,7 +179,17 @@ jobs:
         uses: docker/setup-buildx-action@v3
         with:
           driver-opts: |
+            image=moby/buildkit:v0.30.0
             network=host
+          # Pin buildkit: the floating buildx-stable-1 default advanced to
+          # v0.31.2, whose runc masks /proc/acpi in a way the 5.4-kernel Arc
+          # runners reject ("can't mask dir /proc/acpi ... invalid argument"),
+          # breaking every build. The nodes prune images every 30m, so a bad
+          # floating-tag move hits the whole fleet within one cycle. v0.30.0 is
+          # the last minor before the bad runc and an immutable release tag.
+          # (This workflow hand-rolls buildx instead of using
+          # rehosting/ci arc-registry-setup, so the org-wide default pin there
+          # doesn't reach it.) Revisit once the runner kernel is bumped.
           buildkitd-config-inline: |
             [registry."${{ env.REGISTRY }}"]
               insecure = true
