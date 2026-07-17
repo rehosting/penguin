@@ -331,6 +331,31 @@ regress.
    get confidence the KVM path is wired without launching KVM or crossing the
    boundary. 1 xfail → 4 passing tests.
 
+## Cross-repo ABI tests that depend on an *unreleased* driver op
+
+`test_osi_bulk.py` covers `OSI.get_all_procs` (the bulk process walk behind
+`HYPER_OP_OSI_PROC_ALL`) against the **real** driver ISF. That op is added by
+igloo_driver #88; a host plugin that calls it is *incompatible with any pinned
+driver release that predates it*.
+
+**Rule (matches the "ISF is source of truth" doctrine in `docs/testing.md`):**
+such a test **FAILS, it does not skip**, when the pinned ISF lacks the op. A skip
+reads as green and would let host code that can't run against its own pinned
+driver merge silently. The failure is the forcing function — bump
+`IGLOO_DRIVER_VERSION` (Dockerfile) to a release carrying the op and the test
+goes green with no edit. See `_assert_pinned_driver_has_bulk_op`.
+
+- **Expected state on branch `workspace/proctree-ux` / PR #897:** these 2 tests
+  are **intentionally RED** until (a) a driver release is cut from igloo_driver
+  `main` (post-#88-merge) carrying the op and (b) #897 bumps the pin to it. Do
+  not "fix" them by reverting to a skip. As of the last check, released tags
+  (≤ v0.0.88) predate the op, so a new release must be cut first.
+- Only a *totally unresolvable* ISF (offline, nothing cached) skips — that is
+  genuinely untestable and distinct from "pinned driver predates the op".
+- We deliberately did **not** add a fake-enum "logic only" variant that always
+  runs (purist call): no checked-in/faked enum values, the real ISF stays the
+  single source of truth.
+
 ## Open questions
 
 - **Null-backend fidelity:** how far can identity decorators + test doubles go
