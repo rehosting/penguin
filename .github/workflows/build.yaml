@@ -5,6 +5,11 @@ on:
     branches:
       - main
     types: [opened, synchronize, reopened, ready_for_review]
+  # Required checks (lint, build_container, run_tests) live only in this
+  # workflow. The merge queue fires a `merge_group` event and waits for those
+  # contexts to report; without this trigger they never run and GitHub evicts
+  # the PR ("no response for status checks").
+  merge_group:
 
 env:
   REGISTRY: ${{ secrets.REHOSTING_ARC_REGISTRY || 'harbor.harbor.svc.cluster.local' }}
@@ -18,15 +23,21 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     outputs:
-      run_lint: ${{ steps.filter.outputs.python }}
+      run_lint: ${{ github.event_name == 'merge_group' || steps.filter.outputs.python == 'true' }}
       # Run the guest-test matrix on code changes OR on changes to the test
       # workflow / test fixtures themselves (the `code` filter excludes
       # .github/**, so a build.yaml-only change would otherwise skip the tests
       # it governs).
-      run_tests: ${{ steps.filter.outputs.code == 'true' || steps.filter.outputs.testci == 'true' }}
+      # In the merge queue there is no PR base for paths-filter to diff, and a
+      # skipped *required* job reports no conclusion (→ another eviction), so
+      # force the full matrix on merge_group — the queue should validate the
+      # real merged result, not a path-filtered subset.
+      run_tests: ${{ github.event_name == 'merge_group' || steps.filter.outputs.code == 'true' || steps.filter.outputs.testci == 'true' }}
     steps:
       - uses: actions/checkout@v4
+        if: ${{ github.event_name != 'merge_group' }}
       - id: filter
+        if: ${{ github.event_name != 'merge_group' }}
         uses: dorny/paths-filter@v3
         with:
           predicate-quantifier: 'every'  # require file to satisfy all positives and none of the negatives
@@ -42,14 +53,15 @@ jobs:
             python:
               - '**/*.py'
             # Changes that should re-run the guest-test matrix even though the
-            # `code` filter excludes .github/**: the test workflow, the flake
-            # (which builds the image), and fixtures.
+            # `code` filter excludes .github/**: the test workflow and fixtures.
+            # NOTE: predicate-quantifier is `every` (required for the `code`
+            # filter's negations), which means a filter listing multiple
+            # positive patterns requires a file to match *all* of them — so a
+            # two-pattern testci was silently always-false and this filter never
+            # fired. Express the alternatives as a single brace pattern so
+            # `every` is satisfied when a file matches either one.
             testci:
-              - '.github/workflows/build.yaml'
-              - 'flake.nix'
-              - 'flake.lock'
-              - 'nix/**'
-              - 'tests/**'
+              - '{.github/workflows/build.yaml,tests/**}'
   lint:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: rehosting-arc
@@ -87,15 +99,66 @@ jobs:
       run: |
         flake8
 
-  # Build the penguin image from the Nix flake (flake.nix at the repo root) and
-  # push it to Harbor as :<sha>, via the shared rehosting/ci reusable workflow
-  # (the Nix counterpart of build-and-push.yml). The flake is the sole build
-  # path -- there is no Dockerfile. The build is heavy (full qemu system-arch
-  # matrix + python env), so it pulls from the rehosting-tools Cachix cache;
-  # PR builds pull only (nix-setup skips the Cachix push on pull_request).
-  # Derive the tag-based version (setuptools_scm-style guess-next-dev off
-  # `git describe`) so the built image's `penguin --version` is correct -- a
-  # pure Nix flake can't read git tags, so we compute it here and inject it.
+  unit_tests:
+    # Host-side pytest suite (tests/unit/test_*.py + pengutils): no PANDA,
+    # no guest boot, no per-arch matrix. Runs on a bare runner in seconds and
+    # fails a PR long before the ~20m guest-boot matrix would. Gated on the same
+    # run_tests filter as the matrix, but depends only on `changes` (not on the
+    # image build) so it is a genuine fast lane.
+    needs: changes
+    runs-on: rehosting-arc
+    # Job-level gate (not just per-step): skip allocating an ephemeral rehosting-arc
+    # runner entirely on docs-only PRs, instead of spinning one up to skip every step.
+    if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
+    steps:
+      - name: Checkout code
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+      - name: Set up Python
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10.12"
+      # Editable install of the two modules we own, with their [test] extras.
+      # The extras pull the package's runtime deps (pydantic, coloredlogs,
+      # pyelftools, ...) plus pytest. No emulator, no guest image, no Docker —
+      # the suite runs entirely host-side. See tests/unit/README.
+      - name: Install penguin + pengutils (editable, with test extras)
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        run: pip install -e "src[test]" -e "pengutils[test]"
+      # Cache the igloo.ko ISF the enum-boundary tests pull for the pinned
+      # igloo_driver release (parsed from the flake.nix igloo-driver input).
+      # Keyed on flake.nix so bumping the pin re-pulls; otherwise conftest
+      # downloads it once.
+      - name: Cache driver ISF
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: tests/unit/.isf_cache
+          key: igloo-ko-isf-${{ hashFiles('flake.nix') }}
+      - name: Run host-side unit tests
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        env:
+          # Point the harness's ISF download at the cached path above (its default
+          # is inside the package tree, which the cache step does not save).
+          PENGUIN_TEST_ISF_CACHE: tests/unit/.isf_cache
+        run: |
+          python3 -m pytest tests/unit/ pengutils/ \
+            --junitxml=unit-test-results.xml -q
+      - name: Unit test report
+        uses: dorny/test-reporter@v2.1.1
+        if: ${{ needs.changes.outputs.run_tests == 'true' && ((success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository) }}
+        with:
+          name: unit-test-results
+          path: unit-test-results.xml
+          reporter: java-junit
+
+  # Compute a setuptools_scm-style version from git tags (a pure Nix flake can't
+  # read tags -- only self.rev), injected into the image build via
+  # PENGUIN_OVERRIDE_VERSION so `penguin --version` is correct.
   version:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
@@ -127,6 +190,11 @@ jobs:
           echo "Computed version: $v"
           echo "v=$v" >> "$GITHUB_OUTPUT"
 
+  # Build the penguin image from the Nix flake (flake.nix at the repo root) and
+  # push it to Harbor as :<sha>, via the shared rehosting/ci reusable workflow
+  # (the Nix counterpart of build-and-push.yml). The flake is the sole build
+  # path -- there is no Dockerfile. PR builds pull from the rehosting-tools
+  # Cachix cache (nix-setup skips the push on pull_request).
   build_container:
     needs: [changes, lint, version]
     if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
@@ -153,37 +221,48 @@ jobs:
       registry-password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
       cachix-auth-token: ${{ secrets.CACHIX_REHOSTING }}
 
-  # Run the basic_target + test_target suites against the Nix-built image across
-  # the same 10 system arches gated on main. The flake also produces bootable
-  # powerpc (32-bit BE) and powerpc64le images, but they are NOT gated here yet:
-  #  - powerpc64le boots and runs every plugin, but one uprobe subtest
-  #    (uprobes_strncmp) fails on a qemu-fork ppc64le TCG bug -- a
-  #    freshly-installed uprobe breakpoint is not delivered on the probed
-  #    instruction's FIRST execution (SMC / translation-block invalidation
-  #    timing). Tracked at rehosting/qemu#17; re-add powerpc64le once fixed.
-  #  - powerpc (32-bit) has a separate pre-existing userland gap.
-  # Neither arch was ever a CI target on main, so leaving them out keeps CI at
-  # parity rather than masking a known-red arch.
   run_tests:
     needs: [changes, build_container]
     runs-on: rehosting-arc
-    if: ${{ !github.event.pull_request.draft }}
+    # Job-level gate: on docs-only PRs, don't allocate the matrix of ephemeral
+    # runners just to skip every step.
+    if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
     strategy:
       fail-fast: false
       matrix:
+        # One job per (arch, kernel). Both test runners (basic_target,
+        # test_target) otherwise loop DEFAULT_KERNELS serially inside a single
+        # per-arch job — the kernel loop is the real long pole (e.g. mipsel
+        # test_target was ~438s for two kernels). Splitting the loop into the
+        # matrix runs the kernels in parallel; with the shared-daemon warm image
+        # store the extra per-job pull is ~13s, so more/smaller jobs are cheap.
         arch: ["armel", "mipsel", "mipseb", "mips64el", "mips64eb", "powerpc64", "loongarch64", "aarch64", "x86_64", "riscv64"]
+        kernel: ["4.10", "6.13"]
+        # powerpc64/loongarch64/riscv64 only support 6.13 (NONDEFAULT_KERNEL_ARCHES
+        # in the test runners); drop their 4.10 combos so those jobs don't spin
+        # up just to skip. Every other arch runs both kernels. Net: 17 jobs.
+        exclude:
+          - { arch: "powerpc64", kernel: "4.10" }
+          - { arch: "loongarch64", kernel: "4.10" }
+          - { arch: "riscv64", kernel: "4.10" }
 
     steps:
+      # using the version from here https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md
+      # makes things faster
       - name: Checkout code
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          # Shallow: this job only needs the tree at the PR head to run tests,
+          # not full history (×10 arch runners).
+          fetch-depth: 1
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       # Acquire the prebuilt image with a plain `docker pull` via the shared
-      # org action. install-cert is off: the rehosting-arc dind daemon already
-      # trusts Harbor's CA (system trust store). install-python pulls the deps
+      # org action, replacing the old `buildx build --load` heredoc (~5-6 min/job
+      # of GB export/import). install-cert is off: the rehosting-arc dind daemon
+      # already trusts Harbor's CA (system trust store), which is what the pull
+      # needs — see rehosting/ci pull-image docs. install-python pulls the deps
       # the test runners need (click, pyyaml).
       - name: Set up penguin image
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
@@ -193,105 +272,132 @@ jobs:
           target: ${{ env.TARGET }}
           image: rehosting/penguin
           tag: ${{ github.sha }}
-          local-tag: rehosting/penguin:latest
+          # Immutable per-commit local tag, NOT a shared :latest. On the shared
+          # per-node daemon all jobs share one image store; retagging a mutable
+          # :latest raced across concurrent jobs (delete-and-recreate →
+          # "AlreadyExists"), which the arch×kernel fan-out below made frequent.
+          # Per-sha is idempotent within a run and distinct across PRs, so no
+          # two jobs contend on the tag.
+          local-tag: rehosting/penguin:${{ github.sha }}
           username: ${{ env.USER }}
           password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
           install-python: "true"
           install-cert: "false"
 
-      - name: Basic test for ${{ matrix.arch }}
+      - name: Basic test for ${{ matrix.arch }} (kernel ${{ matrix.kernel }})
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/basic_target/test.py --arch ${{ matrix.arch }}
+        run: timeout 10m python3 $GITHUB_WORKSPACE/tests/integration/basic_target/test.py --arch ${{ matrix.arch }} --kernel ${{ matrix.kernel }} --image rehosting/penguin:${{ github.sha }}
 
-      - name: Test for ${{ matrix.arch }} all kernels
+      - name: Test for ${{ matrix.arch }} kernel ${{ matrix.kernel }}
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         # 20m (was 10m): the test_target suite now drives full CPython per
         # python test instead of micropython, which pushes slow-emulated arches
-        # (powerpc64, loongarch64) past the old 10m budget.
-        run: timeout 20m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py --arch ${{ matrix.arch }}
+        # (powerpc64, loongarch64) past the old 10m budget. Now single-kernel per
+        # job (see the matrix), so this is a generous upper bound.
+        run: timeout 20m python3 $GITHUB_WORKSPACE/tests/integration/test_target/test.py --arch ${{ matrix.arch }} --kernel ${{ matrix.kernel }} --image rehosting/penguin:${{ github.sha }}
 
       - name: Test Report
         uses: dorny/test-reporter@v2.1.1
         if: ${{ needs.changes.outputs.run_tests == 'true'  && ((success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository)}}
         with:
-          name: ${{ matrix.arch }}-test-results
+          # Per (arch, kernel) so parallel jobs don't collide on the report name.
+          name: ${{ matrix.arch }}-${{ matrix.kernel }}-test-results
           # Update the glob pattern here to only match numbered folders
-          path: ${{ github.workspace }}/tests/unit_tests/test_target/results/[0-9]*/verifier.xml
+          path: ${{ github.workspace }}/tests/integration/test_target/results/[0-9]*/verifier.xml
           reporter: java-junit
 
       - name: Debug info
         if: ${{ needs.changes.outputs.run_tests == 'true' && failure() }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.arch }}-artifacts
+          name: ${{ matrix.arch }}-${{ matrix.kernel }}-artifacts
           if-no-files-found: ignore
           # Capture both suites: a basic_target failure aborts before
           # test_target runs, so its results/ would otherwise never be uploaded.
           path: |
-            ${{ github.workspace }}/tests/unit_tests/basic_target/projects/empty_fs/results/latest/
-            ${{ github.workspace }}/tests/unit_tests/test_target/results/latest/
+            ${{ github.workspace }}/tests/integration/basic_target/projects/empty_fs/results/latest/
+            ${{ github.workspace }}/tests/integration/test_target/results/latest/
 
   run_compose:
     # Compose's mcast plumbing is arch-independent, so this runs once outside
-    # the per-arch matrix instead of multiplying CI cost by 12.
+    # the per-arch matrix instead of multiplying CI cost by 10.
     needs: [changes, build_container]
     runs-on: rehosting-arc
-    if: ${{ !github.event.pull_request.draft }}
+    # Job-level gate: skip the runner entirely on docs-only PRs.
+    if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
     steps:
-      - name: Set up Python
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.10.12"
-      - name: Install dependencies
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: pip install click pyyaml
       - name: Checkout code
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
-      - name: Trust Harbor's self-signed certificate
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: |
-          echo "Fetching certificate from ${{ env.REGISTRY }}"
-          openssl s_client -showcerts -connect ${{ env.REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
-          sudo update-ca-certificates
-
-      - name: Set up Docker Buildx
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            network=host
-          buildkitd-config-inline: |
-            [registry."${{ env.REGISTRY }}"]
-              insecure = true
-              http = true
-
-      - name: Log in to Rehosting Arc Registry
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: docker/login-action@v3
+      # Acquire the prebuilt image with a plain `docker pull` via the shared org
+      # action (same as run_tests), replacing the old `buildx build --load`
+      # heredoc that cost ~5-6 min/job of GB export/import. install-python
+      # provides the click/pyyaml the compose test needs; install-cert is off
+      # because the rehosting-arc dind daemon already trusts Harbor's CA.
+      - name: Set up penguin image
+        uses: rehosting/ci/actions/pull-image@v1
         with:
           registry: ${{ env.REGISTRY }}
+          target: ${{ env.TARGET }}
+          image: rehosting/penguin
+          tag: ${{ github.sha }}
+          # Immutable per-commit local tag, NOT a shared :latest. On the shared
+          # per-node daemon all jobs share one image store; retagging a mutable
+          # :latest raced across concurrent jobs (delete-and-recreate →
+          # "AlreadyExists"), which the arch×kernel fan-out below made frequent.
+          # Per-sha is idempotent within a run and distinct across PRs, so no
+          # two jobs contend on the tag.
+          local-tag: rehosting/penguin:${{ github.sha }}
           username: ${{ env.USER }}
           password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
-
-      - name: Pull image via Buildx and Load to Daemon
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: |
-          echo "FROM ${{ env.TARGET }}/rehosting/penguin:${{ github.sha }}" | \
-          docker buildx build -t rehosting/penguin:latest --load -
+          install-python: "true"
+          install-cert: "false"
 
       - name: Compose test (armel)
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: timeout 8m python3 $GITHUB_WORKSPACE/tests/unit_tests/compose/test.py --arch armel
+        run: timeout 8m python3 $GITHUB_WORKSPACE/tests/integration/compose/test.py --arch armel --image rehosting/penguin:${{ github.sha }}
 
       - name: Compose debug info
-        if: ${{ needs.changes.outputs.run_tests == 'true' && failure() }}
+        if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
           name: compose-artifacts
-          path: ${{ github.workspace }}/tests/unit_tests/compose/compose_projects/
+          path: ${{ github.workspace }}/tests/integration/compose/compose_projects/
+
+  # Single required status check for branch protection + the merge queue.
+  #
+  # The per-arch run_tests matrix and build_container are conditionally skipped
+  # (docs-only / non-build.yaml-workflow-only PRs don't need them). A skipped
+  # matrix job never expands, so its per-arch contexts are never created — which
+  # would leave the old per-arch required contexts permanently unsatisfied and
+  # block such PRs. This gate always runs and turns "succeeded or legitimately
+  # skipped" into one green context, so branch protection should require ONLY
+  # `ci_gate` (not the individual jobs). It fails if any gated job failed or was
+  # cancelled.
+  ci_gate:
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    needs: [changes, lint, unit_tests, build_container, run_tests, run_compose]
+    steps:
+      - name: Require no gated job to have failed
+        run: |
+          declare -A r=(
+            [changes]='${{ needs.changes.result }}'
+            [lint]='${{ needs.lint.result }}'
+            [unit_tests]='${{ needs.unit_tests.result }}'
+            [build_container]='${{ needs.build_container.result }}'
+            [run_tests]='${{ needs.run_tests.result }}'
+            [run_compose]='${{ needs.run_compose.result }}'
+          )
+          ok=true
+          for job in "${!r[@]}"; do
+            echo "  ${job}: ${r[$job]}"
+            case "${r[$job]}" in
+              success|skipped) ;;
+              *) echo "::error::gated job '${job}' result='${r[$job]}'"; ok=false ;;
+            esac
+          done
+          $ok || { echo "One or more gated jobs failed/cancelled."; exit 1; }
+          echo "All gated jobs passed or were legitimately skipped."
