@@ -688,7 +688,9 @@ def test_legacy_at_placeholders_untouched():
     ("armel", "armel", "armel"),
     ("aarch64", "aarch64", "aarch64"),
     ("intel64", "x86_64", "x86_64"),
-    ("powerpc64le", "powerpc64", "powerpc64le"),
+    # LE ppc64 has endian-distinct guest utils/kmods/kernel, so it owns its own
+    # arch_subdir (not consolidated onto the big-endian powerpc64 tree).
+    ("powerpc64le", "powerpc64le", "powerpc64le"),
     ("powerpc", "powerpc", "powerpc"),
     ("mipsel", "mipsel", "mipsel"),
     ("loongarch64", "loongarch64", "loongarch64"),
@@ -874,11 +876,11 @@ def test_schema_literal_matches_registry():
 
 
 # Parity vs the OLD hardcoded mappings — guards against regressions in the flip.
+# (ppc64le is the one intentional divergence: it now owns its own endian-distinct
+# subdir rather than sharing the big-endian powerpc64 tree — see arch_registry.)
 def _old_arch_subdir(a):
     if a == "intel64":
         return "x86_64"
-    if a in ("powerpc64el", "powerpc64le"):
-        return "powerpc64"
     return a
 
 
@@ -887,8 +889,8 @@ def _old_arch_subdir(a):
     "powerpc", "powerpc64", "powerpc64le", "riscv64", "loongarch64", "intel64",
 ])
 def test_subdir_dylib_parity_with_old(arch):
-    # arch_subdir still consolidates the ppc64le variants onto powerpc64 and
-    # maps the intel64 alias to x86_64 (the "old" hardcoded scheme).
+    # arch_subdir maps the intel64 alias to x86_64 (the "old" hardcoded scheme);
+    # ppc64le is the sole intentional divergence (owns its own subdir now).
     assert arch_registry.arch_subdir(arch) == _old_arch_subdir(arch)
     # dylib_subdir was flipped off the hyperfs-era names (arm64/ppc64el/...) to
     # the canonical arch name: it must now equal normalize_arch for every arch.

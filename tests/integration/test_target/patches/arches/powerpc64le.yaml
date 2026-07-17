@@ -1,0 +1,16 @@
+core:
+  arch: powerpc64le
+
+plugins:
+  qemu_mem:
+    mmap_alignment: 64K
+
+static_files:
+  /igloo/utils/*:
+    host_path: /igloo_static/powerpc64le/*
+    mode: 493
+    type: host_file
+  /igloo/dylibs/*:
+    host_path: /igloo_static/dylibs/powerpc64le/*
+    mode: 493
+    type: host_file

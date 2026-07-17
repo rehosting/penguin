@@ -171,7 +171,11 @@ penguin_run() {
     local maps=()
     local build=false
     local build_singularity=false
-    local pydev=false
+    local dev=false
+    local dev_root="" # --dev source root; resolved below (flag > env > auto > cwd)
+    local dev_root_explicit=false # whether --dev-root was passed
+    local dev_static=() # --dev-static /igloo_static overlay fragment dirs (repeatable)
+    local dev_static_mounts=() # resolved "hostfile:relpath" pairs, built below
     local verbose=false
     local reproduce=false
     local shell_mode=false
@@ -198,7 +202,15 @@ penguin_run() {
                 echo "           With no --image, builds and runs the localhost/penguin:dev tag so a local build never"
                 echo "           shadows the default rehosting/penguin:latest run image. Pass --image to choose another tag."
                 echo "  --build-singularity: Build the PENGUIN container and then convert it to singularity. No command will be run"
-                echo "  --pydev: Map local python package and plugin code into container and reinstall before running the specified command."
+                echo "  --dev: Overlay the live penguin worktree (src/, pengutils/, pyplugins/) into the container via PYTHONPATH so edits apply without a rebuild. (--pydev is a deprecated alias.)"
+                echo "  --dev-root: Path to the penguin worktree to overlay under --dev. Defaults to walking up from the cwd for a src/penguin/ dir, then the cwd."
+                echo "              May also be set via PENGUIN_DEV_ROOT. Precedence: --dev-root > PENGUIN_DEV_ROOT > auto-detect > cwd."
+                echo "  --dev-static: Overlay an /igloo_static fragment (a dir mirroring /igloo_static, e.g. a guest-tool"
+                echo "                flake's dist output: nix build ../vpnguin#dist, then --dev-static ../vpnguin/result)."
+                echo "                Each file in the fragment is bind-mounted read-only over its path in the image's"
+                echo "                /igloo_static -- no image rebuild. Repeatable; later fragments win on overlap."
+                echo "                Covers guest tools, kernels/ and igloo.ko (unpack the tarball under kernels/ in"
+                echo "                your fragment), guest-utils/, libnvram/. Does NOT cover the qemu fork."
                 echo "  --subnet: IP subnet to use. For example --subnet 192.168.0.0/24 would produce a network with firmware reachable at 192.168.0.2."
                 echo "            Default: automatically find next free /24 subnet in 192.168.x.x"
                 echo "            Set to 'none' to disable network creation."
@@ -239,9 +251,18 @@ penguin_run() {
                 build_singularity=true
                 shift
                 ;;
-            --pydev)
-                pydev=true
+            --dev|--pydev)
+                dev=true
                 shift
+                ;;
+            --dev-root|--pydev-root)
+                dev_root="$2"
+                dev_root_explicit=true
+                shift 2
+                ;;
+            --dev-static)
+                dev_static+=("$2")
+                shift 2
                 ;;
             --subnet)
                 subnet="$2"
@@ -324,13 +345,91 @@ penguin_run() {
         fi
     fi
 
+    # Resolve the --dev source root (the penguin worktree whose src/, pengutils/,
+    # and pyplugins/ get bind-mounted live). Historically this was hardwired to the
+    # cwd; now it is configurable so the wrapper works from a subdirectory or when
+    # the installed `penguin` command targets a checkout elsewhere.
+    # Precedence: --dev-root > PENGUIN_DEV_ROOT > auto (walk up for src/penguin) > cwd.
+    if $dev; then
+        if $dev_root_explicit; then
+            :
+        elif [ -n "${PENGUIN_DEV_ROOT:-${PENGUIN_PYDEV_ROOT:-}}" ]; then
+            dev_root="${PENGUIN_DEV_ROOT:-$PENGUIN_PYDEV_ROOT}"
+        else
+            # Walk up looking for a penguin worktree root (marked by src/penguin/).
+            local _d="$(pwd)"
+            while [ -n "$_d" ]; do
+                if [ -d "$_d/src/penguin" ]; then
+                    dev_root="$_d"
+                    break
+                fi
+                [ "$_d" = "/" ] && break
+                _d="$(dirname "$_d")"
+            done
+            [ -z "$dev_root" ] && dev_root="$(pwd)"
+        fi
+        # Normalize to an absolute path and validate the expected layout early so a
+        # bad root fails loudly here instead of silently mounting empty dirs.
+        dev_root="$(cd "$dev_root" 2>/dev/null && pwd)" || {
+            echo "Error: --dev source root '$dev_root' does not exist." >&2
+            exit 1
+        }
+        if [ ! -d "$dev_root/src/penguin" ]; then
+            echo "Error: --dev source root '$dev_root' is not a penguin worktree" >&2
+            echo "       (no src/penguin/ there). Pass --dev-root PATH or set PENGUIN_DEV_ROOT." >&2
+            exit 1
+        fi
+    fi
+
+    # Resolve --dev-static fragments into per-file mounts over /igloo_static.
+    # Each fragment dir mirrors /igloo_static (this is exactly the guest-tool
+    # flakes' `dist` layout, e.g. armel/vpn, guesthopper/guest_cmd.py). We mount
+    # per FILE, not per dir: a fragment's armel/ holds only its own tool, and a
+    # dir mount over /igloo_static/armel would hide the image's other armel
+    # binaries. The flat vpn/vpn.<arch> / utils.bin/* link dirs in the image are
+    # runtime-absolute symlinks back into /igloo_static/<arch>/, so they resolve
+    # through these mounts untouched.
+    if [[ ${#dev_static[@]} -gt 0 ]]; then
+        local _frag _frag_arg _f _rel
+        local _raw_mounts=()
+        for _frag_arg in "${dev_static[@]}"; do
+            _frag="$(realpath "$_frag_arg" 2>/dev/null)" || _frag=""
+            if [ -z "$_frag" ] || [ ! -d "$_frag" ]; then
+                echo "Error: --dev-static fragment '$_frag_arg' is not a directory." >&2
+                exit 1
+            fi
+            local _found=false
+            while IFS= read -r _f; do
+                _found=true
+                _raw_mounts+=("$_f:${_f#$_frag/}")
+            done < <(find -L "$_frag" -type f 2>/dev/null)
+            if ! $_found; then
+                echo "Error: --dev-static fragment '$_frag' contains no files." >&2
+                exit 1
+            fi
+        done
+        # Later fragments win on overlapping paths (docker rejects duplicate
+        # mount targets outright, so dedupe here): walk in reverse, keep first.
+        local _seen=$'\n' _i
+        for ((_i=${#_raw_mounts[@]}-1; _i>=0; _i--)); do
+            _rel="${_raw_mounts[$_i]##*:}"
+            case "$_seen" in
+                *$'\n'"$_rel"$'\n'*) continue ;;
+            esac
+            _seen+="$_rel"$'\n'
+            dev_static_mounts+=("${_raw_mounts[$_i]}")
+        done
+    fi
+
     # If verbose, log all wrapper args and command
     if $verbose; then
         echo "${BOLD}Wrapper args:${RESET}"
         echo "  engine: $ENGINE (podman=$ENGINE_IS_PODMAN, rootless=$PODMAN_ROOTLESS)"
         echo "  build: $build"
         echo "  build_singularity: $build_singularity"
-        echo "  pydev: $pydev"
+        echo "  dev: $dev"
+        $dev && echo "  dev_root: $dev_root"
+        [[ ${#dev_static[@]} -gt 0 ]] && echo "  dev_static: ${dev_static[*]} (${#dev_static_mounts[@]} file mounts)"
         echo "  subnet: $subnet"
         echo "  name: $container_name"
         echo "  extra_docker_args: $extra_docker_args"
@@ -445,8 +544,12 @@ penguin_run() {
             exit 1
         fi
 
-        if $pydev; then
-            echo "Reproduce command does not support --pydev flag. Please remove it."
+        if $dev; then
+            echo "Reproduce command does not support the --dev flag. Please remove it."
+            exit 1
+        fi
+        if [[ ${#dev_static[@]} -gt 0 ]]; then
+            echo "Reproduce command does not support the --dev-static flag. Please remove it."
             exit 1
         fi
 
@@ -479,10 +582,15 @@ penguin_run() {
         fi
     done
 
-    # If pydev mode we need to also map ./pkg to /pkg
-    if $pydev; then
-        maps+=("$(pwd)/src:/pkg")
-        maps+=("$(pwd)/pyplugins:/pyplugins")
+    # In --dev mode we also map the live Python trees into the container
+    # (src/ -> /pkg, pengutils/ -> /pengutils, pyplugins/ -> /pyplugins); PYTHONPATH
+    # is pointed at them below so imports resolve to the worktree, not the baked-in
+    # copies. src/ also carries resources/ (the image sets PENGUIN_RESOURCES=/pkg/
+    # resources), so guest init scripts / static_keys iterate live too.
+    if $dev; then
+        maps+=("$dev_root/src:/pkg")
+        maps+=("$dev_root/pengutils:/pengutils")
+        maps+=("$dev_root/pyplugins:/pyplugins")
     fi
 
     # Sort mappings by path length
@@ -1066,47 +1174,71 @@ penguin_run() {
             echo "No --image given for --build; building and running ${BOLD}$image${RESET} so the local"
             echo "build doesn't shadow rehosting/penguin:latest. Pass --image to choose another tag."
         fi
-        echo "Running with container rebuild (--build). Entire container will be rebuilt."
+        echo "Running with container rebuild (--build) via Nix. Entire image will be rebuilt."
         cd "$(dirname "$(realpath "$0")")"
-        if [ ! -f "Dockerfile" ]; then
-            echo "Dockerfile not found in $(pwd) and you requested a container rebuild"
+        if ! command -v nix >/dev/null 2>&1; then
+            echo "${RED}ERROR:${RESET} --build builds the image from the Nix flake, but 'nix' was not found on PATH." >&2
+            echo "Install Nix (with flakes enabled), or pull a prebuilt image and run with --image instead." >&2
+            exit 1
+        fi
+        if [ ! -f "flake.nix" ]; then
+            echo "flake.nix not found in $(pwd) and you requested an image rebuild" >&2
             exit 1
         fi
 
-        # The Dockerfile uses `RUN --mount=type=cache` for pip caches. docker
-        # BuildKit and podman 4+ support it; buildah < 1.24 (podman 3.x) rejects
-        # it ("invalid mount type cache"). Keep the cache mounts in the canonical
-        # Dockerfile and, only for old podman, build from a temp copy with those
-        # mounts stripped -- they only speed up rebuilds, the image is identical.
-        build_dockerfile="Dockerfile"
-        stripped_dockerfile=""
-        if $ENGINE_IS_PODMAN; then
-            podman_major="$(podman version --format '{{.Client.Version}}' 2>/dev/null | cut -d. -f1)"
-            if [ -n "$podman_major" ] && [ "$podman_major" -lt 4 ] 2>/dev/null; then
-                stripped_dockerfile="$(mktemp)"
-                sed -E 's# --mount=type=cache[^ ]*##g' Dockerfile > "$stripped_dockerfile"
-                build_dockerfile="$stripped_dockerfile"
-                echo "Note: podman ${podman_major}.x / buildah lacks 'RUN --mount=type=cache'; stripping pip cache mounts for this build (resulting image is unchanged)."
+        # Derive the version the way the old Dockerfile's setuptools_scm did, so
+        # `penguin --version` is correct: <tag> on a tagged commit, else a PEP440
+        # guess-next-dev version off `git describe`. A pure Nix flake can't read
+        # git tags, so we compute it on the host and inject it into the build via
+        # the env var the flake reads (PENGUIN_OVERRIDE_VERSION; needs --impure).
+        penguin_version=""
+        describe="$(git describe --tags --long --dirty 2>/dev/null || true)"
+        if [ -n "$describe" ]; then
+            # e.g. v3.0.46-21-g0d73df31[-dirty]
+            dirty=""
+            case "$describe" in *-dirty) dirty=".dirty"; describe="${describe%-dirty}";; esac
+            hash="${describe##*-g}"          # 0d73df31
+            rest="${describe%-g*}"           # v3.0.46-21
+            dist="${rest##*-}"               # 21
+            base="${rest%-*}"; base="${base#v}"   # 3.0.46
+            if [ "$dist" = "0" ] && [ -z "$dirty" ]; then
+                penguin_version="$base"
+            else
+                # guess-next-dev: bump the last numeric component of the tag
+                vmajor="${base%%.*}"; vrest="${base#*.}"; vminor="${vrest%%.*}"; vpatch="${base##*.}"
+                penguin_version="${vmajor}.${vminor}.$((vpatch + 1)).dev${dist}+g${hash}${dirty}"
             fi
         fi
 
-        # Assemble the build command (always non-empty -> safe under set -u).
-        build_cmd=("$ENGINE" "build")
-        if [ -n "${SSH_AUTH_SOCK:-}" ]; then
-            build_cmd+=("--build-arg" "SSH=1" "--ssh" "default")
-        fi
-        build_cmd+=("-f" "$build_dockerfile" "-t" "$image" "-t" "rehosting/fw2tar" ".")
-
-        # DOCKER_BUILDKIT only applies to docker; podman uses buildah natively.
+        # Build the image tarball with Nix and load it into the engine. We use
+        # buildLayeredImage (.#dockerImage), not the streaming variant: it caches
+        # a *per-layer* tarball in the store, so a warm rebuild only re-tars the
+        # layers whose contents changed (e.g. just the penguin src layer after a
+        # code edit) instead of re-streaming the whole ~4GB image every run --
+        # much faster for the dev inner loop. (`nix run .#load` streams for the
+        # one-shot / disk-conscious path.) The flake names the image
+        # rehosting/penguin:latest; retag to the resolved $image so the same
+        # invocation runs what we just built. Dependency overrides are flake
+        # inputs now (see docs/nix.md), not local_packages/. Override the build
+        # attr/args with PENGUIN_NIX_BUILD_ARGS if needed.
         set +e
-        if $ENGINE_IS_PODMAN; then
-            "${build_cmd[@]}"
+        if [ -n "$penguin_version" ]; then
+            echo "Building penguin version ${penguin_version}"
+            PENGUIN_OVERRIDE_VERSION="$penguin_version" \
+                nix build --impure ${PENGUIN_NIX_BUILD_ARGS:-} --accept-flake-config .#dockerImage
         else
-            DOCKER_BUILDKIT=1 "${build_cmd[@]}"
+            nix build ${PENGUIN_NIX_BUILD_ARGS:-} --accept-flake-config .#dockerImage
         fi
         build_rc=$?
+        if [ "$build_rc" -eq 0 ]; then
+            "$ENGINE" load < result
+            build_rc=$?
+            if [ "$build_rc" -eq 0 ] && [ "$image" != "rehosting/penguin:latest" ]; then
+                "$ENGINE" tag rehosting/penguin:latest "$image"
+                build_rc=$?
+            fi
+        fi
         set -e
-        [ -n "$stripped_dockerfile" ] && rm -f "$stripped_dockerfile"
         if [ "$build_rc" -ne 0 ]; then
             exit "$build_rc"
         fi
@@ -1132,73 +1264,67 @@ penguin_run() {
         exit 0
     fi
 
-    # Add the command
-    if $pydev; then
-        echo "Running in Python development mode (--pydev). Python package will be reinstalled on each run"
+    # Add the command.
+    #
+    # --dev overlays the live worktree source (src/ -> /pkg, pengutils/ ->
+    # /pengutils, pyplugins/ -> /pyplugins, bind-mounted above) via PYTHONPATH
+    # rather than an in-container `pip install -e`. The image is an immutable
+    # python3.withPackages env: it has no pip, and its site-packages live in a
+    # read-only /nix/store. Prepending these makes `import penguin` / `pengutils`
+    # (and plugin loading) resolve to the mounted tree instead of the baked-in
+    # packages. No root/pip/sudo step is needed, so --dev shares the normal run
+    # path below; output-file ownership is handled by -u like any other run.
+    d=""
+    if $dev; then
+        echo "Running in Python development mode (--dev): overlaying live source via PYTHONPATH (edits apply without a rebuild)."
+        echo "  source root: $dev_root"
+        echo "  live (edit -> just re-run): src/ (incl. resources/), pengutils/, pyplugins/"
+        echo "  NOT live: guest-side artifacts baked into the image. For /igloo_static contents"
+        echo "    (kernels, igloo_driver, busybox/console/guesthopper/vpnguin/libnvram) overlay a"
+        echo "    built fragment with --dev-static <dist> -- no rebuild. The qemu fork still needs"
+        echo "    ./penguin --build --override-input <input> path:/abs/checkout."
 
-        # make a tempdir
+        # penguin opens penguin/version.txt at import; it is build-generated and
+        # absent from the worktree, so mount a placeholder over the mounted /pkg.
         d=$(mktemp -d)
-
-        # Add bogus version file when running in pydev mode
-        echo "0.0.1.dev0+pydev" > $d/version.txt
+        echo "0.0.1.dev0+dev" > "$d/version.txt"
         docker_cmd+=("-v" "$d/version.txt:/pkg/penguin/version.txt")
+        docker_cmd+=("-e" "PYTHONPATH=/pkg:/pengutils:/pyplugins")
+    fi
 
-        # Safely quote arguments for Bash 3.2+ compatibility
-        quoted_args=""
-        if [[ ${#new_cmd[@]} -gt 0 ]]; then
-            quoted_args=$(printf "%q " "${new_cmd[@]}")
-        fi
+    # --dev-static: bind each resolved fragment file read-only over its path in
+    # the image's /igloo_static (see the resolution block above). The mount
+    # target's parent dirs are store symlinks; the engine resolves them inside
+    # the container when creating the mountpoint.
+    if [[ ${#dev_static_mounts[@]} -gt 0 ]]; then
+        echo "Overlaying /igloo_static fragments (--dev-static): ${#dev_static_mounts[@]} file(s) mounted"
+        echo "  over the image's copies, read-only -- edits to a fragment apply on re-run, no rebuild."
+        local _m
+        for _m in "${dev_static_mounts[@]}"; do
+            $verbose && echo "    ${_m%%:*} -> /igloo_static/${_m##*:}"
+            docker_cmd+=("-v" "${_m%%:*}:/igloo_static/${_m##*:}:ro")
+        done
+    fi
 
-        if $PODMAN_ROOTLESS; then
-            # Rootless podman: the container runs as root, and rootless userns
-            # maps container-root back to the invoking host user -- so output
-            # files are owned correctly without any UID juggling. Install and
-            # run penguin directly as root. We deliberately skip the
-            # passwd/group fabrication + `sudo -su` dance used below: a host UID
-            # inside a rootless container maps to an unprivileged *subuid*, which
-            # would give output files the wrong owner.
-            docker_cmd+=("--cap-add=NET_BIND_SERVICE")
-            docker_cmd+=("$image")
-            docker_cmd+=("/bin/bash" "-c" "pip install -e /pkg &>/tmp/log.txt || { cat /tmp/log.txt; exit 1; }; penguin $quoted_args")
+    # Ensure output files are owned by the caller. Under rootless podman we
+    # run as root-in-container (the default) -- rootless userns maps that
+    # back to the host user, and an explicit -u would map to an
+    # unprivileged subuid with the wrong ownership.
+    if ! $PODMAN_ROOTLESS; then
+        docker_cmd+=("-u" "$(id -u):$(id -g)")
+    fi
+    docker_cmd+=("--cap-add=NET_BIND_SERVICE")
+
+    docker_cmd+=("$image")
+
+    # reproduce runs the default commmand
+    if ! $reproduce; then
+        if $shell_mode; then
+            docker_cmd+=("bash")
         else
-            # docker / rootful podman: install penguin as root, then run it as
-            # the current user. To do this we add the current UID/GID to the
-            # container via a fabricated /etc/passwd and /etc/group.
-            # Username matches host UID and we add a group named 'g' that matches the host GID
-            "$ENGINE" run --rm "$image" /bin/bash -c "cat /etc/passwd" > $d/passwd_user
-            echo "$(id -un):x:$(id -u):$(id -g):,,,:$(eval echo ~$USER):/bin/bash" >> $d/passwd_user
-
-            "$ENGINE" run --rm "$image" /bin/bash -c "cat /etc/group" > $d/group_user
-            echo "g:x:$(id -g):" >> $d/group_user
-
-            docker_cmd+=("-v" "$d/passwd_user:/etc/passwd")
-            docker_cmd+=("-v" "$d/group_user:/etc/group")
-            docker_cmd+=("--cap-add=NET_BIND_SERVICE")
-            docker_cmd+=("$image")
-            docker_cmd+=("/bin/bash" "-c" "pip install -e /pkg &>/tmp/log.txt || { cat /tmp/log.txt; exit 1; }; sudo -E -su \"$(id -un)\" -g g penguin $quoted_args")
-        fi
-    else
-        d=""
-        # Ensure output files are owned by the caller. Under rootless podman we
-        # run as root-in-container (the default) -- rootless userns maps that
-        # back to the host user, and an explicit -u would map to an
-        # unprivileged subuid with the wrong ownership.
-        if ! $PODMAN_ROOTLESS; then
-            docker_cmd+=("-u" "$(id -u):$(id -g)")
-        fi
-        docker_cmd+=("--cap-add=NET_BIND_SERVICE")
-
-        docker_cmd+=("$image")
-
-        # reproduce runs the default commmand
-        if ! $reproduce; then
-            if $shell_mode; then
-                docker_cmd+=("bash")
-            else
-                docker_cmd+=("penguin")
-                if [[ ${#new_cmd[@]} -gt 0 ]]; then
-                    docker_cmd+=("${new_cmd[@]}")
-                fi
+            docker_cmd+=("penguin")
+            if [[ ${#new_cmd[@]} -gt 0 ]]; then
+                docker_cmd+=("${new_cmd[@]}")
             fi
         fi
     fi

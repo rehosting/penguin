@@ -41,8 +41,8 @@ TEST_DIR = Path(__file__).resolve().parent
 proj_dir = TEST_DIR
 PENGUIN = str(TEST_DIR.parent.parent.parent / "penguin")
 # Live-mount src/ and pyplugins/ so local edits apply without an image rebuild.
-PYDEV = os.environ.get("SNAP_TEST_PYDEV", "1") == "1"
-WRAPPER_FLAGS = ["--pydev"] if PYDEV else []
+DEV = os.environ.get("SNAP_TEST_DEV", os.environ.get("SNAP_TEST_PYDEV", "1")) == "1"
+WRAPPER_FLAGS = ["--dev"] if DEV else []
 
 # httpd on :8000, wait for the bind, then guest-driven snapshot, then stay alive.
 INIT_SELFSAVE = """#!/igloo/utils/sh

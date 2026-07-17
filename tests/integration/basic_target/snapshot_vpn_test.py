@@ -18,7 +18,7 @@ Shape:
      plugin re-connects through the bridge -> proves the whole vsock path is
      alive again across processes.
 
-Run via --pydev so the VPN/snapshot pyplugin changes apply without an image
+Run via --dev so the VPN/snapshot pyplugin changes apply without an image
 rebuild:  python3 snapshot_vpn_test.py -i <image> [-a armel] [-k 4.10]
 """
 import logging

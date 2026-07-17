@@ -61,6 +61,14 @@ def arch_end(value):
     elif tmp.startswith("riscv64"):
         arch = "riscv64"
         end = "el"
+    elif tmp.startswith("ppc64"):
+        arch = "powerpc64"
+        # ppc64 is bi-endian and little-endian (ppc64le) is a *distinct* target
+        # with its own kernel + guest assets. ppc64le/ppc64el are little-endian;
+        # bare ppc64 (and the legacy ppc64eb spelling) are big-endian. The
+        # generic el/eb suffix check below does NOT match the conventional "le"
+        # spelling, so decide endianness here.
+        end = "el" if tmp.endswith(("le", "el")) else "eb"
     elif tmp.startswith("ppc"):
         arch = "powerpc64"
         end = "eb"
@@ -237,6 +245,16 @@ def arch_filter(elf):
     elif arch == "ppc":
         # same for big and little
         return ArchInfo(arch="ppc", bits=_elf_bits(elf.header))
+    elif arch == "ppc64":
+        # ppc64 is bi-endian; little-endian (ppc64le) is a distinct target with
+        # its own kernel + guest assets. Emit registry-canonical names
+        # (ppc64 = big-endian, ppc64le = little-endian) so LE firmware is not
+        # silently resolved to the big-endian build. The generic "+= eb" tail
+        # below cannot express this: it would yield the unknown "ppc64eb" for BE
+        # and leave LE as bare "ppc64", which the registry treats as big-endian.
+        if header.e_ident.get("EI_DATA", None) == "ELFDATA2LSB":
+            return ArchInfo(arch="ppc64le", bits=_elf_bits(elf.header))
+        return ArchInfo(arch="ppc64", bits=_elf_bits(elf.header))
     elif arch == "intel":
         return ArchInfo(arch=arch, bits=_elf_bits(elf.header), abi="i386")
 

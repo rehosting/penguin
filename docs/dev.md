@@ -5,10 +5,16 @@
 After cloning this repository you can use the local `./penguin` script
 to build your container and to run Penguin.
 
-To build the container you can run:
+To build the image you can run:
 ```sh
 ./penguin --build
 ```
+
+`--build` builds the image from the Nix flake (`nix build .#dockerImage`),
+loads it into your container engine, and runs it. It requires `nix` on your
+host (with flakes enabled); see [nix.md](nix.md) for the full Nix build
+reference. With no `--image`, `--build` builds and runs `localhost/penguin:dev`
+so it never shadows the pinned `rehosting/penguin:latest`.
 
 You can view all the wrapper arguments that may assist with development by running
 ```sh
@@ -27,75 +33,139 @@ Note that the standard `penguin` wrapper command that we recommend users install
 supports these development options, so you can use these wrapper flags even if
 the `penguin` command is installed for a user or system.
 
-## Private dependencies
+## Iterating on Penguin's Python code
 
-Members of penguin development team who wish to use our private nmap fork may build it
-by first launching ssh-agent and then rebuilding their penguin container. This fork is not
-distributed externally (as binaries or source) due to licensing restrictions, but the changes
-are minor.
+There are two loops, fastest first. Neither rebuilds the image.
+
+### Host-only logic + unit tests — `nix develop` (no container at all)
+
+For plugin *host-side* logic, config/schema work, `gen_docs`, linting, and the
+`tests/unit/` suite, drop into the dev shell: it's the exact interpreter the
+image runs (`pythonEnv`, all runtime deps) with the live `src/`, `pengutils/`,
+and `pyplugins/` trees on `PYTHONPATH`, so `import penguin` resolves to your
+worktree — edits take effect immediately, no build, no boot.
 
 ```sh
-eval $(ssh-agent)
-ssh-agent add ~/.ssh/id_rsa
-penguin --build
+nix develop            # then, inside the shell:
+python3 -m pytest tests/unit/ pengutils/    # host-side tests in seconds
+python3 -m penguin ...                       # host tooling against live sources
 ```
 
-## Dependency Development
+This can't run emulation (PANDA-QEMU, `/igloo_static`, and the guest tools only
+exist inside the image) — use it for everything that doesn't need a guest boot.
 
-If you wish to prototype changes to a Penguin dependency, you can develop the
-dependency locally, build the artifacts, and place them into a directory called
-`local_packages`. When build artifacts are present in this directory, they will
-be installed and replace the standard versions at container build.
+### Plugin behavior in a running guest — `--dev` (no rebuild)
 
-The following filenames are expected in the `local_packages` directory:
-
-* busybox-latest.tar.gz
-* hyperfs.tar.gz
-* kernels-latest.tar.gz
-* libnvram-latest.tar.gz
-* pandare_22.04.deb
-* penguin_plugins.tar.gz
-* penguin-qemu.tar.gz
-* vpn.tar.gz
-
-For QEMU development, build `emulator/kvm-qemu/penguin-qemu.tar.gz` and copy it
-to `penguin/local_packages/`. The archive installs `libqemu-system-*.so`,
-`libqemu-kvm-*.so`, and matching CFFI declarations under
-`/usr/local/include/penguin-qemu-cffi/`.
-
-For example, the following workflow shows how to test modifications to the Penguin
-Linux kernel.
-
-# Example: Local kernel development
-
-First clone and update the Linux kernel repo
+To iterate against a *real boot* without rebuilding, use `--dev`: it
+bind-mounts the live Python trees (`src/ -> /pkg`, `pengutils/ -> /pengutils`,
+`pyplugins/ -> /pyplugins`) and prepends them to `PYTHONPATH` (the image is an
+immutable `python3.withPackages` env with no pip, so this overlays the live tree
+rather than reinstalling). Edits apply on the next `run` — no rebuild, no
+root/pip step. (`--pydev` still works as a deprecated alias.)
 
 ```sh
-$ git clone --recurse-submodules  git@github.com:rehosting/linux_builder.git && cd linux_builder
-$ # Edit some files in linux/4.10 (not shown)
+./penguin --dev run projects/myfw     # edit src/, pengutils/, or pyplugins/ -> re-run
+./penguin --build --dev run ...        # rebuild the image too (only if a baked-in dep changed)
 ```
 
-Then build the artifacts - note you don't have to build all kernels if you just wish to test
-with a single architecture.
+By default `--dev` finds the worktree to overlay by walking up from the
+current directory for a `src/penguin/` dir (falling back to the cwd), so it
+works from a subdirectory. To overlay a checkout elsewhere — e.g. when the
+installed `penguin` command runs from outside the repo — point it explicitly:
 
 ```sh
-$ # Build kernels-latest.tar.gz, for example with just 4.10 and armel
+./penguin --dev --dev-root /abs/path/to/penguin run projects/myfw
+PENGUIN_DEV_ROOT=/abs/path/to/penguin penguin --dev run projects/myfw
+```
+
+Precedence: `--dev-root` > `PENGUIN_DEV_ROOT` > auto-detect > cwd. A root
+that isn't a penguin worktree (no `src/penguin/`) fails loudly instead of
+silently mounting empty directories.
+
+**What's live vs. not** (`--dev` prints this on startup):
+
+- **Live** — `src/` (the `penguin` package *and* `src/resources/`: init scripts,
+  `source.d/`, `static_keys`, … via `PENGUIN_RESOURCES=/pkg/resources`),
+  `pengutils/`, and `pyplugins/`.
+- **Live with `--dev-static`** — anything under `/igloo_static` (the guest tools
+  busybox/console/guesthopper/vpnguin, kernels, `igloo.ko`, libnvram sources,
+  guest-utils): overlay a built fragment at run time, no image rebuild (next
+  section).
+- **Not live — needs `--build`** — the qemu fork and the debug-tool closures.
+  For a local sibling-repo checkout, combine with `--override-input` (see below).
+
+### Guest binaries in a running guest — `--dev-static` (no rebuild)
+
+Everything binary that penguin uses at runtime lives under one directory in the
+image, `/igloo_static`, and the tool flakes' `dist` outputs are exactly
+fragments of that tree. `--dev-static <dir>` bind-mounts each **file** in a
+fragment read-only over its path in the image's `/igloo_static` — so a guest
+tool (or kernel) iteration loop needs no image rebuild at all:
+
+```sh
+cd ../vpnguin && nix build .#dist       # seconds once deps are cached
+cd ../penguin
+./penguin --dev --dev-static ../vpnguin/result run projects/myfw
+```
+
+Notes:
+
+- The flag is **repeatable**; on overlapping paths the **later fragment wins**.
+- Mounts are per-file, so a fragment only replaces what it ships — the rest of
+  `/igloo_static` (other tools in the same `<arch>/` dir, sysroots, …) is
+  untouched. The image's flat `vpn/vpn.<arch>` / `utils.bin/*` symlinks resolve
+  through the mounts automatically.
+- A **new** file (one the image doesn't ship) is mounted in fine, but the flat
+  `utils.bin/<bin>.<arch>` links are generated at image build, so a brand-new
+  tool won't get one — reference it by its full `/igloo_static/<arch>/<bin>`
+  path, or do a real `--build` when adding a tool for keeps.
+- For kernels / the driver: unpack the built tarball so its contents sit under
+  `kernels/` inside your fragment dir (mirroring `/igloo_static/kernels/`).
+- Doesn't cover the qemu fork (lives at `/usr/local`, not `/igloo_static`) —
+  use `--override-input penguin-qemu` with a rebuild for that.
+
+## Dependency development
+
+Penguin's dependencies (the PANDA-QEMU fork, kernels, igloo-driver,
+penguin-tools, the firmware-extraction stack, …) are pinned as **Nix flake
+inputs** in `flake.nix`, not downloaded at build time. To prototype a change to
+one of them, point its input at your local checkout for a build:
+
+```sh
+./penguin --image penguin:dev --build ...   # uses flake.nix as-is
+# or build the image directly against a local sibling-repo checkout:
+nix build .#dockerImage \
+  --override-input penguin-qemu path:/abs/path/to/qemu \
+  --accept-flake-config
+docker load < result
+```
+
+To make the change permanent, edit that input's `url` in `flake.nix` and run
+`nix flake update <input>`. See [nix.md](nix.md#dependency-overrides-replacing-local_packages)
+for the input list and more detail.
+
+# Example: local kernel development
+
+Clone the kernel builder and make your changes:
+
+```sh
+$ git clone --recurse-submodules git@github.com:rehosting/linux_builder.git && cd linux_builder
+$ # Edit some files in linux/ (not shown)
+$ # Build kernels-latest.tar.gz, e.g. for just 4.10 + armel
 $ ./build.sh --versions 4.10 --targets armel
 ```
 
-Next, copy the artifacts into your Penguin source directory.
+Then build the penguin image against that local artifact by overriding the
+`kernels` input:
 
 ```sh
-$ mkdir ../penguin/local_packages
-$ cp kernels-latest.tar.gz ../penguin/local_packages/
+$ cd ../penguin
+$ nix build .#dockerImage \
+    --override-input kernels path:/abs/path/to/linux_builder/kernels-latest.tar.gz \
+    --accept-flake-config
+$ docker load < result
 ```
 
-Now when you build your container, it will use this local version and allow you to use
-or test your changes without needing to tag a new release of the dependency on GitHub.
-
-```sh
-./penguin --build ...
-```
-
-When you have finished prototyping with your local dependency, you should delete your `local_packages`
-directory so subsequent builds of `penguin` use standard versions of dependencies.
+This builds an image with your kernel without needing to tag a new release of
+the dependency on GitHub. When you are finished, build without the
+`--override-input` to return to the pinned version.
