@@ -6,6 +6,7 @@
 # git+https ref+rev). This script hides that so routine operations are one
 # command:
 #
+#   ./nix-dev.sh doctor                   check the local setup (nix, flakes, cache, engine, disk)
 #   ./nix-dev.sh pins                     show each pin vs the latest upstream tag
 #   ./nix-dev.sh bump <input> [<tag>]     rewrite a pin (default: latest tag) + relock
 #   ./nix-dev.sh build                    nix build .#dockerImage
@@ -23,7 +24,11 @@ FLAKE="$ROOT/flake.nix"
 
 die() { echo "error: $*" >&2; exit 1; }
 
-command -v nix >/dev/null 2>&1 || die "nix not found on PATH"
+# doctor must be able to run (and explain) when nix itself is missing, so only
+# hard-require nix for every other subcommand.
+if [ "${1:-}" != "doctor" ]; then
+  command -v nix >/dev/null 2>&1 || die "nix not found on PATH (try: ./nix-dev.sh doctor)"
+fi
 
 # input name -> upstream repo (owner/name) and pin shape.
 #   github  : inputs.<name>.url = "github:<repo>/<tag>"
@@ -136,7 +141,97 @@ cmd_size() {
   nix build "$ROOT#dockerImage" --no-link && nix path-info -sh "$ROOT#dockerImage" | awk '{printf "  dockerImage    %s %s (compressed tarball)\n", $(NF-1), $NF}'
 }
 
+CACHE_URL="https://rehosting-tools.cachix.org"
+
+cmd_doctor() {
+  local fails=0 warns=0
+  ok()   { printf '  \033[32mok\033[0m    %s\n' "$*"; }
+  warn() { printf '  \033[33mwarn\033[0m  %s\n' "$*"; warns=$((warns+1)); }
+  fail() { printf '  \033[31mFAIL\033[0m  %s\n' "$*"; fails=$((fails+1)); }
+
+  echo "nix:"
+  if ! command -v nix >/dev/null 2>&1; then
+    fail "nix not on PATH. Install: https://nixos.org/download (the multi-user daemon install)"
+    echo; echo "1 failure -- fix the above, then re-run."; return 1
+  fi
+  ok "$(nix --version)"
+
+  # Flakes + the nix-command CLI must be enabled (nix.conf or NIX_CONFIG).
+  local feats; feats=$(nix config show experimental-features 2>/dev/null || true)
+  case " $feats " in
+    *" flakes "*) ok "flakes enabled" ;;
+    *) fail "flakes not enabled. Add to ~/.config/nix/nix.conf:  experimental-features = nix-command flakes" ;;
+  esac
+
+  echo "binary cache (skips hours of local cross-toolchain builds):"
+  # The flake asks for the rehosting-tools cache via nixConfig; that only takes
+  # effect if (a) it's already a system-level substituter, (b) the user is
+  # trusted (so --accept-flake-config works), or (c) the user has accepted and
+  # saved it (trusted-settings.json). Any one of these is enough.
+  local subs trusted_subs saved
+  subs=$(nix config show substituters 2>/dev/null || true)
+  trusted_subs=$(nix config show trusted-substituters 2>/dev/null || true)
+  saved=""
+  grep -qs "rehosting-tools.cachix.org" "${XDG_DATA_HOME:-$HOME/.local/share}/nix/trusted-settings.json" && saved=yes
+  if [[ " $subs $trusted_subs " == *"rehosting-tools.cachix.org"* ]]; then
+    ok "$CACHE_URL configured as a substituter"
+  elif [ -n "$saved" ]; then
+    ok "$CACHE_URL accepted via the flake's nixConfig (saved setting)"
+  elif nix config show trusted-users 2>/dev/null | tr ' ' '\n' | grep -qx "$(id -un)"; then
+    ok "you are a nix trusted user; pass --accept-flake-config (nix will offer to save it)"
+  else
+    warn "cache not reachable as configured: builds will compile cross toolchains locally (hours)."
+    warn "  Fix (needs root once): add to /etc/nix/nix.conf and restart nix-daemon:"
+    warn "    trusted-substituters = $CACHE_URL"
+    warn "    trusted-public-keys = rehosting-tools.cachix.org-1:iNKSaFwG7MfGn6Fk7oTmIcLHqfffQ+cQIE5gWc6MlY0="
+    warn "  or add your user to trusted-users and build with --accept-flake-config."
+  fi
+
+  echo "container engine:"
+  if command -v docker >/dev/null 2>&1 && timeout 5 docker info >/dev/null 2>&1; then
+    ok "docker daemon reachable"
+  elif command -v podman >/dev/null 2>&1 && timeout 5 podman info >/dev/null 2>&1; then
+    ok "podman reachable"
+  elif command -v docker >/dev/null 2>&1 || command -v podman >/dev/null 2>&1; then
+    fail "docker/podman installed but the daemon is not reachable (permissions? service down?)"
+  else
+    fail "neither docker nor podman found -- needed to run the penguin image"
+  fi
+
+  echo "host:"
+  # The store fills up fast (each image closure is ~4 GiB; bumps accumulate).
+  local nix_dir=/nix; [ -d /nix ] || nix_dir=$HOME
+  local free_kb; free_kb=$(df -Pk "$nix_dir" 2>/dev/null | awk 'NR==2 {print $4}')
+  if [ -n "$free_kb" ] && [ "$free_kb" -lt $((30 * 1024 * 1024)) ]; then
+    warn "only $((free_kb / 1024 / 1024)) GiB free on $nix_dir -- image builds need ~10 GiB per iteration; consider: nix store gc"
+  else
+    ok "$((free_kb / 1024 / 1024)) GiB free on $nix_dir"
+  fi
+  if [ -e /dev/kvm ]; then
+    if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+      ok "/dev/kvm accessible (x86_64 guests get KVM)"
+    else
+      warn "/dev/kvm exists but not accessible (add yourself to the kvm group); guests fall back to TCG"
+    fi
+  else
+    warn "no /dev/kvm; x86_64 guests run under TCG (slower). Fine for non-x86 firmware."
+  fi
+  # A pyenv init re-prepends its shims on shell startup, shadowing the
+  # devshell's python3 (the flake's shellHook works around it, but flag it).
+  case ":$PATH:" in
+    *":$HOME/.pyenv/shims:"*) warn "pyenv shims on PATH -- may shadow python3 in nix develop (the shellHook re-prepends, but be aware)" ;;
+  esac
+
+  echo
+  if [ "$fails" -gt 0 ]; then
+    echo "$fails failure(s), $warns warning(s) -- fix the failures, then re-run."
+    return 1
+  fi
+  echo "all checks passed ($warns warning(s))."
+}
+
 case "${1:-}" in
+  doctor)   shift; cmd_doctor "$@" ;;
   pins)     shift; cmd_pins "$@" ;;
   bump)     shift; cmd_bump "$@" ;;
   build)    shift; cmd_build "$@" ;;

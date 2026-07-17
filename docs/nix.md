@@ -21,6 +21,13 @@ with `apt` + `pip` + release downloads.
 A cold build with no cache hits is expensive (it cross-compiles guest helpers
 for ~14 arches and pulls the qemu closure); with Cachix it is mostly downloads.
 
+**Check your setup in one shot** — verifies nix + flakes, cache reachability
+(with the exact fix if not), a container engine, disk headroom, and `/dev/kvm`:
+
+```sh
+./nix-dev.sh doctor
+```
+
 ## Build and run the image
 
 The quickest path — `nix run` streams the image straight into your local
