@@ -8,14 +8,15 @@ the right fields via the *real* driver ISF (dwarffi). It complements the pure
 join-logic tests in test_processes.py, which stub OSI entirely.
 
 Requires a driver ISF that actually carries the OSI_PROC_ALL op + osi_proc_node
-struct. The Dockerfile-pinned release predates this feature, so the test skips
-unless pointed (via PENGUIN_TEST_IGLOO_KO_ISF) at a driver build that has it;
-once the driver pin is bumped it runs in CI automatically.
+struct. This is a hard requirement, not an optional one: if the pinned driver
+lacks the op, penguin's get_all_procs is incompatible with the driver it ships
+against, so the test FAILS (it does not skip -- see
+_assert_pinned_driver_has_bulk_op). Bumping IGLOO_DRIVER_VERSION to a release
+carrying the op turns it green with no edit here. Only a totally unresolvable
+ISF (offline, nothing cached) skips, via the igloo_ko_isf fixture.
 """
 import struct
 from pathlib import Path
-
-import pytest
 
 from penguin.testing import RealKffi, drive, load_pyplugin
 
@@ -47,17 +48,34 @@ def _load(tmp_path, isf):
                          doubles={"kffi": _KFFI([isf])})
 
 
-def _require_bulk_op(isf):
+def _assert_pinned_driver_has_bulk_op(isf):
+    """The pinned igloo_driver ISF MUST carry HYPER_OP_OSI_PROC_ALL.
+
+    If it does not, penguin's OSI.get_all_procs is *incompatible with the driver
+    it ships against* -- ``hop.HYPER_OP_OSI_PROC_ALL`` would ``AttributeError``
+    at runtime. That is a real defect, not a "feature not built yet", so we FAIL
+    loudly rather than ``skip`` (a skip reads as green and let the incompatible
+    code merge). The failure is the forcing function: bump IGLOO_DRIVER_VERSION
+    to a release carrying the op (this is exactly what PR #897 does), and the
+    test goes green on its own with no edit here.
+
+    Note the *fixture* still skips cleanly when no ISF resolves at all (offline,
+    nothing cached) -- that is genuinely untestable, distinct from "ISF resolved
+    but the pinned driver predates the op", which is the incompatibility we fail
+    on.
+    """
     import hyper.consts as consts
-    if not hasattr(consts.HYPER_OP, "HYPER_OP_OSI_PROC_ALL"):
-        pytest.skip("driver ISF predates HYPER_OP_OSI_PROC_ALL; point "
-                    "PENGUIN_TEST_IGLOO_KO_ISF at a driver build that has it")
+    assert hasattr(consts.HYPER_OP, "HYPER_OP_OSI_PROC_ALL"), (
+        "pinned igloo_driver ISF lacks HYPER_OP_OSI_PROC_ALL: penguin's "
+        "OSI.get_all_procs cannot run against the pinned driver. Bump "
+        "IGLOO_DRIVER_VERSION (Dockerfile) to a release carrying the op -- "
+        "see PR #897.")
     return consts
 
 
 def test_get_all_procs_decodes_real_node_layout(tmp_path, igloo_ko_isf):
     lp = _load(tmp_path, igloo_ko_isf)
-    consts = _require_bulk_op(igloo_ko_isf)
+    consts = _assert_pinned_driver_has_bulk_op(igloo_ko_isf)
 
     # One page carrying the whole set (result_count == total_count == 2).
     buf = (struct.pack("<QQ", 2, 2)
@@ -75,7 +93,7 @@ def test_get_all_procs_decodes_real_node_layout(tmp_path, igloo_ko_isf):
 
 def test_get_all_procs_paginates(tmp_path, igloo_ko_isf):
     lp = _load(tmp_path, igloo_ko_isf)
-    consts = _require_bulk_op(igloo_ko_isf)
+    consts = _assert_pinned_driver_has_bulk_op(igloo_ko_isf)
 
     # total_count 3, but the first page returns only 2 -> host must ask again
     # (skip=2) for the remainder.
