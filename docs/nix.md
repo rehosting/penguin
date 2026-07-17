@@ -216,9 +216,11 @@ the firmware-extraction stack). Re-run `nix build .#dockerImage` after any bump.
 ## Dependency overrides (replacing `local_packages/`)
 
 The old Dockerfile let you drop a prebuilt artifact into `local_packages/` to
-override a pinned dependency. The flake has no such mechanism — dependencies are
-pinned as flake inputs, so to test a local change to a sibling repo (qemu,
-kernels, igloo-driver, …) point its input at your checkout:
+override a pinned dependency. For anything that lands under `/igloo_static`
+(guest tools, kernels, the driver), the successor is **`./penguin --dev-static
+<dist>`** — a run-time overlay, no image rebuild (see the Development loop
+below). For inputs baked elsewhere in the image (the qemu fork, the debug-tool
+closures), point the flake input at your checkout and rebuild:
 
 ```sh
 # Build + load the image with a local checkout substituted in:
@@ -245,6 +247,11 @@ The image is an immutable `python3.withPackages` env (no pip, read-only
   against a real guest boot without a rebuild: bind-mounts `src/`→`/pkg`,
   `pengutils/`→`/pengutils`, `pyplugins/`→`/pyplugins` and prepends them to
   `PYTHONPATH`. (`--pydev` is a deprecated alias.)
+- **`./penguin --dev-static <dist> run ...`** — iterate on anything under
+  `/igloo_static` (guest tools, kernels, `igloo.ko`, guest-utils) without a
+  rebuild: bind-mounts each file of a built fragment (e.g. a tool flake's
+  `dist` output) over the image's copy, read-only. Repeatable; later wins.
+  See [dev.md](dev.md) for details.
 - **`./penguin --build`** — a full image rebuild (`nix build .#dockerImage`),
   needed only when something *baked into the image* changes (guest tools, qemu,
   kernel, native helpers). For a local dep checkout, add `--override-input
