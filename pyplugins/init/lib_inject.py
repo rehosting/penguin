@@ -19,7 +19,6 @@ from penguin.defaults import (
     default_libinject_string_introspection,
     generic_lib_aliases,
     ralink,
-    realtek,
     zyxel_or_edimax,
 )
 from penguin.init_plugin import InitContext, InitPlugin
@@ -173,20 +172,15 @@ class SdkAtherosBroadcomAliases(InitPlugin):
         return _sdk_alias_patch(self, atheros_broadcom)
 
 
-class SdkRealtekAliases(InitPlugin):
-    '''Realtek RTL819x SDK apmib shims (apmib_get/apmib_set).'''
-    patch_name = 'sdk.realtek'
-    order = 125
-    enabled = False
-
-    def patch(self, ctx: InitContext) -> dict | None:
-        return _sdk_alias_patch(self, realtek)
-
-
-# NOTE: Netgear ACOS graduated from a bare alias group into a full SDK profile
-# (pyplugins/init/profiles/netgear_acos.yaml + NetgearAcosProfile), which owns
-# the sdk.netgear_acos patch and carries the WAN_ith_CONFIG_GET alias in its
-# bundle alongside the ACOS nvram defaults. Hence no SdkNetgearAcosAliases here.
+# NOTE: two SDKs graduated from bare alias groups into full SDK profiles and so
+# have no Sdk*Aliases class here:
+#   * Netgear ACOS -> pyplugins/init/profiles/netgear_acos.yaml + NetgearAcosProfile,
+#     which owns sdk.netgear_acos and carries the WAN_ith_CONFIG_GET alias in its
+#     bundle alongside the ACOS nvram defaults.
+#   * Realtek RTL819x -> pyplugins/init/profiles/realtek_rtl819x.yaml +
+#     RealtekRtl819xProfile, which owns sdk.realtek_rtl819x and carries the
+#     apmib_get/apmib_set aliases in its libinject bundle (plus a silicon boot
+#     tier modeling the flash MTD partitions + RTL8367 switch).
 
 
 class SdkZyxelOrEdimaxAliases(InitPlugin):

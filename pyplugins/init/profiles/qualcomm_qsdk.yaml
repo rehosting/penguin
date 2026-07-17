@@ -11,13 +11,19 @@ description: ASUSWRT on Qualcomm QSDK (QCA SSDK switch + uClibc, LD_PRELOAD-blin
 provenance: ASUSWRT / Qualcomm QSDK reference rehost
 
 # qca-ssdk.ko is the silicon discriminator (vs Broadcom's et/robo switch).
-# get_nvram_space is the ASUSWRT nvram surface uClibc eager-binds. ld-uClibc.so.0
-# is the loader whose LD_PRELOAD-blindness makes the DT_NEEDED shim necessary.
+# get_nvram_space / nvram_xfr are the ASUSWRT-on-QSDK nvram surface uClibc eager-
+# binds. (The uClibc loader's LD_PRELOAD-blindness is why the bundle uses a
+# DT_NEEDED shim rather than a preload -- but `ld-uClibc.so.0` is NOT a fingerprint
+# signal: it is present on any uClibc firmware, so it false-fired on unrelated
+# uClibc SDKs, e.g. Realtek RTL819x. The genuinely QCA-exclusive markers below are
+# sufficient.)
 fingerprint:
   - {kind: file, any: [qca-ssdk.ko]}                       # ClusterCollector.files
   - {kind: symbol, any: [get_nvram_space, nvram_xfr]}      # LibrarySymbols
-  - {kind: file, any: [ld-uClibc.so.0]}                    # ClusterCollector.files
 enable_if:
+  # Both genuine markers (silicon .ko + the QSDK nvram symbols); RT-AC58U fires
+  # both (was 3-of-3 with the dropped uClibc signal, now 2-of-2). Requiring two
+  # blocks a lone nvram_xfr from false-firing on non-QCA asuswrt.
   min_signals: 2
 
 # Fidelity-tiered bundles, both keyed off the fingerprint above. Only Tier 0
@@ -43,3 +49,40 @@ bundles:
         nvram_get_salt: libinject_ret_0_arg
         nvram_file2nvram: libinject_ret_0
         nvram_nvram2file: libinject_ret_0
+
+  # Tier: boot-to-runtime, SILICON half -- the Qualcomm analogue of
+  # `sdk.broadcom_hnd.boot`'s bcm6300_switch. Emitted as the DISABLED candidate
+  # `sdk.qualcomm_qsdk.boot` (QualcommQsdkBootProfile). The userland-generic
+  # boot/WAN blockers are handled by the shared `asuswrt` profile -- promote
+  # `sdk.asuswrt.boot` (restore-defaults reboot + GPIO) and `sdk.asuswrt.wan`
+  # (WAN state machine via nvram_pin + VPN owned-interface) alongside this.
+  #
+  # SOURCE-DERIVED, NOT YET BOOT-VERIFIED. Unlike Broadcom's swmdk (which ioctls
+  # the switch directly and reboots on a failed cdk_dev_create), ASUSWRT-on-QSDK
+  # drives the QCA8337 switch entirely through `ssdk_sh` SHELL commands and parses
+  # their stdout (reversed from the RT-AC58U/IPQ4019 GPL:
+  # shared/sysdeps/qca/qca8337_ssdk_sh.c get_qca8337_port_info + init-qca.c). The
+  # real /usr/sbin/ssdk_sh talks to the qca-ssdk kernel driver, absent under
+  # emulation (vendor 3.14 .ko), so the port queries return nothing and switch/
+  # port-link detection fails. So shim /usr/sbin/ssdk_sh (installed there per the
+  # qca-ssdk-shell Makefile) with canned output: report every port linked at 1G
+  # in the exact format the parser expects ("[Status]:ENABLE" / "[speed]:1000")
+  # and swallow all config subcommands (vlan/portVlan/qos/misc/port set) as
+  # success. This is a config-only shim (like the broadcom mtd tier's
+  # hndnvram.sh), no pyplugin. Verify + confirm boot-gating once a bootable QSDK
+  # ASUSWRT rootfs is available (only GPL source is on hand here).
+  boot:
+    static_files:
+      /usr/sbin/ssdk_sh:
+        type: inline_file
+        mode: 0755  # YAML 1.1 octal (safe_load parses 0o755 as a string)
+        contents: |
+          #!/bin/sh
+          # penguin sdk.qualcomm_qsdk.boot -- canned QCA SSDK switch tool.
+          # ASUSWRT parses these two queries (qca8337_ssdk_sh.c); everything else
+          # is fire-and-forget. Report all ports linked at 1G, swallow the rest.
+          case "$1 $2 $3" in
+              "port linkstatus get") echo "[Status]:ENABLE" ;;
+              "port speed get")      echo "[speed]:1000" ;;
+          esac
+          exit 0

@@ -131,7 +131,33 @@ class SdkFinder(InitPlugin):
         return next((m for m in self.matches if m["name"] == name), None)
 
 
-def _profile_patch(plugin: InitPlugin, profile_name: str, tier: str = "libinject") -> dict | None:
+# A CFE bootloader "envram" region is served to the firmware by the vendor
+# `envrams` daemon, which reads it as a plain packed blob from a file (on the
+# device, a UBIFS file on the `misc1` MTD partition). The packed format is a run
+# of NUL-terminated ``key=value`` strings, double-NUL terminated, with no header
+# or checksum -- established by disassembling `envrams` (it ``fread``s the whole
+# file into a buffer and walks it with strlen/strchr('=')). We stage that blob at
+# a persistent path the mount shim copies into the daemon's mount point.
+ENVRAM_BLOB_PATH = "/rom/etc/nvram.nvm"
+
+
+def _pack_envram(values: dict) -> bytes:
+    """Pack ``{key: value}`` into the vendor envram blob format: NUL-terminated
+    ``key=value`` entries, double-NUL terminated (empty trailing string)."""
+    blob = bytearray()
+    for k, v in values.items():
+        blob += f"{k}={v}".encode()
+        blob += b"\x00"
+    blob += b"\x00"
+    return bytes(blob)
+
+
+def _profile_patch(
+    plugin: InitPlugin,
+    profile_name: str,
+    tier: str = "libinject",
+    default_tier: bool = True,
+) -> dict | None:
     """
     Body shared by the per-profile patch classes: emit ``profile_name``'s bundle
     for the given fidelity ``tier`` (``bundles.<tier>``), setting ``plugin.enabled``
@@ -139,6 +165,16 @@ def _profile_patch(plugin: InitPlugin, profile_name: str, tier: str = "libinject
     else DISABLED -- a search candidate). Returns None (no patch) when no
     fingerprint signal fired at all, or when the profile defines no bundle for
     this tier (e.g. an SDK whose Tier-1 ``mtd`` model has not been built yet).
+
+    ``default_tier`` gates enablement: the default (Tier-0 libinject) tier is
+    baked in when the fingerprint corroborates, but a non-default tier (e.g.
+    ``mtd``) is always emitted as a DISABLED candidate -- it carries higher- or
+    additional-fidelity modeling that is opt-in (promoted by the search or the
+    user), not automatically enabled just because the SDK was detected.
+
+    A bundle may declare an ``envram:`` dict; it is packed into the vendor envram
+    blob (see :func:`_pack_envram`) and materialized as a static file at
+    :data:`ENVRAM_BLOB_PATH` (the ``envram`` key itself is dropped from the patch).
     """
     verdict = plugin.plugins.SdkFinder.verdict(profile_name)
     if verdict is None:
@@ -151,7 +187,15 @@ def _profile_patch(plugin: InitPlugin, profile_name: str, tier: str = "libinject
         bundle = prof.get("bundle")
     if not bundle:
         return None
-    plugin.enabled = verdict["enabled"]
+    envram = bundle.pop("envram", None)
+    if envram:
+        static_files = bundle.setdefault("static_files", {})
+        static_files[ENVRAM_BLOB_PATH] = {
+            "type": "inline_file",
+            "contents": _pack_envram(envram),
+            "mode": 0o644,
+        }
+    plugin.enabled = verdict["enabled"] and default_tier
     return bundle
 
 
@@ -164,6 +208,66 @@ class BroadcomHndProfile(InitPlugin):
         return _profile_patch(self, 'broadcom_hnd', tier='libinject')
 
 
+class BroadcomHndMtdProfile(InitPlugin):
+    '''Broadcom HND Tier-1 (mtd) bundle: a data-faithful CFE-envram backing store
+    for the vendor `envrams` daemon (packed nvram.nvm blob + a mount shim that
+    stages it), emitted as the DISABLED candidate `sdk.broadcom_hnd.mtd`.
+
+    envrams reads a store lib_inject cannot serve (it bypasses the nvram_get
+    library API), so this is ADDITIVE to the Tier-0 libinject bundle rather than a
+    replacement: promote it alongside `sdk.broadcom_hnd` for targets whose boot
+    blocks on envrams. penguin has no real UBI/UBIFS emulation, so the actual
+    misc1 UBI mount is shimmed rather than modeled -- see the profile YAML and the
+    `scope the real MTD/UBI partition` follow-up.'''
+    patch_name = 'sdk.broadcom_hnd.mtd'
+    order = 136
+
+    def patch(self, ctx: InitContext) -> dict | None:
+        return _profile_patch(self, 'broadcom_hnd', tier='mtd', default_tier=False)
+
+
+class BroadcomHndBootProfile(InitPlugin):
+    '''Broadcom HND boot-to-runtime bundle, SILICON half: model the SWMDK/BCM6300
+    robo-switch probe (else cdk_dev_create fails and /sbin/rc reboots). The
+    userland-generic post-envram blockers (the first-boot restore-defaults reboot
+    and the stuck GPIO buttons) live in `sdk.asuswrt.boot` -- promote both. Emitted
+    as the DISABLED candidate `sdk.broadcom_hnd.boot`; additive to the Tier-0
+    libinject bundle.'''
+    patch_name = 'sdk.broadcom_hnd.boot'
+    order = 137
+
+    def patch(self, ctx: InitContext) -> dict | None:
+        return _profile_patch(self, 'broadcom_hnd', tier='boot', default_tier=False)
+
+
+class AsuswrtBootProfile(InitPlugin):
+    '''ASUSWRT userland boot-to-runtime bundle (silicon-independent): neutralise
+    the first-boot "## Restoring defaults ##" reboot(2) and report the libshared
+    GPIO buttons as released. The switch probe is silicon-specific and lives in
+    the silicon profile (e.g. `sdk.broadcom_hnd.boot`). Emitted as the DISABLED
+    candidate `sdk.asuswrt.boot`; promote it for any ASUSWRT target regardless of
+    silicon, alongside the silicon profile's own boot bundle.'''
+    patch_name = 'sdk.asuswrt.boot'
+    order = 138
+
+    def patch(self, ctx: InitContext) -> dict | None:
+        return _profile_patch(self, 'asuswrt', tier='boot', default_tier=False)
+
+
+class AsuswrtWanProfile(InitPlugin):
+    '''ASUSWRT WAN-connected bundle (silicon-independent): stand up a tap-backed
+    WAN interface via the VPN owned-interfaces feature and pin the WAN unit-0 nvram
+    at it (immune to ASUSWRT's per-boot default-restore), so the WAN state machine
+    reaches CONNECTED with a default route -- no real uplink or core.network
+    required. Emitted as the DISABLED candidate `sdk.asuswrt.wan`; additive to
+    `sdk.asuswrt.boot` (needs the box already at runtime).'''
+    patch_name = 'sdk.asuswrt.wan'
+    order = 139
+
+    def patch(self, ctx: InitContext) -> dict | None:
+        return _profile_patch(self, 'asuswrt', tier='wan', default_tier=False)
+
+
 class QualcommQsdkProfile(InitPlugin):
     '''ASUSWRT / Qualcomm QSDK profile, Tier-0 libinject bundle (libnvram DT_NEEDED shim + uClibc-eager nvram aliases).'''
     patch_name = 'sdk.qualcomm_qsdk'
@@ -173,6 +277,33 @@ class QualcommQsdkProfile(InitPlugin):
         return _profile_patch(self, 'qualcomm_qsdk', tier='libinject')
 
 
+class QualcommQsdkBootProfile(InitPlugin):
+    '''Qualcomm QSDK boot-to-runtime bundle, SILICON half: shim /usr/sbin/ssdk_sh
+    (the QCA SSDK switch control tool) with canned output so ASUSWRT's QCA8337
+    switch/port-link detection works without the qca-ssdk kernel driver. The
+    userland-generic blockers live in `sdk.asuswrt.boot` -- promote both. Emitted
+    as the DISABLED candidate `sdk.qualcomm_qsdk.boot`; SOURCE-DERIVED from the
+    RT-AC58U GPL, not yet boot-verified (needs a bootable QSDK rootfs).'''
+    patch_name = 'sdk.qualcomm_qsdk.boot'
+    order = 137
+
+    def patch(self, ctx: InitContext) -> dict | None:
+        return _profile_patch(self, 'qualcomm_qsdk', tier='boot', default_tier=False)
+
+
+class MediatekRalinkBootProfile(InitPlugin):
+    '''MediaTek/Ralink APSoC boot-to-runtime bundle, SILICON switch: shim the
+    raeth `mii_mgr` / `switch` register tools with canned output so switch
+    bring-up is quiet without the raeth kernel driver (which does not load under
+    emulation). Emitted as the DISABLED candidate `sdk.mediatek_ralink.boot`;
+    config-only (static_files), analogous to the QCA ssdk_sh shim.'''
+    patch_name = 'sdk.mediatek_ralink.boot'
+    order = 137
+
+    def patch(self, ctx: InitContext) -> dict | None:
+        return _profile_patch(self, 'mediatek_ralink', tier='boot', default_tier=False)
+
+
 class NetgearAcosProfile(InitPlugin):
     '''Netgear ACOS profile, Tier-0 libinject bundle (ACOS nvram defaults + WAN_ith_CONFIG_GET shim).'''
     patch_name = 'sdk.netgear_acos'
@@ -180,3 +311,31 @@ class NetgearAcosProfile(InitPlugin):
 
     def patch(self, ctx: InitContext) -> dict | None:
         return _profile_patch(self, 'netgear_acos', tier='libinject')
+
+
+class RealtekRtl819xProfile(InitPlugin):
+    '''Realtek RTL819x profile, Tier-0 libinject bundle: serve the APMIB config
+    surface from config (apmib_get/apmib_set aliased onto the lib_inject key/value
+    store). Graduated from the former Slice-0 sdk.realtek alias group. apmib_init/
+    reinit/update are stubbed to success by the generic tailored-alias layer
+    (base_aliases), which this profile relies on -- apmib_init_HW returns NULL on a
+    missing flash signature with no defaults fallback, so without that stub every
+    apmib consumer bails at startup.'''
+    patch_name = 'sdk.realtek_rtl819x'
+    order = 135
+
+    def patch(self, ctx: InitContext) -> dict | None:
+        return _profile_patch(self, 'realtek_rtl819x', tier='libinject')
+
+
+class RealtekRtl819xBootProfile(InitPlugin):
+    '''Realtek RTL819x boot-to-runtime bundle, SILICON surface: model the flash
+    MTD partitions (/proc/mtd + mtdblock nodes) the rcS mount and `flash` MIB tool
+    touch directly, and answer the RTL8367/RTL8368 robo-switch control ioctls with
+    success (gigabit boards). Emitted as the DISABLED candidate
+    `sdk.realtek_rtl819x.boot`; additive to the Tier-0 libinject bundle.'''
+    patch_name = 'sdk.realtek_rtl819x.boot'
+    order = 137
+
+    def patch(self, ctx: InitContext) -> dict | None:
+        return _profile_patch(self, 'realtek_rtl819x', tier='boot', default_tier=False)

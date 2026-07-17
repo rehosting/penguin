@@ -1,0 +1,126 @@
+# SDK profile: Realtek RTL819x (APMIB flash config + RTL8367 robo-switch + boa).
+#
+# A profile is fingerprint + fidelity-tiered bundles. SdkFinder scores the
+# fingerprint against static analyses that already run; RealtekRtl819xProfile
+# emits bundles.libinject as the named patch `sdk.realtek_rtl819x`, ENABLED when
+# the fingerprint corroborates (>= enable_if.min_signals) and DISABLED (a search
+# candidate) otherwise.
+#
+# This profile GRADUATES the former Slice-0 sdk.realtek alias group (the bare
+# apmib_get/apmib_set shims) into a full SDK profile with a fingerprint and a
+# silicon boot tier, exactly as netgear_acos was graduated. The apmib_get/set
+# aliases now ride in the libinject bundle below.
+name: realtek_rtl819x
+description: Realtek RTL819x SDK (APMIB flash config + RTL8367 switch + boa httpd)
+
+# Distilled from the Realtek RTL819x SDK (rtl819x-SDK-v3.4.9.3), source-confirmed
+# against a shipped RTL8196x rootfs (D-Link DIR-605L rev B): lib/apmib.so exports
+# apmib_get/apmib_set/apmib_init; the config store is read directly off the flash
+# MTD device (see below). Specific device targets are tracked internally.
+provenance: Realtek RTL819x SDK reference (rtl819x-SDK-v3.4.9.3, RTL8196x rootfs)
+
+# The Realtek APMIB config library (apmib.so) is the RTL819x discriminator: its
+# apmib_get/apmib_set/apmib_init ABI is unique to the Realtek SDK (no other SDK
+# here exports apmib_*), and apmib.so ships as a dedicated shared library. The
+# iwcontrol / wscd Realtek WLAN userland corroborate. None appear on Broadcom /
+# Qualcomm / MediaTek / asuswrt. Require two.
+fingerprint:
+  - {kind: symbol, any: [apmib_get, apmib_set, apmib_init]}   # LibrarySymbols (apmib.so exports -- Realtek APMIB)
+  - {kind: file, any: [apmib.so]}                             # ClusterCollector.files (Realtek APMIB shared library)
+  - {kind: executable, any: [iwcontrol, wscd]}                # ClusterCollector.executables (Realtek RTL8192 WLAN userland)
+enable_if:
+  min_signals: 2
+
+bundles:
+  # Tier 0: serve the APMIB config surface from the config instead of the flash
+  # MIB. RTL819x programs (boa, sysconf, ...) read config via the apmib.so
+  # library API: apmib_init() loads the HW/DEFAULT/CURRENT setting regions from
+  # the flash MTD device, then apmib_get()/apmib_set() read/write the in-memory
+  # MIB. Under emulation there is no real flash MIB, so:
+  #   * apmib_init/apmib_reinit/apmib_update are already aliased to a
+  #     success-returning stub by the generic tailored-alias layer
+  #     (base_aliases: apmib_* -> libinject_ret_1), because apmib_init_HW returns
+  #     NULL on a missing/invalid flash signature with NO compiled-defaults
+  #     fallback -- so without the stub every apmib consumer bails at startup;
+  #   * apmib_get/apmib_set are aliased HERE onto the lib_inject key/value store
+  #     so reads/writes hit config-backed values (this is the graduated
+  #     sdk.realtek alias group).
+  # Model-identity seeding (MACs, board id) is per-device, not part of this SDK
+  # profile.
+  libinject:
+    lib_inject:
+      aliases:
+        apmib_get: libinject_apmib_get
+        apmib_set: libinject_apmib_set
+
+  # Tier: boot-to-runtime, SILICON surface. Two RTL819x-specific boot concerns
+  # that the libinject tier does not cover, emitted as the DISABLED candidate
+  # `sdk.realtek_rtl819x.boot` (additive to the Tier-0 libinject bundle):
+  #
+  # 1. The APMIB flash device. apmib.so is linked by DT_NEEDED into every
+  #    consumer (flash, sysconf, boa, ...), and RTL819x userland is uClibc, whose
+  #    loader ignores LD_PRELOAD -- so the Tier-0 libinject apmib_get/set aliases
+  #    do NOT bind on these targets (the same loader constraint documented for
+  #    qualcomm_qsdk). The LD_PRELOAD-independent path is to model the raw flash
+  #    node apmib opens as a READ-AFTER-WRITE store (`read: stateful`): apmib_init
+  #    does open()+lseek()+read() at the HW/DEFAULT/CURRENT setting offsets, and
+  #    on an empty store the signature check fails, so the Realtek startup.sh
+  #    recovery path (`flash default` / `default-sw` / `reset`) writes a
+  #    properly-signed MIB blob (via apmib's own updateDef/updateFlash) back into
+  #    the store for subsequent reads. The numbered/block aliases below cover the
+  #    /dev/mtd0 and /dev/mtdblockN variants.
+  #
+  #    STATUS / known gap: on the reference DIR-605L build apmib opens the BARE
+  #    path `/dev/mtd`, which is currently dropped from the merged config before
+  #    runtime (penguin defers every /dev/mtd* name to the native MTD subsystem,
+  #    which only adopts `/dev/mtd<N>`; the pseudofile-handler half of that gap is
+  #    fixed in hyperfile/pseudofiles.py, but the bare key is also dropped at
+  #    config-merge). Until the bare `/dev/mtd` reaches runtime, apmib_init still
+  #    fails on this build and the box boots with an empty MIB (boa still binds;
+  #    no panic). Fully serving the flash MIB is the Tier-1 follow-up here,
+  #    analogous to broadcom_hnd's reserved `mtd` tier.
+  #
+  # 2. The RTL8367 robo-switch. Gigabit RTL819x boards drive an external
+  #    RTL8367/RTL8368 switch from userland over a private ioctl; unmodelled, the
+  #    switch-setup calls fail. Answer the switch ioctls with success
+  #    (unmanaged mode) via a pseudofile so bring-up is quiet. (Fast-Ethernet
+  #    RTL8196 parts use the SoC's built-in switch and skip this; harmless there.)
+  boot:
+    pseudofiles:
+      # Realtek flash partition table, read by the `flash` tool / rcS.
+      /proc/mtd:
+        read: {model: const_buf, val: "dev:    size   erasesize  name\nmtd0: 00800000 00010000 \"flash\"\n"}
+      # The APMIB flash node. RTL819x builds open the bare path `/dev/mtd`;
+      # read-after-write (stateful) lets `flash default` self-populate a valid
+      # signed MIB that apmib then reads back.
+      /dev/mtd:
+        read: {model: stateful}
+        write: {model: default}
+        ioctl:
+          '2149600513': {model: return_const, val: 0}   # MEMGETINFO
+          '*': {model: return_const, val: 0}
+      /dev/mtdblock0:
+        read: {model: stateful}
+        write: {model: default}
+        ioctl:
+          '*': {model: return_const, val: 0}
+      /dev/mtd0:
+        read: {model: stateful}
+        write: {model: default}
+        ioctl:
+          '2149600513': {model: return_const, val: 0}   # MEMGETINFO
+          '*': {model: return_const, val: 0}
+      # hw_setting partition (NAND-style builds mount this yaffs2 at /hw_setting).
+      /dev/mtdblock3:
+        read: {model: stateful}
+        write: {model: default}
+        ioctl:
+          '*': {model: return_const, val: 0}
+      # RTL8367/RTL8368 external robo-switch control node (gigabit boards). The
+      # Realtek switch-control ioctls are answered with success so cascade/PHY
+      # setup does not spin on failure.
+      /dev/rtl8367:
+        read: {model: zero}
+        write: {model: discard}
+        ioctl:
+          '*': {model: return_const, val: 0}
