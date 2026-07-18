@@ -60,3 +60,35 @@ def test_db_defaults_proc_id_when_missing(tmp_path):
 
     sess = _read_back(tmp_path)
     assert sess.query(Event).one().proc_id == 0
+
+
+def test_db_flush_then_query_is_visible(tmp_path):
+    """flush() drains buffered events synchronously so query() can read them
+    back mid-run -- the path the processes plugin uses at teardown."""
+    from pengutils.events import ProcStart, ProcExit
+    lp = load_pyplugin(str(DB), outdir=tmp_path)
+
+    lp.plugin.add_event(ProcStart, {"procname": "httpd", "proc_id": 400,
+                                    "pid": 400, "ppid": 1, "create_time": 200,
+                                    "comm": "httpd", "uid": 0, "gid": 0,
+                                    "euid": 0, "egid": 0})
+    lp.plugin.add_event(ProcExit, {"procname": "", "proc_id": 400, "pid": 400,
+                                   "create_time": 200, "code": 0,
+                                   "reason": "exit_group"})
+
+    lp.plugin.flush()  # synchronous drain
+    starts = lp.plugin.query(ProcStart)
+    exits = lp.plugin.query(ProcExit)
+    assert [s.pid for s in starts] == [400]
+    assert starts[0].ppid == 1 and starts[0].comm == "httpd"
+    assert [(e.pid, e.code, e.reason) for e in exits] == [(400, 0, "exit_group")]
+    lp.finalize()
+
+
+def test_db_query_empty_table_returns_list(tmp_path):
+    """query() of a table that never received a row yields [] (schema is
+    ensured), not an error."""
+    from pengutils.events import ProcExit
+    lp = load_pyplugin(str(DB), outdir=tmp_path)
+    assert lp.plugin.query(ProcExit) == []
+    lp.finalize()
