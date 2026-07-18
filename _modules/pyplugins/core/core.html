@@ -1,0 +1,806 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../../../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><link rel="index" title="Index" href="../../../genindex.html"><link rel="search" title="Search" href="../../../search.html">
+
+    <!-- Generated with Sphinx 8.1.3 and Furo 2025.12.19 -->
+        <title>pyplugins.core.core - Penguin Docs</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=acfd86a5" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../../../index.html"><div class="brand">Penguin Docs</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../../../index.html">
+  
+  <span class="sidebar-brand-text">Penguin Docs</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../../../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Documentation</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/README.html">Penguin: Configuration Based Rehosting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/README.html#installation">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/README.html#learn-more-about-penguin">Learn more about Penguin</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/compose.html"><code class="docutils literal notranslate"><span class="pre">penguin</span> <span class="pre">compose</span></code> — Multi-Device Firmware Rehosting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/dev.html">Penguin Development Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/dev.html#example-local-kernel-development">Example: Local kernel development</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/kprobes.html">Kprobes Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/lib_inject.html">Library injection (<code class="docutils literal notranslate"><span class="pre">lib_inject</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/local_plugins.html">Local Plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/playbook.html">Penguin Playbook</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/plugin_args.html">Plugin arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/plugins.html">Penguin Plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/portal.html">Portal</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/pseudofile_models.html">Pseudofile model catalog</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/pyplugin_architecture.html">Plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/schema_doc.html">Penguin Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/scripts.html">Scripting Plugins in Penguin</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/singularity.html">Singularity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/syscalls.html">Syscalls Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/testing.html">Testing pyplugins host-side</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/uprobes.html">Uprobes Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/workflow.html">Example Rehosting Workflow</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Packages</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../penguin.html">penguin package</a><input aria-label="Toggle navigation of penguin package" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../penguin.penguin_config.html">penguin.penguin_config package</a><input aria-label="Toggle navigation of penguin.penguin_config package" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3 has-children"><a class="reference internal" href="../../../penguin.penguin_config.versions.html">penguin.penguin_config.versions package</a><input aria-label="Toggle navigation of penguin.penguin_config.versions package" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../penguin.penguin_config.versions.v2.html">penguin.penguin_config.versions.v2 module</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../penguin.penguin_config.errors.html">penguin.penguin_config.errors module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../penguin.penguin_config.gen_docs.html">penguin.penguin_config.gen_docs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../penguin.penguin_config.structure.html">penguin.penguin_config.structure module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../penguin.penguin_config.templating.html">penguin.penguin_config.templating module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../penguin.testing.html">penguin.testing package</a><input aria-label="Toggle navigation of penguin.testing package" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../penguin.testing.harness.html">penguin.testing.harness module</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.abi_info.html">penguin.abi_info module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.analyses.html">penguin.analyses module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.arch.html">penguin.arch module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.arch_registry.html">penguin.arch_registry module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.boot_env.html">penguin.boot_env module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.common.html">penguin.common module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.compose.html">penguin.compose module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.config_patchers.html">penguin.config_patchers module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.defaults.html">penguin.defaults module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.dropin_compile.html">penguin.dropin_compile module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.gen_config.html">penguin.gen_config module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.gen_image.html">penguin.gen_image module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.graphs.html">penguin.graphs module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.init_plugin.html">penguin.init_plugin module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.init_runner.html">penguin.init_runner module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.manager.html">penguin.manager module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.penguin_prep.html">penguin.penguin_prep module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.penguin_run.html">penguin.penguin_run module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.plugin_manager.html">penguin.plugin_manager module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.q_config.html">penguin.q_config module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.run_summary.html">penguin.run_summary module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.static_analyses.html">penguin.static_analyses module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.stubs.html">penguin.stubs module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.utils.html">penguin.utils module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.utils_cli.html">penguin.utils_cli module</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../pengutils.html">pengutils package</a><input aria-label="Toggle navigation of pengutils package" class="toctree-checkbox" id="toctree-checkbox-5" name="toctree-checkbox-5" role="switch" type="checkbox"/><label for="toctree-checkbox-5"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pengutils.events.html">pengutils.events package</a><input aria-label="Toggle navigation of pengutils.events package" class="toctree-checkbox" id="toctree-checkbox-6" name="toctree-checkbox-6" role="switch" type="checkbox"/><label for="toctree-checkbox-6"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.events.base.html">pengutils.events.base module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.events.types.html">pengutils.events.types module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pengutils.utils.html">pengutils.utils package</a><input aria-label="Toggle navigation of pengutils.utils package" class="toctree-checkbox" id="toctree-checkbox-7" name="toctree-checkbox-7" role="switch" type="checkbox"/><label for="toctree-checkbox-7"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_breakpoint.html">pengutils.utils.cli_breakpoint module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_db.html">pengutils.utils.cli_db module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_guest_cmd.html">pengutils.utils.cli_guest_cmd module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_pengutils.html">pengutils.utils.cli_pengutils module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_plugins.html">pengutils.utils.cli_plugins module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_snapshot.html">pengutils.utils.cli_snapshot module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.util_base.html">pengutils.utils.util_base module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.util_events.html">pengutils.utils.util_events module</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../pyplugins.html">pyplugins package</a><input aria-label="Toggle navigation of pyplugins package" class="toctree-checkbox" id="toctree-checkbox-8" name="toctree-checkbox-8" role="switch" type="checkbox"/><label for="toctree-checkbox-8"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.actuation.html">pyplugins.actuation package</a><input aria-label="Toggle navigation of pyplugins.actuation package" class="toctree-checkbox" id="toctree-checkbox-9" name="toctree-checkbox-9" role="switch" type="checkbox"/><label for="toctree-checkbox-9"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.actuation.fetch_web.html">pyplugins.actuation.fetch_web module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.actuation.nmap.html">pyplugins.actuation.nmap module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.actuation.vpn.html">pyplugins.actuation.vpn module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.analysis.html">pyplugins.analysis package</a><input aria-label="Toggle navigation of pyplugins.analysis package" class="toctree-checkbox" id="toctree-checkbox-10" name="toctree-checkbox-10" role="switch" type="checkbox"/><label for="toctree-checkbox-10"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.crashes.html">pyplugins.analysis.crashes module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.env.html">pyplugins.analysis.env module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.ficd.html">pyplugins.analysis.ficd module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.health.html">pyplugins.analysis.health module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.hooklogger.html">pyplugins.analysis.hooklogger module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.indiv_debug.html">pyplugins.analysis.indiv_debug module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.interfaces.html">pyplugins.analysis.interfaces module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.netbinds.html">pyplugins.analysis.netbinds module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.repl.html">pyplugins.analysis.repl module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.apis.html">pyplugins.apis package</a><input aria-label="Toggle navigation of pyplugins.apis package" class="toctree-checkbox" id="toctree-checkbox-11" name="toctree-checkbox-11" role="switch" type="checkbox"/><label for="toctree-checkbox-11"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.events.html">pyplugins.apis.events module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.execs.html">pyplugins.apis.execs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.fs.html">pyplugins.apis.fs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.hypercall.html">pyplugins.apis.hypercall module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.kffi.html">pyplugins.apis.kffi module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.kprobes.html">pyplugins.apis.kprobes module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.mem.html">pyplugins.apis.mem module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.net.html">pyplugins.apis.net module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.osi.html">pyplugins.apis.osi module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.portalcall.html">pyplugins.apis.portalcall module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.send_hypercall.html">pyplugins.apis.send_hypercall module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.signal_monitor.html">pyplugins.apis.signal_monitor module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.signals.html">pyplugins.apis.signals module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.static_fs.html">pyplugins.apis.static_fs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.symbols.html">pyplugins.apis.symbols module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.syscalls.html">pyplugins.apis.syscalls module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.unwind.html">pyplugins.apis.unwind module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.uprobes.html">pyplugins.apis.uprobes module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.compat.html">pyplugins.compat package</a><input aria-label="Toggle navigation of pyplugins.compat package" class="toctree-checkbox" id="toctree-checkbox-12" name="toctree-checkbox-12" role="switch" type="checkbox"/><label for="toctree-checkbox-12"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.compat.coverage.html">pyplugins.compat.coverage module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.compat.qemu_compat.html">pyplugins.compat.qemu_compat module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.core.html">pyplugins.core package</a><input aria-label="Toggle navigation of pyplugins.core package" class="toctree-checkbox" id="toctree-checkbox-13" name="toctree-checkbox-13" role="switch" type="checkbox"/><label for="toctree-checkbox-13"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.core.html">pyplugins.core.core module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.igloodriver.html">pyplugins.core.igloodriver module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.live_image.html">pyplugins.core.live_image module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.readiness.html">pyplugins.core.readiness module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.scope.html">pyplugins.core.scope module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.snapshot.html">pyplugins.core.snapshot module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.hyper.html">pyplugins.hyper package</a><input aria-label="Toggle navigation of pyplugins.hyper package" class="toctree-checkbox" id="toctree-checkbox-14" name="toctree-checkbox-14" role="switch" type="checkbox"/><label for="toctree-checkbox-14"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.bash_command.html">pyplugins.hyper.bash_command module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.canary.html">pyplugins.hyper.canary module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.consts.html">pyplugins.hyper.consts module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.portal.html">pyplugins.hyper.portal module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.shell.html">pyplugins.hyper.shell module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.uboot.html">pyplugins.hyper.uboot module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.hyperfile.html">pyplugins.hyperfile package</a><input aria-label="Toggle navigation of pyplugins.hyperfile package" class="toctree-checkbox" id="toctree-checkbox-15" name="toctree-checkbox-15" role="switch" type="checkbox"/><label for="toctree-checkbox-15"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.anonfs.html">pyplugins.hyperfile.anonfs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.devfs.html">pyplugins.hyperfile.devfs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.mtd.html">pyplugins.hyperfile.mtd module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.procfs.html">pyplugins.hyperfile.procfs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.pseudofile_tracker.html">pyplugins.hyperfile.pseudofile_tracker module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.pseudofiles.html">pyplugins.hyperfile.pseudofiles module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.qemu_mem.html">pyplugins.hyperfile.qemu_mem module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.sysctl.html">pyplugins.hyperfile.sysctl module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.sysfs.html">pyplugins.hyperfile.sysfs module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.interventions.html">pyplugins.interventions package</a><input aria-label="Toggle navigation of pyplugins.interventions package" class="toctree-checkbox" id="toctree-checkbox-16" name="toctree-checkbox-16" role="switch" type="checkbox"/><label for="toctree-checkbox-16"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.core_pattern_guard.html">pyplugins.interventions.core_pattern_guard module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.hyperfile.html">pyplugins.interventions.hyperfile module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.kernelversion.html">pyplugins.interventions.kernelversion module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.kmods.html">pyplugins.interventions.kmods module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.lifeguard.html">pyplugins.interventions.lifeguard module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.mount.html">pyplugins.interventions.mount module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.nvram2.html">pyplugins.interventions.nvram2 module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.remotectrl.html">pyplugins.interventions.remotectrl module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.symex.html">pyplugins.interventions.symex module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.loggers.html">pyplugins.loggers package</a><input aria-label="Toggle navigation of pyplugins.loggers package" class="toctree-checkbox" id="toctree-checkbox-17" name="toctree-checkbox-17" role="switch" type="checkbox"/><label for="toctree-checkbox-17"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.loggers.db.html">pyplugins.loggers.db module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.loggers.exec_logger.html">pyplugins.loggers.exec_logger module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.loggers.rw_logger.html">pyplugins.loggers.rw_logger module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.loggers.syscalls_logger.html">pyplugins.loggers.syscalls_logger module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.wrappers.html">pyplugins.wrappers package</a><input aria-label="Toggle navigation of pyplugins.wrappers package" class="toctree-checkbox" id="toctree-checkbox-18" name="toctree-checkbox-18" role="switch" type="checkbox"/><label for="toctree-checkbox-18"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.wrappers.generic.html">pyplugins.wrappers.generic module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.wrappers.osi_wrap.html">pyplugins.wrappers.osi_wrap module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.wrappers.ptregs_wrap.html">pyplugins.wrappers.ptregs_wrap module</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <h1>Source code for pyplugins.core.core</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">core.py - Core plugin for Penguin</span>
+<span class="sd">=================================</span>
+
+<span class="sd">This module provides the Core plugin, which performs basic sanity checks, configuration management,</span>
+<span class="sd">and core logic for the penguin emulation environment. It is responsible for:</span>
+
+<span class="sd">- Validating required arguments at initialization.</span>
+<span class="sd">- Writing configuration and loaded plugin information to the output directory.</span>
+<span class="sd">- Handling SIGUSR1 for graceful shutdown of emulation.</span>
+<span class="sd">- Creating a `.ran` file in the output directory after a non-crash shutdown.</span>
+<span class="sd">- Optionally enforcing a timeout for emulation and shutting down after the specified period.</span>
+<span class="sd">- Setting up environment variables for features like root shell, graphics, shared directory, strace, ltrace, and forced WWW.</span>
+<span class="sd">- Logging information about available services (e.g., root shell, VNC) based on configuration and environment.</span>
+
+<span class="sd">Arguments</span>
+<span class="sd">---------</span>
+
+<span class="sd">- timeout (int, optional): Timeout in seconds for automatic shutdown.</span>
+
+<span class="sd">Plugin Interface</span>
+<span class="sd">----------------</span>
+
+<span class="sd">This plugin does not provide a direct interface for other plugins, but it writes configuration</span>
+<span class="sd">and plugin information to files in the output directory, which other plugins or tools may read.</span>
+<span class="sd">It also sets environment variables in the configuration dictionary that may be used by other</span>
+<span class="sd">components or plugins.</span>
+
+<span class="sd">Overall Purpose</span>
+<span class="sd">---------------</span>
+
+<span class="sd">The Core plugin ensures the emulation environment is correctly set up, manages shutdown</span>
+<span class="sd">procedures, and records essential information for reproducibility and debugging.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">signal</span>
+<span class="kn">import</span> <span class="nn">threading</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">from</span> <span class="nn">penguin</span> <span class="kn">import</span> <span class="n">Plugin</span><span class="p">,</span> <span class="n">yaml</span><span class="p">,</span> <span class="n">plugins</span><span class="p">,</span> <span class="n">common</span>
+<span class="kn">from</span> <span class="nn">penguin.defaults</span> <span class="kn">import</span> <span class="n">vnc_password</span>
+
+
+<div class="viewcode-block" id="shared_dir_and_core_dump_env">
+<a class="viewcode-back" href="../../../pyplugins.core.core.html#pyplugins.core.core.shared_dir_and_core_dump_env">[docs]</a>
+<span class="k">def</span> <span class="nf">shared_dir_and_core_dump_env</span><span class="p">(</span><span class="n">shared_dir</span><span class="p">,</span> <span class="n">core_dumps</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Map the (normalized) core.shared_dir / core.core_dumps config to guest</span>
+<span class="sd">    env vars consumed by source.d/40_mount_shared_dir.sh.</span>
+
+<span class="sd">    Both features ride the single /igloo/shared 9p mount but are independent.</span>
+<span class="sd">    Returns ``(env_updates, deprecated_implicit)`` where ``deprecated_implicit``</span>
+<span class="sd">    is True when core dumps were enabled only because shared_dir was set (the</span>
+<span class="sd">    pre-split legacy behavior), so the caller can emit a deprecation warning.</span>
+
+<span class="sd">    ``shared_dir``/``core_dumps`` are the config values after schema</span>
+<span class="sd">    normalization: a dict when enabled, or falsy when disabled.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">env</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="c1"># Legacy: setting core.shared_dir used to implicitly enable core dumps.</span>
+    <span class="c1"># Preserve that when core.core_dumps is unset, but an explicit value wins.</span>
+    <span class="n">deprecated_implicit</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="k">if</span> <span class="n">core_dumps</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">shared_dir</span><span class="p">:</span>
+        <span class="n">core_dumps</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;lock&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
+        <span class="n">deprecated_implicit</span> <span class="o">=</span> <span class="kc">True</span>
+
+    <span class="k">if</span> <span class="n">shared_dir</span> <span class="ow">or</span> <span class="n">core_dumps</span><span class="p">:</span>
+        <span class="n">env</span><span class="p">[</span><span class="s2">&quot;SHARED_DIR&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;1&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">shared_dir</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="n">shared_dir</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;msize&quot;</span><span class="p">):</span>
+            <span class="n">env</span><span class="p">[</span><span class="s2">&quot;SHARED_MSIZE&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">shared_dir</span><span class="p">[</span><span class="s2">&quot;msize&quot;</span><span class="p">])</span>
+
+    <span class="k">if</span> <span class="n">core_dumps</span><span class="p">:</span>
+        <span class="n">env</span><span class="p">[</span><span class="s2">&quot;CORE_DUMPS&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;1&quot;</span>
+        <span class="n">cd</span> <span class="o">=</span> <span class="n">core_dumps</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">core_dumps</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">cd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;lock&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">):</span>
+            <span class="n">env</span><span class="p">[</span><span class="s2">&quot;CORE_DUMPS_LOCK&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;1&quot;</span>
+        <span class="k">if</span> <span class="n">cd</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;pattern&quot;</span><span class="p">):</span>
+            <span class="n">env</span><span class="p">[</span><span class="s2">&quot;CORE_DUMP_PATTERN&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">cd</span><span class="p">[</span><span class="s2">&quot;pattern&quot;</span><span class="p">]</span>
+
+    <span class="k">return</span> <span class="n">env</span><span class="p">,</span> <span class="n">deprecated_implicit</span></div>
+
+
+
+<div class="viewcode-block" id="Core">
+<a class="viewcode-back" href="../../../pyplugins.core.core.html#pyplugins.core.core.Core">[docs]</a>
+<span class="k">class</span> <span class="nc">Core</span><span class="p">(</span><span class="n">Plugin</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Core plugin for PyPlugins.</span>
+
+<span class="sd">    Performs sanity checks, manages configuration, handles shutdown signals,</span>
+<span class="sd">    and enforces optional timeouts for the emulation environment.</span>
+
+<span class="sd">    The shutdown timeout is read from the top-level ``core.timeout`` config</span>
+<span class="sd">    option (overridable by the ``--timeout`` CLI flag); it is not a plugin arg.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initialize the Core plugin.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: If any required argument is missing.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="s2">&quot;plugins conf fs fw outdir&quot;</span><span class="o">.</span><span class="n">split</span><span class="p">():</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_arg</span><span class="p">(</span><span class="n">arg</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[core] Missing required argument: </span><span class="si">{</span><span class="n">arg</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">outdir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_arg</span><span class="p">(</span><span class="s2">&quot;outdir&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pending_procname</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pending_sin_addr</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="n">plugs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_arg</span><span class="p">(</span><span class="s2">&quot;plugins&quot;</span><span class="p">)</span>
+        <span class="n">conf</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_arg</span><span class="p">(</span><span class="s2">&quot;conf&quot;</span><span class="p">)</span>
+
+        <span class="n">telnet_port</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_arg</span><span class="p">(</span><span class="s2">&quot;telnet_port&quot;</span><span class="p">)</span>
+        <span class="n">log_file</span> <span class="o">=</span> <span class="n">conf</span><span class="p">[</span><span class="s2">&quot;core&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;log_file&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">log_file</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isabs</span><span class="p">(</span><span class="n">log_file</span><span class="p">):</span>
+                    <span class="n">log_file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outdir</span><span class="p">,</span> <span class="n">log_file</span><span class="p">)</span>
+                <span class="n">log_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">log_file</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">log_dir</span><span class="p">:</span>
+                    <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">log_dir</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+                <span class="n">fh</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">FileHandler</span><span class="p">(</span><span class="n">log_file</span><span class="p">)</span>
+                <span class="n">fh</span><span class="o">.</span><span class="n">setFormatter</span><span class="p">(</span><span class="n">common</span><span class="o">.</span><span class="n">PathHighlightingFormatter</span><span class="p">(</span>
+                    <span class="n">fmt</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">%(asctime)s</span><span class="s2"> </span><span class="si">%(name)s</span><span class="s2"> </span><span class="si">%(levelname)s</span><span class="s2"> </span><span class="si">%(message)s</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="n">datefmt</span><span class="o">=</span><span class="s2">&quot;%H:%M:%S&quot;</span><span class="p">,</span>
+                <span class="p">))</span>
+                <span class="n">common</span><span class="o">.</span><span class="n">redirect_logs_to</span><span class="p">(</span><span class="n">fh</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Penguin logs redirected to </span><span class="si">{</span><span class="n">log_file</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error during setup of log file. core.log_file: </span><span class="si">{</span><span class="n">log_file</span><span class="si">}</span><span class="se">\n</span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Essential plugins are always loaded with core</span>
+        <span class="n">essential_plugins</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="s2">&quot;live_image&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;igloodriver&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;kmods&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;net&quot;</span><span class="p">,</span>
+        <span class="p">]</span>
+
+        <span class="k">for</span> <span class="n">essential_plugin</span> <span class="ow">in</span> <span class="n">essential_plugins</span><span class="p">:</span>
+            <span class="n">p</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">plugins</span><span class="p">,</span> <span class="n">essential_plugin</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="s2">&quot;ensure_init&quot;</span><span class="p">):</span>
+                <span class="n">p</span><span class="o">.</span><span class="n">ensure_init</span><span class="p">()</span>
+
+        <span class="c1"># If we have an option of root_shell we need to add ROOT_SHELL=1 into env</span>
+        <span class="c1"># so that the init script knows to start a root shell</span>
+        <span class="k">if</span> <span class="n">conf</span><span class="p">[</span><span class="s2">&quot;core&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;root_shell&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+            <span class="n">conf</span><span class="p">[</span><span class="s2">&quot;env&quot;</span><span class="p">][</span><span class="s2">&quot;ROOT_SHELL&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;1&quot;</span>
+            <span class="c1"># Print port info</span>
+            <span class="k">if</span> <span class="n">container_ip</span> <span class="o">:=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;CONTAINER_IP&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Root shell will be available at: </span><span class="si">{</span><span class="n">container_ip</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">telnet_port</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+                <span class="k">if</span> <span class="n">telnet_port</span> <span class="o">==</span> <span class="mi">23</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Connect with: telnet </span><span class="si">{</span><span class="n">container_ip</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Connect with: telnet </span><span class="si">{</span><span class="n">container_ip</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">telnet_port</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="p">)</span>
+            <span class="k">elif</span> <span class="n">container_name</span> <span class="o">:=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;CONTAINER_NAME&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Root shell will be available in container </span><span class="si">{</span><span class="n">container_name</span><span class="si">}</span><span class="s2"> on port </span><span class="si">{</span><span class="n">telnet_port</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+                <span class="k">if</span> <span class="n">telnet_port</span> <span class="o">==</span> <span class="mi">23</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Connect with: docker exec -it </span><span class="si">{</span><span class="n">container_name</span><span class="si">}</span><span class="s2"> telnet localhost&quot;</span>
+                    <span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Connect with: docker exec -it </span><span class="si">{</span><span class="n">container_name</span><span class="si">}</span><span class="s2"> telnet localhost </span><span class="si">{</span><span class="n">telnet_port</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Root shell enabled. Connect with docker exec -it [your_container_name] telnet localhost </span><span class="si">{</span><span class="n">telnet_port</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">conf</span><span class="p">[</span><span class="s2">&quot;core&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;graphics&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">container_ip</span> <span class="o">:=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;CONTAINER_IP&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;VNC @ </span><span class="si">{</span><span class="n">container_ip</span><span class="si">}</span><span class="s2">:5900 with password &#39;</span><span class="si">{</span><span class="n">vnc_password</span><span class="si">}</span><span class="s2">&#39;&quot;</span>
+                <span class="p">)</span>
+
+        <span class="c1"># Shared directory and core dumps both ride the single /igloo/shared 9p</span>
+        <span class="c1"># mount, but are independent features (see the helper for the mapping).</span>
+        <span class="n">cd_env</span><span class="p">,</span> <span class="n">deprecated_implicit</span> <span class="o">=</span> <span class="n">shared_dir_and_core_dump_env</span><span class="p">(</span>
+            <span class="n">conf</span><span class="p">[</span><span class="s2">&quot;core&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;shared_dir&quot;</span><span class="p">),</span> <span class="n">conf</span><span class="p">[</span><span class="s2">&quot;core&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;core_dumps&quot;</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">deprecated_implicit</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                <span class="s2">&quot;core.shared_dir implicitly enabled core dumps; this is &quot;</span>
+                <span class="s2">&quot;deprecated. Set core.core_dumps explicitly (true/false).&quot;</span>
+            <span class="p">)</span>
+        <span class="n">conf</span><span class="p">[</span><span class="s2">&quot;env&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">cd_env</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">conf</span><span class="p">[</span><span class="s2">&quot;core&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;strace&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">True</span><span class="p">:</span>
+            <span class="n">conf</span><span class="p">[</span><span class="s2">&quot;env&quot;</span><span class="p">][</span><span class="s2">&quot;STRACE&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;1&quot;</span>
+
+        <span class="k">if</span> <span class="n">conf</span><span class="p">[</span><span class="s2">&quot;core&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ltrace&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">True</span><span class="p">:</span>
+            <span class="n">conf</span><span class="p">[</span><span class="s2">&quot;env&quot;</span><span class="p">][</span><span class="s2">&quot;IGLOO_LTRACE&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;1&quot;</span>
+
+        <span class="k">if</span> <span class="n">conf</span><span class="p">[</span><span class="s2">&quot;core&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;force_www&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">conf</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;static_files&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
+                    <span class="s2">&quot;/igloo/utils/www_cmds&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                    <span class="s2">&quot;Force WWW unavailable - no webservers were statically identified (/igloo/utils/www_cmds is empty)&quot;</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">conf</span><span class="p">[</span><span class="s2">&quot;env&quot;</span><span class="p">][</span><span class="s2">&quot;WWW&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;1&quot;</span>
+
+        <span class="c1"># Add PROJ_NAME into env based on dirname of config</span>
+        <span class="k">if</span> <span class="n">proj_name</span> <span class="o">:=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_arg</span><span class="p">(</span><span class="s2">&quot;proj_name&quot;</span><span class="p">):</span>
+            <span class="n">conf</span><span class="p">[</span><span class="s2">&quot;env&quot;</span><span class="p">][</span><span class="s2">&quot;PROJ_NAME&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">proj_name</span>
+
+        <span class="c1"># Record loaded plugins</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outdir</span><span class="p">,</span> <span class="s2">&quot;core_plugins.yaml&quot;</span><span class="p">),</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">yaml</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">plugs</span><span class="p">))</span>  <span class="c1"># Names and args</span>
+
+        <span class="c1"># Record config in outdir, rendered like dump_config (octal modes, hex</span>
+        <span class="c1"># addresses); read back with CoreLoader (see manager.py).</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outdir</span><span class="p">,</span> <span class="s2">&quot;core_config.yaml&quot;</span><span class="p">),</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">yaml</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">common</span><span class="o">.</span><span class="n">style_config_for_dump</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_arg</span><span class="p">(</span><span class="s2">&quot;conf&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">args</span><span class="p">),</span>
+                              <span class="n">sort_keys</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">default_flow_style</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">width</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                              <span class="n">Dumper</span><span class="o">=</span><span class="n">common</span><span class="o">.</span><span class="n">CoreDumper</span><span class="p">))</span>
+
+        <span class="n">signal</span><span class="o">.</span><span class="n">signal</span><span class="p">(</span><span class="n">signal</span><span class="o">.</span><span class="n">SIGUSR1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">graceful_shutdown</span><span class="p">)</span>
+
+        <span class="c1"># Load the &quot;timeout&quot; plugin which is a misnomer - it&#39;s just going</span>
+        <span class="c1"># to report the number of blocks executed at shutdown.</span>
+        <span class="c1"># XXX bb_limit / unique_bbs break our pypanda based analyses</span>
+        <span class="c1"># because end_analysis is never called</span>
+
+        <span class="n">core_timeout</span> <span class="o">=</span> <span class="n">conf</span><span class="p">[</span><span class="s2">&quot;core&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;timeout&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">core_timeout</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># If a timeout is provided, enforce it</span>
+            <span class="n">timeout</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">core_timeout</span><span class="p">)</span>
+
+            <span class="c1"># Not supported in ng.</span>
+            <span class="c1"># Simple plugin that just counts the number of blocks executed</span>
+            <span class="c1"># Log info on how many blocks get executed</span>
+            <span class="c1"># log_path = self.outdir + &quot;/core_shutdown.csv&quot;</span>
+            <span class="c1"># panda.load_plugin(</span>
+            <span class="c1">#     &quot;timeout&quot;,</span>
+            <span class="c1">#     {</span>
+            <span class="c1">#         # &quot;bb_limit&quot;: BB_MAX,</span>
+            <span class="c1">#         # &#39;unique_bbs&#39;: UNIQUE,</span>
+            <span class="c1">#         &quot;log&quot;: log_path</span>
+            <span class="c1">#     },</span>
+            <span class="c1"># )</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">shutdown_event</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">shutdown_thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span>
+                <span class="n">target</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">shutdown_after_timeout</span><span class="p">,</span>
+                <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="n">timeout</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">shutdown_event</span><span class="p">),</span>
+            <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">shutdown_thread</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+<div class="viewcode-block" id="Core.shutdown_after_timeout">
+<a class="viewcode-back" href="../../../pyplugins.core.core.html#pyplugins.core.core.Core.shutdown_after_timeout">[docs]</a>
+    <span class="k">def</span> <span class="nf">shutdown_after_timeout</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">timeout</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">shutdown_event</span><span class="p">:</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Shutdown the emulation after a specified timeout.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            panda (Panda): The Panda emulation object.</span>
+<span class="sd">            timeout (int): Timeout in seconds before shutdown.</span>
+<span class="sd">            shutdown_event (threading.Event): Event to signal early shutdown.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">wait_time</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">while</span> <span class="n">wait_time</span> <span class="o">&lt;</span> <span class="n">timeout</span><span class="p">:</span>
+            <span class="c1"># Check if the event is set</span>
+            <span class="k">if</span> <span class="n">shutdown_event</span><span class="o">.</span><span class="n">is_set</span><span class="p">():</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                        <span class="s2">&quot;Shutdown thread: Guest shutdown detected, exiting thread.&quot;</span>
+                    <span class="p">)</span>
+                <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                    <span class="k">pass</span>  <span class="c1"># Can&#39;t print but it&#39;s not important</span>
+                <span class="k">return</span>
+
+            <span class="c1"># Sleep briefly</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">wait_time</span> <span class="o">+=</span> <span class="mi">1</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Shutdown thread: execution timed out after </span><span class="si">{</span><span class="n">timeout</span><span class="si">}</span><span class="s2">s - shutting down guest&quot;</span>
+            <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+            <span class="c1"># During shutdown, stdout might be closed!</span>
+            <span class="k">pass</span>
+
+        <span class="nb">open</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outdir</span><span class="p">,</span> <span class="s2">&quot;.ran&quot;</span><span class="p">),</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="c1"># Unload all plugins explicitly before ending analysis</span>
+        <span class="c1"># to ensure our uninit methods are called</span>
+        <span class="n">plugins</span><span class="o">.</span><span class="n">unload_all</span><span class="p">()</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">panda</span><span class="o">.</span><span class="n">end_analysis</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="Core.graceful_shutdown">
+<a class="viewcode-back" href="../../../pyplugins.core.core.html#pyplugins.core.core.Core.graceful_shutdown">[docs]</a>
+    <span class="k">def</span> <span class="nf">graceful_shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sig</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">frame</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Handle SIGUSR1 for graceful shutdown.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            sig (int): Signal number.</span>
+<span class="sd">            frame: Current stack frame.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Caught SIGUSR1 - gracefully shutdown emulation&quot;</span><span class="p">)</span>
+        <span class="nb">open</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outdir</span><span class="p">,</span> <span class="s2">&quot;.ran&quot;</span><span class="p">),</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="n">plugins</span><span class="o">.</span><span class="n">unload_all</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">panda</span><span class="o">.</span><span class="n">end_analysis</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="Core.uninit">
+<a class="viewcode-back" href="../../../pyplugins.core.core.html#pyplugins.core.core.Core.uninit">[docs]</a>
+    <span class="k">def</span> <span class="nf">uninit</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Perform cleanup and signal shutdown event if running.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Create .ran</span>
+        <span class="nb">open</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outdir</span><span class="p">,</span> <span class="s2">&quot;.ran&quot;</span><span class="p">),</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="n">plugins</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_arg</span><span class="p">(</span><span class="s2">&quot;plugins&quot;</span><span class="p">)</span>
+        <span class="c1"># Record loaded plugins</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outdir</span><span class="p">,</span> <span class="s2">&quot;core_plugins.yaml&quot;</span><span class="p">),</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">yaml</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">plugins</span><span class="p">))</span>  <span class="c1"># Names and args</span>
+
+        <span class="c1"># Record config in outdir, rendered like dump_config (octal modes, hex</span>
+        <span class="c1"># addresses); read back with CoreLoader (see manager.py).</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outdir</span><span class="p">,</span> <span class="s2">&quot;core_config.yaml&quot;</span><span class="p">),</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">yaml</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">common</span><span class="o">.</span><span class="n">style_config_for_dump</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_arg</span><span class="p">(</span><span class="s2">&quot;conf&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">args</span><span class="p">),</span>
+                              <span class="n">sort_keys</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">default_flow_style</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">width</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                              <span class="n">Dumper</span><span class="o">=</span><span class="n">common</span><span class="o">.</span><span class="n">CoreDumper</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;shutdown_event&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">shutdown_event</span><span class="o">.</span><span class="n">is_set</span><span class="p">():</span>
+            <span class="c1"># Tell the shutdown thread to exit if it was started</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">shutdown_event</span><span class="o">.</span><span class="n">set</span><span class="p">()</span></div>
+</div>
+
+</pre></div>
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          
+          
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer no-toc">
+      
+      
+      
+    </aside>
+  </div>
+</div><script src="../../../_static/documentation_options.js?v=8fbf7bea"></script>
+    <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/scripts/furo.js?v=46bd48cc"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=f281be69"></script>
+    </body>
+</html>

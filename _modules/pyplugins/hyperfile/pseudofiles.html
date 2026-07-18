@@ -1,0 +1,1170 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../../../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><link rel="index" title="Index" href="../../../genindex.html"><link rel="search" title="Search" href="../../../search.html">
+
+    <!-- Generated with Sphinx 8.1.3 and Furo 2025.12.19 -->
+        <title>pyplugins.hyperfile.pseudofiles - Penguin Docs</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=acfd86a5" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../../../index.html"><div class="brand">Penguin Docs</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../../../index.html">
+  
+  <span class="sidebar-brand-text">Penguin Docs</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../../../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Documentation</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/README.html">Penguin: Configuration Based Rehosting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/README.html#installation">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/README.html#learn-more-about-penguin">Learn more about Penguin</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/compose.html"><code class="docutils literal notranslate"><span class="pre">penguin</span> <span class="pre">compose</span></code> — Multi-Device Firmware Rehosting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/dev.html">Penguin Development Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/dev.html#example-local-kernel-development">Example: Local kernel development</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/kprobes.html">Kprobes Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/lib_inject.html">Library injection (<code class="docutils literal notranslate"><span class="pre">lib_inject</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/local_plugins.html">Local Plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/playbook.html">Penguin Playbook</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/plugin_args.html">Plugin arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/plugins.html">Penguin Plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/portal.html">Portal</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/pseudofile_models.html">Pseudofile model catalog</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/pyplugin_architecture.html">Plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/schema_doc.html">Penguin Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/scripts.html">Scripting Plugins in Penguin</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/singularity.html">Singularity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/syscalls.html">Syscalls Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/testing.html">Testing pyplugins host-side</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/uprobes.html">Uprobes Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/workflow.html">Example Rehosting Workflow</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Packages</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../penguin.html">penguin package</a><input aria-label="Toggle navigation of penguin package" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../penguin.penguin_config.html">penguin.penguin_config package</a><input aria-label="Toggle navigation of penguin.penguin_config package" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3 has-children"><a class="reference internal" href="../../../penguin.penguin_config.versions.html">penguin.penguin_config.versions package</a><input aria-label="Toggle navigation of penguin.penguin_config.versions package" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../penguin.penguin_config.versions.v2.html">penguin.penguin_config.versions.v2 module</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../penguin.penguin_config.errors.html">penguin.penguin_config.errors module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../penguin.penguin_config.gen_docs.html">penguin.penguin_config.gen_docs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../penguin.penguin_config.structure.html">penguin.penguin_config.structure module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../penguin.penguin_config.templating.html">penguin.penguin_config.templating module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../penguin.testing.html">penguin.testing package</a><input aria-label="Toggle navigation of penguin.testing package" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../penguin.testing.harness.html">penguin.testing.harness module</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.abi_info.html">penguin.abi_info module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.analyses.html">penguin.analyses module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.arch.html">penguin.arch module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.arch_registry.html">penguin.arch_registry module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.boot_env.html">penguin.boot_env module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.common.html">penguin.common module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.compose.html">penguin.compose module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.config_patchers.html">penguin.config_patchers module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.defaults.html">penguin.defaults module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.dropin_compile.html">penguin.dropin_compile module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.gen_config.html">penguin.gen_config module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.gen_image.html">penguin.gen_image module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.graphs.html">penguin.graphs module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.init_plugin.html">penguin.init_plugin module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.init_runner.html">penguin.init_runner module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.manager.html">penguin.manager module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.penguin_prep.html">penguin.penguin_prep module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.penguin_run.html">penguin.penguin_run module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.plugin_manager.html">penguin.plugin_manager module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.q_config.html">penguin.q_config module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.run_summary.html">penguin.run_summary module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.static_analyses.html">penguin.static_analyses module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.stubs.html">penguin.stubs module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.utils.html">penguin.utils module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.utils_cli.html">penguin.utils_cli module</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../pengutils.html">pengutils package</a><input aria-label="Toggle navigation of pengutils package" class="toctree-checkbox" id="toctree-checkbox-5" name="toctree-checkbox-5" role="switch" type="checkbox"/><label for="toctree-checkbox-5"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pengutils.events.html">pengutils.events package</a><input aria-label="Toggle navigation of pengutils.events package" class="toctree-checkbox" id="toctree-checkbox-6" name="toctree-checkbox-6" role="switch" type="checkbox"/><label for="toctree-checkbox-6"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.events.base.html">pengutils.events.base module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.events.types.html">pengutils.events.types module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pengutils.utils.html">pengutils.utils package</a><input aria-label="Toggle navigation of pengutils.utils package" class="toctree-checkbox" id="toctree-checkbox-7" name="toctree-checkbox-7" role="switch" type="checkbox"/><label for="toctree-checkbox-7"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_breakpoint.html">pengutils.utils.cli_breakpoint module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_db.html">pengutils.utils.cli_db module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_guest_cmd.html">pengutils.utils.cli_guest_cmd module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_pengutils.html">pengutils.utils.cli_pengutils module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_plugins.html">pengutils.utils.cli_plugins module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_snapshot.html">pengutils.utils.cli_snapshot module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.util_base.html">pengutils.utils.util_base module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.util_events.html">pengutils.utils.util_events module</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../pyplugins.html">pyplugins package</a><input aria-label="Toggle navigation of pyplugins package" class="toctree-checkbox" id="toctree-checkbox-8" name="toctree-checkbox-8" role="switch" type="checkbox"/><label for="toctree-checkbox-8"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.actuation.html">pyplugins.actuation package</a><input aria-label="Toggle navigation of pyplugins.actuation package" class="toctree-checkbox" id="toctree-checkbox-9" name="toctree-checkbox-9" role="switch" type="checkbox"/><label for="toctree-checkbox-9"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.actuation.fetch_web.html">pyplugins.actuation.fetch_web module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.actuation.nmap.html">pyplugins.actuation.nmap module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.actuation.vpn.html">pyplugins.actuation.vpn module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.analysis.html">pyplugins.analysis package</a><input aria-label="Toggle navigation of pyplugins.analysis package" class="toctree-checkbox" id="toctree-checkbox-10" name="toctree-checkbox-10" role="switch" type="checkbox"/><label for="toctree-checkbox-10"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.crashes.html">pyplugins.analysis.crashes module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.env.html">pyplugins.analysis.env module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.ficd.html">pyplugins.analysis.ficd module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.health.html">pyplugins.analysis.health module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.hooklogger.html">pyplugins.analysis.hooklogger module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.indiv_debug.html">pyplugins.analysis.indiv_debug module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.interfaces.html">pyplugins.analysis.interfaces module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.netbinds.html">pyplugins.analysis.netbinds module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.repl.html">pyplugins.analysis.repl module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.apis.html">pyplugins.apis package</a><input aria-label="Toggle navigation of pyplugins.apis package" class="toctree-checkbox" id="toctree-checkbox-11" name="toctree-checkbox-11" role="switch" type="checkbox"/><label for="toctree-checkbox-11"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.events.html">pyplugins.apis.events module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.execs.html">pyplugins.apis.execs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.fs.html">pyplugins.apis.fs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.hypercall.html">pyplugins.apis.hypercall module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.kffi.html">pyplugins.apis.kffi module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.kprobes.html">pyplugins.apis.kprobes module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.mem.html">pyplugins.apis.mem module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.net.html">pyplugins.apis.net module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.osi.html">pyplugins.apis.osi module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.portalcall.html">pyplugins.apis.portalcall module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.send_hypercall.html">pyplugins.apis.send_hypercall module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.signal_monitor.html">pyplugins.apis.signal_monitor module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.signals.html">pyplugins.apis.signals module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.static_fs.html">pyplugins.apis.static_fs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.symbols.html">pyplugins.apis.symbols module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.syscalls.html">pyplugins.apis.syscalls module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.unwind.html">pyplugins.apis.unwind module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.uprobes.html">pyplugins.apis.uprobes module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.compat.html">pyplugins.compat package</a><input aria-label="Toggle navigation of pyplugins.compat package" class="toctree-checkbox" id="toctree-checkbox-12" name="toctree-checkbox-12" role="switch" type="checkbox"/><label for="toctree-checkbox-12"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.compat.coverage.html">pyplugins.compat.coverage module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.compat.qemu_compat.html">pyplugins.compat.qemu_compat module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.core.html">pyplugins.core package</a><input aria-label="Toggle navigation of pyplugins.core package" class="toctree-checkbox" id="toctree-checkbox-13" name="toctree-checkbox-13" role="switch" type="checkbox"/><label for="toctree-checkbox-13"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.core.html">pyplugins.core.core module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.igloodriver.html">pyplugins.core.igloodriver module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.live_image.html">pyplugins.core.live_image module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.readiness.html">pyplugins.core.readiness module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.scope.html">pyplugins.core.scope module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.snapshot.html">pyplugins.core.snapshot module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.hyper.html">pyplugins.hyper package</a><input aria-label="Toggle navigation of pyplugins.hyper package" class="toctree-checkbox" id="toctree-checkbox-14" name="toctree-checkbox-14" role="switch" type="checkbox"/><label for="toctree-checkbox-14"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.bash_command.html">pyplugins.hyper.bash_command module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.canary.html">pyplugins.hyper.canary module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.consts.html">pyplugins.hyper.consts module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.portal.html">pyplugins.hyper.portal module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.shell.html">pyplugins.hyper.shell module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.uboot.html">pyplugins.hyper.uboot module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.hyperfile.html">pyplugins.hyperfile package</a><input aria-label="Toggle navigation of pyplugins.hyperfile package" class="toctree-checkbox" id="toctree-checkbox-15" name="toctree-checkbox-15" role="switch" type="checkbox"/><label for="toctree-checkbox-15"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.anonfs.html">pyplugins.hyperfile.anonfs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.devfs.html">pyplugins.hyperfile.devfs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.mtd.html">pyplugins.hyperfile.mtd module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.procfs.html">pyplugins.hyperfile.procfs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.pseudofile_tracker.html">pyplugins.hyperfile.pseudofile_tracker module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.pseudofiles.html">pyplugins.hyperfile.pseudofiles module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.qemu_mem.html">pyplugins.hyperfile.qemu_mem module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.sysctl.html">pyplugins.hyperfile.sysctl module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.sysfs.html">pyplugins.hyperfile.sysfs module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.interventions.html">pyplugins.interventions package</a><input aria-label="Toggle navigation of pyplugins.interventions package" class="toctree-checkbox" id="toctree-checkbox-16" name="toctree-checkbox-16" role="switch" type="checkbox"/><label for="toctree-checkbox-16"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.core_pattern_guard.html">pyplugins.interventions.core_pattern_guard module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.hyperfile.html">pyplugins.interventions.hyperfile module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.kernelversion.html">pyplugins.interventions.kernelversion module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.kmods.html">pyplugins.interventions.kmods module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.lifeguard.html">pyplugins.interventions.lifeguard module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.mount.html">pyplugins.interventions.mount module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.nvram2.html">pyplugins.interventions.nvram2 module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.remotectrl.html">pyplugins.interventions.remotectrl module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.symex.html">pyplugins.interventions.symex module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.loggers.html">pyplugins.loggers package</a><input aria-label="Toggle navigation of pyplugins.loggers package" class="toctree-checkbox" id="toctree-checkbox-17" name="toctree-checkbox-17" role="switch" type="checkbox"/><label for="toctree-checkbox-17"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.loggers.db.html">pyplugins.loggers.db module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.loggers.exec_logger.html">pyplugins.loggers.exec_logger module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.loggers.rw_logger.html">pyplugins.loggers.rw_logger module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.loggers.syscalls_logger.html">pyplugins.loggers.syscalls_logger module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.wrappers.html">pyplugins.wrappers package</a><input aria-label="Toggle navigation of pyplugins.wrappers package" class="toctree-checkbox" id="toctree-checkbox-18" name="toctree-checkbox-18" role="switch" type="checkbox"/><label for="toctree-checkbox-18"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.wrappers.generic.html">pyplugins.wrappers.generic module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.wrappers.osi_wrap.html">pyplugins.wrappers.osi_wrap module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.wrappers.ptregs_wrap.html">pyplugins.wrappers.ptregs_wrap module</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <h1>Source code for pyplugins.hyperfile.pseudofiles</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">importlib.util</span>
+<span class="kn">import</span> <span class="nn">inspect</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">from</span> <span class="nn">pydantic</span> <span class="kn">import</span> <span class="n">Field</span>
+<span class="kn">from</span> <span class="nn">penguin</span> <span class="kn">import</span> <span class="n">plugins</span><span class="p">,</span> <span class="n">Plugin</span><span class="p">,</span> <span class="n">PluginArgs</span><span class="p">,</span> <span class="n">getColoredLogger</span>
+<span class="kn">from</span> <span class="nn">penguin.plugin_manager</span> <span class="kn">import</span> <span class="n">find_plugin_by_name</span>
+<span class="kn">from</span> <span class="nn">hyperfile.models.base</span> <span class="kn">import</span> <span class="n">DevFile</span><span class="p">,</span> <span class="n">ProcFile</span><span class="p">,</span> <span class="n">SysFile</span><span class="p">,</span> <span class="n">SysfsBridge</span><span class="p">,</span> <span class="n">SysctlFile</span><span class="p">,</span> <span class="n">VFSFile</span>
+<span class="kn">from</span> <span class="nn">hyperfile.models.read</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ReadConstBuf</span><span class="p">,</span>
+    <span class="n">ReadConstMap</span><span class="p">,</span>
+    <span class="n">ReadConstMapFile</span><span class="p">,</span>
+    <span class="n">ReadCycle</span><span class="p">,</span>
+    <span class="n">ReadDefault</span><span class="p">,</span>
+    <span class="n">ReadEmpty</span><span class="p">,</span>
+    <span class="n">ReadExternalLegacy</span><span class="p">,</span>
+    <span class="n">ReadExternalVFS</span><span class="p">,</span>
+    <span class="n">ReadFromFile</span><span class="p">,</span>
+    <span class="n">ReadOne</span><span class="p">,</span>
+    <span class="n">ReadSequence</span><span class="p">,</span>
+    <span class="n">ReadStateful</span><span class="p">,</span>
+    <span class="n">ReadZero</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">hyperfile.models.write</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">WriteDefault</span><span class="p">,</span>
+    <span class="n">WriteExternalVFS</span><span class="p">,</span>
+    <span class="n">WriteExternalLegacy</span><span class="p">,</span>
+    <span class="n">WriteReturnConst</span><span class="p">,</span>
+    <span class="n">WriteToFile</span><span class="p">,</span>
+    <span class="n">WriteUnhandled</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">hyperfile.models.ioctl</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">IoctlDispatcher</span><span class="p">,</span>
+    <span class="n">CompatIoctlDispatcher</span><span class="p">,</span>
+    <span class="n">IoctlReturnConst</span><span class="p">,</span>
+    <span class="n">IoctlExternalVFS</span><span class="p">,</span>
+    <span class="n">IoctlExternalLegacy</span><span class="p">,</span>
+    <span class="n">IoctlWriteData</span><span class="p">,</span>
+    <span class="n">IoctlZero</span><span class="p">,</span>
+    <span class="n">IoctlPluginVFS</span><span class="p">,</span>
+    <span class="n">IoctlPluginLegacy</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">hyperfile.models.poll</span> <span class="kn">import</span> <span class="n">PollAlwaysReady</span><span class="p">,</span> <span class="n">PollExternalVFS</span>
+<span class="kn">from</span> <span class="nn">hyperfile.models.registry</span> <span class="kn">import</span> <span class="n">get_model</span>
+<span class="kn">from</span> <span class="nn">hyperfile.models.seek</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">SeekDefault</span><span class="p">,</span>
+    <span class="n">SeekUnsupported</span><span class="p">,</span>
+    <span class="n">SeekExternalVFS</span><span class="p">,</span>
+    <span class="n">OpenExternalVFS</span><span class="p">,</span>
+    <span class="n">ReleaseExternalVFS</span><span class="p">,</span>
+    <span class="n">MmapExternalVFS</span><span class="p">,</span>
+    <span class="n">FlushExternalVFS</span><span class="p">,</span>
+    <span class="n">FsyncExternalVFS</span><span class="p">,</span>
+    <span class="n">FasyncExternalVFS</span><span class="p">,</span>
+    <span class="n">LockExternalVFS</span><span class="p">,</span>
+    <span class="n">ReadIterExternalVFS</span><span class="p">,</span>
+    <span class="n">WriteIterExternalVFS</span><span class="p">,</span>
+    <span class="n">GetUnmappedAreaExternalVFS</span><span class="p">,</span>
+    <span class="n">CompatIoctlExternalVFS</span><span class="p">,</span>
+<span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">_LegacyDevSeekCompat</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Seek fallback for legacy dictionary-backed /dev pseudofiles with known size.</span>
+
+<span class="sd">    Provides only ``lseek``; the always-ready poll fallback lives in</span>
+<span class="sd">    :class:`~hyperfile.models.poll.PollAlwaysReady` so a known-size node can</span>
+<span class="sd">    keep seek support while still modelling poll() in a data-aware way.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">lseek</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ptregs</span><span class="p">,</span> <span class="n">file</span><span class="p">,</span> <span class="n">offset</span><span class="p">,</span> <span class="n">whence</span><span class="p">):</span>
+        <span class="n">offset_val</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">offset</span><span class="p">)</span>
+        <span class="n">whence_val</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">whence</span><span class="p">)</span>
+        <span class="n">size</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;SIZE&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+
+        <span class="n">cur</span> <span class="o">=</span> <span class="k">yield from</span> <span class="n">plugins</span><span class="o">.</span><span class="n">kffi</span><span class="o">.</span><span class="n">read_field</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="s2">&quot;struct file&quot;</span><span class="p">,</span> <span class="s2">&quot;f_pos&quot;</span><span class="p">)</span>
+        <span class="n">cur_val</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">cur</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">whence_val</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>  <span class="c1"># SEEK_SET</span>
+            <span class="n">new_offset</span> <span class="o">=</span> <span class="n">offset_val</span>
+        <span class="k">elif</span> <span class="n">whence_val</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>  <span class="c1"># SEEK_CUR</span>
+            <span class="n">new_offset</span> <span class="o">=</span> <span class="n">cur_val</span> <span class="o">+</span> <span class="n">offset_val</span>
+        <span class="k">elif</span> <span class="n">whence_val</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>  <span class="c1"># SEEK_END</span>
+            <span class="n">new_offset</span> <span class="o">=</span> <span class="n">size</span> <span class="o">+</span> <span class="n">offset_val</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ptregs</span><span class="o">.</span><span class="n">retval</span> <span class="o">=</span> <span class="o">-</span><span class="mi">22</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="n">new_offset</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">new_offset</span> <span class="o">&gt;</span> <span class="n">size</span><span class="p">:</span>
+            <span class="n">ptregs</span><span class="o">.</span><span class="n">retval</span> <span class="o">=</span> <span class="o">-</span><span class="mi">22</span>
+            <span class="k">return</span>
+
+        <span class="k">yield from</span> <span class="n">plugins</span><span class="o">.</span><span class="n">kffi</span><span class="o">.</span><span class="n">write_field</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="s2">&quot;struct file&quot;</span><span class="p">,</span> <span class="s2">&quot;f_pos&quot;</span><span class="p">,</span> <span class="n">new_offset</span><span class="p">)</span>
+        <span class="n">ptregs</span><span class="o">.</span><span class="n">retval</span> <span class="o">=</span> <span class="n">new_offset</span>
+
+
+<div class="viewcode-block" id="Pseudofiles">
+<a class="viewcode-back" href="../../../pyplugins.hyperfile.pseudofiles.html#pyplugins.hyperfile.pseudofiles.Pseudofiles">[docs]</a>
+<span class="k">class</span> <span class="nc">Pseudofiles</span><span class="p">(</span><span class="n">Plugin</span><span class="p">):</span>
+<div class="viewcode-block" id="Pseudofiles.Args">
+<a class="viewcode-back" href="../../../pyplugins.hyperfile.pseudofiles.html#pyplugins.hyperfile.pseudofiles.Pseudofiles.Args">[docs]</a>
+    <span class="k">class</span> <span class="nc">Args</span><span class="p">(</span><span class="n">PluginArgs</span><span class="p">):</span>
+        <span class="n">disable_tracking</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
+            <span class="n">default</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">description</span><span class="o">=</span><span class="s2">&quot;If true, do not initialize the pseudofile_tracker plugin alongside pseudofiles.&quot;</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_arg</span><span class="p">(</span><span class="s2">&quot;conf&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_tracking</span> <span class="o">=</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_arg_bool</span><span class="p">(</span><span class="s2">&quot;disable_tracking&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tracking</span><span class="p">:</span>
+            <span class="n">plugins</span><span class="o">.</span><span class="n">pseudofile_tracker</span><span class="o">.</span><span class="n">ensure_init</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_populate_hf_config</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_record_default_hit</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">op</span><span class="p">,</span> <span class="n">details</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Forward a default-model hit to the tracker&#39;s failures view.</span>
+
+<span class="sd">        No-op if the tracker is not loaded (e.g. disable_tracking).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tracking</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">tracker</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">plugins</span><span class="p">,</span> <span class="s2">&quot;pseudofile_tracker&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">tracker</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">tracker</span><span class="o">.</span><span class="n">record_default_hit</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">op</span><span class="p">,</span> <span class="n">details</span><span class="p">)</span>
+
+    <span class="c1"># 1. MAPPING LEGACY NAMES TO NEW CLASSES</span>
+    <span class="c1"># --------------------------------------</span>
+    <span class="n">read_models</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;zero&quot;</span><span class="p">:</span> <span class="n">ReadZero</span><span class="p">,</span>
+        <span class="s2">&quot;one&quot;</span><span class="p">:</span> <span class="n">ReadOne</span><span class="p">,</span>
+        <span class="s2">&quot;empty&quot;</span><span class="p">:</span> <span class="n">ReadEmpty</span><span class="p">,</span>
+        <span class="s2">&quot;const_buf&quot;</span><span class="p">:</span> <span class="n">ReadConstBuf</span><span class="p">,</span>
+        <span class="s2">&quot;const_map&quot;</span><span class="p">:</span> <span class="n">ReadConstMap</span><span class="p">,</span>
+        <span class="s2">&quot;const_map_file&quot;</span><span class="p">:</span> <span class="n">ReadConstMapFile</span><span class="p">,</span>
+        <span class="s2">&quot;cycle&quot;</span><span class="p">:</span> <span class="n">ReadCycle</span><span class="p">,</span>
+        <span class="s2">&quot;from_file&quot;</span><span class="p">:</span> <span class="n">ReadFromFile</span><span class="p">,</span>
+        <span class="s2">&quot;stateful&quot;</span><span class="p">:</span> <span class="n">ReadStateful</span><span class="p">,</span>
+        <span class="s2">&quot;sequence&quot;</span><span class="p">:</span> <span class="n">ReadSequence</span><span class="p">,</span>
+        <span class="s2">&quot;return_const&quot;</span><span class="p">:</span> <span class="n">ReadConstBuf</span><span class="p">,</span>  <span class="c1"># Legacy compatibility</span>
+        <span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="n">ReadDefault</span><span class="p">,</span>
+    <span class="p">}</span>
+
+    <span class="n">write_models</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;discard&quot;</span><span class="p">:</span> <span class="n">WriteDefault</span><span class="p">,</span>
+        <span class="s2">&quot;to_file&quot;</span><span class="p">:</span> <span class="n">WriteToFile</span><span class="p">,</span>
+        <span class="s2">&quot;return_const&quot;</span><span class="p">:</span> <span class="n">WriteReturnConst</span><span class="p">,</span>
+        <span class="s2">&quot;unhandled&quot;</span><span class="p">:</span> <span class="n">WriteUnhandled</span><span class="p">,</span>
+        <span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="n">WriteDefault</span><span class="p">,</span>
+    <span class="p">}</span>
+
+    <span class="n">ioctl_models</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;return_const&quot;</span><span class="p">:</span> <span class="n">IoctlReturnConst</span><span class="p">,</span>
+        <span class="s2">&quot;zero&quot;</span><span class="p">:</span> <span class="n">IoctlZero</span><span class="p">,</span>
+        <span class="c1"># &quot;symex&quot;: IoctlSymexMixin, # If you implement symex later</span>
+    <span class="p">}</span>
+
+    <span class="n">poll_models</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;always_ready&quot;</span><span class="p">:</span> <span class="n">PollAlwaysReady</span><span class="p">,</span>
+    <span class="p">}</span>
+
+    <span class="c1"># Per-operation models for the rest of the VFS surface. Each maps a model</span>
+    <span class="c1"># name to a mixin; &quot;from_plugin&quot; is handled via the adapter in EXTRA_OPS.</span>
+    <span class="c1"># An absent/None entry (e.g. open/release &quot;noop&quot;) leaves the base no-op,</span>
+    <span class="c1"># which is the kernel default — so omitting a domain is fully backwards</span>
+    <span class="c1"># compatible.</span>
+    <span class="n">seek_models</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="n">SeekDefault</span><span class="p">,</span>
+        <span class="s2">&quot;unsupported&quot;</span><span class="p">:</span> <span class="n">SeekUnsupported</span><span class="p">,</span>
+    <span class="p">}</span>
+    <span class="n">mmap_models</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">open_models</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">release_models</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="c1"># domain -&gt; (models_dict, from_plugin_adapter). The device-specific fops</span>
+    <span class="c1"># (flush/fsync/fasync/lock) wire only for /dev (and anonfs); read_iter /</span>
+    <span class="c1"># write_iter / get_unmapped_area are advanced fops. All are from_plugin-only.</span>
+    <span class="n">EXTRA_OPS</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;lseek&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">seek_models</span><span class="p">,</span> <span class="n">SeekExternalVFS</span><span class="p">),</span>
+        <span class="s2">&quot;mmap&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">mmap_models</span><span class="p">,</span> <span class="n">MmapExternalVFS</span><span class="p">),</span>
+        <span class="s2">&quot;open&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">open_models</span><span class="p">,</span> <span class="n">OpenExternalVFS</span><span class="p">),</span>
+        <span class="s2">&quot;release&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">release_models</span><span class="p">,</span> <span class="n">ReleaseExternalVFS</span><span class="p">),</span>
+        <span class="s2">&quot;flush&quot;</span><span class="p">:</span> <span class="p">({},</span> <span class="n">FlushExternalVFS</span><span class="p">),</span>
+        <span class="s2">&quot;fsync&quot;</span><span class="p">:</span> <span class="p">({},</span> <span class="n">FsyncExternalVFS</span><span class="p">),</span>
+        <span class="s2">&quot;fasync&quot;</span><span class="p">:</span> <span class="p">({},</span> <span class="n">FasyncExternalVFS</span><span class="p">),</span>
+        <span class="s2">&quot;lock&quot;</span><span class="p">:</span> <span class="p">({},</span> <span class="n">LockExternalVFS</span><span class="p">),</span>
+        <span class="s2">&quot;read_iter&quot;</span><span class="p">:</span> <span class="p">({},</span> <span class="n">ReadIterExternalVFS</span><span class="p">),</span>
+        <span class="s2">&quot;write_iter&quot;</span><span class="p">:</span> <span class="p">({},</span> <span class="n">WriteIterExternalVFS</span><span class="p">),</span>
+        <span class="s2">&quot;get_unmapped_area&quot;</span><span class="p">:</span> <span class="p">({},</span> <span class="n">GetUnmappedAreaExternalVFS</span><span class="p">),</span>
+    <span class="p">}</span>
+    <span class="c1"># Config keys consumed by per-domain resolution (excluded from the</span>
+    <span class="c1"># top-level file-property passthrough).</span>
+    <span class="n">_DOMAIN_KEYS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;read&quot;</span><span class="p">,</span> <span class="s2">&quot;write&quot;</span><span class="p">,</span> <span class="s2">&quot;ioctl&quot;</span><span class="p">,</span> <span class="s2">&quot;poll&quot;</span><span class="p">,</span> <span class="s2">&quot;plugin&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;lseek&quot;</span><span class="p">,</span> <span class="s2">&quot;seek&quot;</span><span class="p">,</span> <span class="s2">&quot;mmap&quot;</span><span class="p">,</span> <span class="s2">&quot;open&quot;</span><span class="p">,</span> <span class="s2">&quot;release&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;compat_ioctl&quot;</span><span class="p">,</span> <span class="s2">&quot;flush&quot;</span><span class="p">,</span> <span class="s2">&quot;fsync&quot;</span><span class="p">,</span> <span class="s2">&quot;fasync&quot;</span><span class="p">,</span> <span class="s2">&quot;lock&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;read_iter&quot;</span><span class="p">,</span> <span class="s2">&quot;write_iter&quot;</span><span class="p">,</span> <span class="s2">&quot;get_unmapped_area&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Built-in single-object backing classes, referenced by bare name in the</span>
+    <span class="c1"># file-level `plugin:` key. User backings use the `file:ClassName` form</span>
+    <span class="c1"># instead (resolved via the pyplugin search path).</span>
+    <span class="n">backing_models</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="k">def</span> <span class="nf">_translate_kwargs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">domain</span><span class="p">,</span> <span class="n">raw_config</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Converts schema keys (filename, plugin) to Mixin keys (read_filepath, write_plugin).</span>
+<span class="sd">        domain: &#39;read&#39;, &#39;write&#39;, or &#39;ioctl&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">new_kwargs</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="c1"># 0. Provenance (per-domain so read/write can each carry their own)</span>
+        <span class="k">if</span> <span class="s2">&quot;provenance&quot;</span> <span class="ow">in</span> <span class="n">raw_config</span><span class="p">:</span>
+            <span class="n">new_kwargs</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">domain</span><span class="si">}</span><span class="s2">_provenance&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">raw_config</span><span class="p">[</span><span class="s2">&quot;provenance&quot;</span><span class="p">]</span>
+
+        <span class="c1"># 1. Handle Plugins (collision prone)</span>
+        <span class="k">if</span> <span class="s2">&quot;plugin&quot;</span> <span class="ow">in</span> <span class="n">raw_config</span><span class="p">:</span>
+            <span class="n">new_kwargs</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">domain</span><span class="si">}</span><span class="s2">_plugin&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">raw_config</span><span class="p">[</span><span class="s2">&quot;plugin&quot;</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="s2">&quot;function&quot;</span> <span class="ow">in</span> <span class="n">raw_config</span><span class="p">:</span>
+            <span class="n">new_kwargs</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">domain</span><span class="si">}</span><span class="s2">_function&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">raw_config</span><span class="p">[</span><span class="s2">&quot;function&quot;</span><span class="p">]</span>
+
+        <span class="c1"># 2. Handle Filenames (collision prone)</span>
+        <span class="k">if</span> <span class="s2">&quot;filename&quot;</span> <span class="ow">in</span> <span class="n">raw_config</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">domain</span> <span class="o">==</span> <span class="s2">&quot;read&quot;</span><span class="p">:</span>
+                <span class="n">new_kwargs</span><span class="p">[</span><span class="s2">&quot;filename&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">raw_config</span><span class="p">[</span><span class="s2">&quot;filename&quot;</span><span class="p">]</span>
+            <span class="k">elif</span> <span class="n">domain</span> <span class="o">==</span> <span class="s2">&quot;write&quot;</span><span class="p">:</span>
+                <span class="n">new_kwargs</span><span class="p">[</span><span class="s2">&quot;write_filepath&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">raw_config</span><span class="p">[</span><span class="s2">&quot;filename&quot;</span><span class="p">]</span>
+
+        <span class="c1"># 3. Handle &#39;val&#39; (generic value)</span>
+        <span class="k">if</span> <span class="s2">&quot;val&quot;</span> <span class="ow">in</span> <span class="n">raw_config</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">domain</span> <span class="o">==</span> <span class="s2">&quot;read&quot;</span><span class="p">:</span>
+                <span class="c1"># const_buf uses &#39;buffer&#39; internally in ReadBufWrapper</span>
+                <span class="n">new_kwargs</span><span class="p">[</span><span class="s2">&quot;buffer&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">raw_config</span><span class="p">[</span><span class="s2">&quot;val&quot;</span><span class="p">]</span>
+            <span class="k">elif</span> <span class="n">domain</span> <span class="o">==</span> <span class="s2">&quot;ioctl&quot;</span><span class="p">:</span>
+                <span class="n">new_kwargs</span><span class="p">[</span><span class="s2">&quot;ioctl_retval&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">raw_config</span><span class="p">[</span><span class="s2">&quot;val&quot;</span><span class="p">]</span>
+
+        <span class="c1"># 4. Pass through non-conflicting keys (pad, size, etc)</span>
+        <span class="c1"># Careful: &#39;size&#39; might be used by both read maps and base file props.</span>
+        <span class="c1"># Usually BaseFile consumes &#39;size&#39; via kwargs last, so it&#39;s okay to pass through.</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">raw_config</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">k</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;plugin&quot;</span><span class="p">,</span> <span class="s2">&quot;function&quot;</span><span class="p">,</span> <span class="s2">&quot;filename&quot;</span><span class="p">,</span> <span class="s2">&quot;val&quot;</span><span class="p">,</span> <span class="s2">&quot;model&quot;</span><span class="p">,</span> <span class="s2">&quot;model_name&quot;</span><span class="p">,</span> <span class="s2">&quot;provenance&quot;</span><span class="p">]:</span>
+                <span class="n">new_kwargs</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">v</span>
+
+        <span class="k">return</span> <span class="n">new_kwargs</span>
+
+    <span class="k">def</span> <span class="nf">_detect_plugin_style</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">plugin_name</span><span class="p">,</span> <span class="n">func_name</span><span class="p">,</span> <span class="n">type_hint</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Introspects the target plugin function to determine if it matches</span>
+<span class="sd">        the legacy signature or the new VFS signature.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">plugin</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">plugins</span><span class="p">,</span> <span class="n">plugin_name</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">plugin</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Plugin &#39;</span><span class="si">{</span><span class="n">plugin_name</span><span class="si">}</span><span class="s2">&#39; not found/loaded.&quot;</span><span class="p">)</span>
+
+        <span class="n">func</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">plugin</span><span class="p">,</span> <span class="n">func_name</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">func</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Function &#39;</span><span class="si">{</span><span class="n">func_name</span><span class="si">}</span><span class="s2">&#39; not found in plugin &#39;</span><span class="si">{</span><span class="n">plugin_name</span><span class="si">}</span><span class="s2">&#39;.&quot;</span><span class="p">)</span>
+
+        <span class="n">sig</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">signature</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+        <span class="n">params</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">sig</span><span class="o">.</span><span class="n">parameters</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+
+        <span class="c1"># Filter out &#39;self&#39; if it&#39;s a bound method, though inspect usually handles this.</span>
+        <span class="c1"># We count positional arguments.</span>
+
+        <span class="c1"># SIGNATURE HEURISTICS based on your previous code:</span>
+        <span class="c1"># Read Legacy:  (self, filename, user_buf, size, offset, details=...) -&gt; 5 args + optional</span>
+        <span class="c1"># Read VFS:     (ptregs, file, user_buf, size, loff) -&gt; 5 args (no details kwarg usually)</span>
+
+        <span class="c1"># Write Legacy: (self, fname, user_buf, size, loff, buf, details) -&gt; 6 args</span>
+        <span class="c1"># Write VFS:    (ptregs, file, user_buf, size, loff) -&gt; 5 args</span>
+
+        <span class="c1"># Ioctl Legacy: (self, filename, cmd, arg, details) -&gt; 4 args</span>
+        <span class="c1"># Ioctl VFS:    (ptregs, file, cmd, arg) -&gt; 4 args</span>
+
+        <span class="c1"># Since arg counts overlap, we look for specific naming conventions</span>
+        <span class="c1"># or the presence of &#39;details&#39;/&#39;kwargs&#39; which legacy heavily relied on.</span>
+
+        <span class="n">param_names</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">params</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="n">type_hint</span> <span class="o">==</span> <span class="s2">&quot;read&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="s2">&quot;details&quot;</span> <span class="ow">in</span> <span class="n">param_names</span> <span class="ow">or</span> <span class="s2">&quot;filename&quot;</span> <span class="ow">in</span> <span class="n">param_names</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">ReadExternalLegacy</span>
+            <span class="k">return</span> <span class="n">ReadExternalVFS</span>
+
+        <span class="k">elif</span> <span class="n">type_hint</span> <span class="o">==</span> <span class="s2">&quot;write&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="s2">&quot;details&quot;</span> <span class="ow">in</span> <span class="n">param_names</span> <span class="ow">or</span> <span class="s2">&quot;buf&quot;</span> <span class="ow">in</span> <span class="n">param_names</span><span class="p">:</span>
+                <span class="c1"># Legacy took the buffer content as an arg (&#39;buf&#39;)</span>
+                <span class="k">return</span> <span class="n">WriteExternalLegacy</span>
+            <span class="k">return</span> <span class="n">WriteExternalVFS</span>
+
+        <span class="k">elif</span> <span class="n">type_hint</span> <span class="o">==</span> <span class="s2">&quot;ioctl&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="s2">&quot;details&quot;</span> <span class="ow">in</span> <span class="n">param_names</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">IoctlExternalLegacy</span>
+            <span class="k">return</span> <span class="n">IoctlExternalVFS</span>
+
+        <span class="k">elif</span> <span class="n">type_hint</span> <span class="o">==</span> <span class="s2">&quot;poll&quot;</span><span class="p">:</span>
+            <span class="c1"># Poll has no buffer/details distinction; only the VFS signature</span>
+            <span class="c1"># (ptregs, file, poll_table_struct) is supported.</span>
+            <span class="k">return</span> <span class="n">PollExternalVFS</span>
+
+        <span class="k">return</span> <span class="kc">None</span>
+
+    <span class="k">def</span> <span class="nf">_detect_plugin_style_ioctl</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">plugin_name</span><span class="p">,</span> <span class="n">func_name</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Inspects plugin to see if it uses legacy signature for IOCTL.</span>
+<span class="sd">        Returns: &#39;legacy&#39; or &#39;vfs&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">plugin</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">plugins</span><span class="p">,</span> <span class="n">plugin_name</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">plugin</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s1">&#39;vfs&#39;</span>
+        <span class="n">func</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">plugin</span><span class="p">,</span> <span class="n">func_name</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">func</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s1">&#39;vfs&#39;</span>
+
+        <span class="n">sig</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">signature</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+        <span class="n">params</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">sig</span><span class="o">.</span><span class="n">parameters</span><span class="o">.</span><span class="n">values</span><span class="p">()]</span>
+
+        <span class="k">if</span> <span class="s2">&quot;details&quot;</span> <span class="ow">in</span> <span class="n">params</span> <span class="ow">or</span> <span class="s2">&quot;filename&quot;</span> <span class="ow">in</span> <span class="n">params</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s1">&#39;legacy&#39;</span>
+        <span class="k">return</span> <span class="s1">&#39;vfs&#39;</span>
+
+    <span class="k">def</span> <span class="nf">_create_ioctl_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">details</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Creates a specific Handler object for one ioctl entry.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">model</span> <span class="o">=</span> <span class="n">details</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;model&quot;</span><span class="p">,</span> <span class="s2">&quot;return_const&quot;</span><span class="p">)</span>
+        <span class="n">provenance</span> <span class="o">=</span> <span class="n">details</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;provenance&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">model</span> <span class="o">==</span> <span class="s2">&quot;return_const&quot;</span><span class="p">:</span>
+            <span class="n">val</span> <span class="o">=</span> <span class="n">details</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;val&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">IoctlReturnConst</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="n">provenance</span><span class="o">=</span><span class="n">provenance</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">model</span> <span class="o">==</span> <span class="s2">&quot;zero&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">IoctlReturnConst</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">provenance</span><span class="o">=</span><span class="n">provenance</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">model</span> <span class="o">==</span> <span class="s2">&quot;unhandled&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">IoctlReturnConst</span><span class="p">(</span><span class="o">-</span><span class="mi">25</span><span class="p">,</span> <span class="n">provenance</span><span class="o">=</span><span class="n">provenance</span><span class="p">)</span>  <span class="c1"># -ENOTTY</span>
+
+        <span class="k">elif</span> <span class="n">model</span> <span class="o">==</span> <span class="s2">&quot;write_data&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">IoctlWriteData</span><span class="p">(</span><span class="n">details</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;data&quot;</span><span class="p">,</span> <span class="sa">b</span><span class="s2">&quot;&quot;</span><span class="p">),</span> <span class="n">details</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;val&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">provenance</span><span class="o">=</span><span class="n">provenance</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">model</span> <span class="o">==</span> <span class="s2">&quot;from_plugin&quot;</span><span class="p">:</span>
+            <span class="n">plugin_name</span> <span class="o">=</span> <span class="n">details</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;plugin&quot;</span><span class="p">)</span>
+            <span class="n">func_name</span> <span class="o">=</span> <span class="n">details</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;function&quot;</span><span class="p">,</span> <span class="s2">&quot;ioctl&quot;</span><span class="p">)</span>
+
+            <span class="n">style</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_detect_plugin_style_ioctl</span><span class="p">(</span><span class="n">plugin_name</span><span class="p">,</span> <span class="n">func_name</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">style</span> <span class="o">==</span> <span class="s2">&quot;legacy&quot;</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">IoctlPluginLegacy</span><span class="p">(</span><span class="n">plugin_name</span><span class="p">,</span> <span class="n">func_name</span><span class="p">,</span> <span class="n">details</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">IoctlPluginVFS</span><span class="p">(</span><span class="n">plugin_name</span><span class="p">,</span> <span class="n">func_name</span><span class="p">)</span>
+
+        <span class="c1"># Fallback</span>
+        <span class="k">return</span> <span class="n">IoctlReturnConst</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_normalize_ioctl_conf</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ioctl_conf</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Accept both legacy whole-operation ioctl models:</span>
+<span class="sd">            ioctl:</span>
+<span class="sd">              model: from_plugin</span>
+<span class="sd">              plugin: foo</span>
+<span class="sd">        and command-map models:</span>
+<span class="sd">            ioctl:</span>
+<span class="sd">              &quot;*&quot;:</span>
+<span class="sd">                model: return_const</span>
+<span class="sd">                val: 0</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">ioctl_conf</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="s2">&quot;model&quot;</span> <span class="ow">in</span> <span class="n">ioctl_conf</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;*&quot;</span><span class="p">:</span> <span class="n">ioctl_conf</span><span class="p">}</span>
+        <span class="k">return</span> <span class="n">ioctl_conf</span>
+
+    <span class="k">def</span> <span class="nf">_resolve_mixin</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">domain</span><span class="p">,</span> <span class="n">conf</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Determines the correct Mixin class to use.</span>
+<span class="sd">        If model == &#39;from_plugin&#39;, performs introspection.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">model_name</span> <span class="o">=</span> <span class="n">conf</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;model&quot;</span><span class="p">,</span> <span class="s2">&quot;default&quot;</span><span class="p">)</span>  <span class="c1"># e.g. &quot;zero&quot;, &quot;from_plugin&quot;</span>
+
+        <span class="c1"># 0. Handle a registered custom model (model: custom, model_name: foo)</span>
+        <span class="k">if</span> <span class="n">model_name</span> <span class="o">==</span> <span class="s2">&quot;custom&quot;</span><span class="p">:</span>
+            <span class="n">custom</span> <span class="o">=</span> <span class="n">get_model</span><span class="p">(</span><span class="n">domain</span><span class="p">,</span> <span class="n">conf</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;model_name&quot;</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">custom</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;No custom </span><span class="si">{</span><span class="n">domain</span><span class="si">}</span><span class="s2"> model named &#39;</span><span class="si">{</span><span class="n">conf</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;model_name&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&#39; &quot;</span>
+                    <span class="s2">&quot;registered (use @register_model in a loaded plugin)&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">custom</span>
+
+        <span class="c1"># 1. Handle Standard Models</span>
+        <span class="k">if</span> <span class="n">model_name</span> <span class="o">!=</span> <span class="s2">&quot;from_plugin&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">domain</span> <span class="o">==</span> <span class="s2">&quot;read&quot;</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">read_models</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">model_name</span><span class="p">,</span> <span class="n">ReadDefault</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">domain</span> <span class="o">==</span> <span class="s2">&quot;write&quot;</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">write_models</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">model_name</span><span class="p">,</span> <span class="n">WriteDefault</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">domain</span> <span class="o">==</span> <span class="s2">&quot;ioctl&quot;</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">ioctl_models</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">model_name</span><span class="p">,</span> <span class="n">IoctlZero</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">domain</span> <span class="o">==</span> <span class="s2">&quot;poll&quot;</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">poll_models</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">model_name</span><span class="p">,</span> <span class="n">PollAlwaysReady</span><span class="p">)</span>
+
+        <span class="c1"># 2. Handle &quot;from_plugin&quot;</span>
+        <span class="n">plugin_name</span> <span class="o">=</span> <span class="n">conf</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;plugin&quot;</span><span class="p">)</span>
+        <span class="c1"># Default function names if not provided</span>
+        <span class="n">default_funcs</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;read&quot;</span><span class="p">:</span> <span class="s2">&quot;read&quot;</span><span class="p">,</span> <span class="s2">&quot;write&quot;</span><span class="p">:</span> <span class="s2">&quot;write&quot;</span><span class="p">,</span> <span class="s2">&quot;ioctl&quot;</span><span class="p">:</span> <span class="s2">&quot;ioctl&quot;</span><span class="p">,</span> <span class="s2">&quot;poll&quot;</span><span class="p">:</span> <span class="s2">&quot;poll&quot;</span><span class="p">}</span>
+        <span class="n">func_name</span> <span class="o">=</span> <span class="n">conf</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;function&quot;</span><span class="p">,</span> <span class="n">default_funcs</span><span class="p">[</span><span class="n">domain</span><span class="p">])</span>
+
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_detect_plugin_style</span><span class="p">(</span><span class="n">plugin_name</span><span class="p">,</span> <span class="n">func_name</span><span class="p">,</span> <span class="n">domain</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_resolve_extra_ops</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">details</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Resolve mixins + kwargs for the extra VFS-op domains present in config.</span>
+
+<span class="sd">        Returns (bases, kwargs). A domain that is absent, or whose model has no</span>
+<span class="sd">        mixin (e.g. open/release &quot;noop&quot;), contributes nothing — the base</span>
+<span class="sd">        no-op (kernel default) stands, so this is backwards compatible.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">bases</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">domain</span><span class="p">,</span> <span class="p">(</span><span class="n">models</span><span class="p">,</span> <span class="n">adapter</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">EXTRA_OPS</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">conf</span> <span class="o">=</span> <span class="n">details</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">domain</span><span class="p">,</span> <span class="p">{})</span>
+            <span class="c1"># Accept &quot;seek&quot; as an alias for the &quot;lseek&quot; domain.</span>
+            <span class="k">if</span> <span class="n">domain</span> <span class="o">==</span> <span class="s2">&quot;lseek&quot;</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">conf</span><span class="p">:</span>
+                <span class="n">conf</span> <span class="o">=</span> <span class="n">details</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;seek&quot;</span><span class="p">,</span> <span class="p">{})</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">conf</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">model_name</span> <span class="o">=</span> <span class="n">conf</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;model&quot;</span><span class="p">,</span> <span class="s2">&quot;default&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">model_name</span> <span class="o">==</span> <span class="s2">&quot;from_plugin&quot;</span><span class="p">:</span>
+                <span class="n">mixin</span> <span class="o">=</span> <span class="n">adapter</span>
+            <span class="k">elif</span> <span class="n">model_name</span> <span class="o">==</span> <span class="s2">&quot;custom&quot;</span><span class="p">:</span>
+                <span class="n">mixin</span> <span class="o">=</span> <span class="n">get_model</span><span class="p">(</span><span class="n">domain</span><span class="p">,</span> <span class="n">conf</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;model_name&quot;</span><span class="p">))</span>
+                <span class="k">if</span> <span class="n">mixin</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;No custom </span><span class="si">{</span><span class="n">domain</span><span class="si">}</span><span class="s2"> model named &#39;</span><span class="si">{</span><span class="n">conf</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;model_name&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&#39; &quot;</span>
+                        <span class="s2">&quot;registered (use @register_model in a loaded plugin)&quot;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">mixin</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">model_name</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">mixin</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">bases</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mixin</span><span class="p">)</span>
+            <span class="n">kwargs</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_translate_kwargs</span><span class="p">(</span><span class="n">domain</span><span class="p">,</span> <span class="n">conf</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">bases</span><span class="p">,</span> <span class="n">kwargs</span>
+
+    <span class="k">def</span> <span class="nf">_resolve_known_size</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">details</span><span class="p">,</span> <span class="n">read_conf</span><span class="p">):</span>
+        <span class="k">if</span> <span class="s2">&quot;size&quot;</span> <span class="ow">in</span> <span class="n">details</span> <span class="ow">and</span> <span class="n">details</span><span class="p">[</span><span class="s2">&quot;size&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">details</span><span class="p">[</span><span class="s2">&quot;size&quot;</span><span class="p">])</span>
+            <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">):</span>
+                <span class="k">return</span> <span class="kc">None</span>
+
+        <span class="n">model_name</span> <span class="o">=</span> <span class="n">read_conf</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;model&quot;</span><span class="p">,</span> <span class="s2">&quot;default&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">model_name</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;const_buf&quot;</span><span class="p">,</span> <span class="s2">&quot;return_const&quot;</span><span class="p">):</span>
+            <span class="n">val</span> <span class="o">=</span> <span class="n">read_conf</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;val&quot;</span><span class="p">,</span> <span class="sa">b</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">):</span>
+                <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+            <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">val</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="n">model_name</span> <span class="o">==</span> <span class="s2">&quot;empty&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">0</span>
+
+        <span class="k">if</span> <span class="n">model_name</span> <span class="o">==</span> <span class="s2">&quot;zero&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">1</span>
+
+        <span class="k">if</span> <span class="n">model_name</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;const_map&quot;</span><span class="p">,</span> <span class="s2">&quot;const_map_file&quot;</span><span class="p">):</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="n">read_conf</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;size&quot;</span><span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">size</span><span class="p">)</span>
+            <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">):</span>
+                <span class="k">return</span> <span class="kc">None</span>
+
+        <span class="k">if</span> <span class="n">model_name</span> <span class="o">==</span> <span class="s2">&quot;from_file&quot;</span><span class="p">:</span>
+            <span class="n">host_path</span> <span class="o">=</span> <span class="n">read_conf</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;filename&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">host_path</span><span class="p">:</span>
+                <span class="k">return</span> <span class="kc">None</span>
+
+            <span class="n">proj_dir</span> <span class="o">=</span> <span class="n">plugins</span><span class="o">.</span><span class="n">get_arg</span><span class="p">(</span><span class="s2">&quot;proj_dir&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isabs</span><span class="p">(</span><span class="n">host_path</span><span class="p">)</span> <span class="ow">and</span> <span class="n">proj_dir</span><span class="p">:</span>
+                <span class="n">host_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">proj_dir</span><span class="p">,</span> <span class="n">host_path</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">host_path</span><span class="p">):</span>
+                <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">getsize</span><span class="p">(</span><span class="n">host_path</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+        <span class="k">return</span> <span class="kc">None</span>
+
+    <span class="k">def</span> <span class="nf">_get_compat_bases</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">details</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Seek (lseek) compat for known-size /dev nodes.</span>
+
+<span class="sd">        Poll is resolved separately (see ``_resolve_poll_mixin``) so a</span>
+<span class="sd">        known-size node can keep seek support while still answering poll() in a</span>
+<span class="sd">        data-aware way.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">filename</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;/dev/&quot;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="p">[]</span>
+
+        <span class="n">read_conf</span> <span class="o">=</span> <span class="n">details</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;read&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="n">known_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_resolve_known_size</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">details</span><span class="p">,</span> <span class="n">read_conf</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">known_size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">details</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;size&quot;</span><span class="p">,</span> <span class="n">known_size</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">[</span><span class="n">_LegacyDevSeekCompat</span><span class="p">]</span>
+        <span class="k">return</span> <span class="p">[]</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">_overrides_poll</span><span class="p">(</span><span class="bp">cls</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;True if ``cls`` provides its own poll() (not the VFSFile stub).</span>
+
+<span class="sd">        A backing class with no ``poll`` at all counts as &quot;does not override&quot;,</span>
+<span class="sd">        so a /dev node falls back to the legacy always-ready poll.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">meth</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;poll&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">meth</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+        <span class="n">base_meth</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">VFSFile</span><span class="p">,</span> <span class="s2">&quot;poll&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">meth</span><span class="p">,</span> <span class="s2">&quot;__code__&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">base_meth</span><span class="p">,</span> <span class="s2">&quot;__code__&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_resolve_poll_mixin</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">details</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Resolve the poll mixin + its kwargs for the per-domain form.</span>
+
+<span class="sd">        - explicit ``poll:`` domain -&gt; the resolved poll mixin,</span>
+<span class="sd">        - else /dev with no poll config -&gt; PollAlwaysReady (legacy fallback),</span>
+<span class="sd">        - else (e.g. /proc/sys) -&gt; None (falls through to the VFSFile stub).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">poll_conf</span> <span class="o">=</span> <span class="n">details</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;poll&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">if</span> <span class="n">poll_conf</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_resolve_mixin</span><span class="p">(</span><span class="s2">&quot;poll&quot;</span><span class="p">,</span> <span class="n">poll_conf</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">_translate_kwargs</span><span class="p">(</span><span class="s2">&quot;poll&quot;</span><span class="p">,</span> <span class="n">poll_conf</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">filename</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;/dev/&quot;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">PollAlwaysReady</span><span class="p">,</span> <span class="p">{}</span>
+        <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="p">{}</span>
+
+    <span class="k">def</span> <span class="nf">_import_backing_module</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">):</span>
+        <span class="n">mod_name</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;pseudofile_backing_</span><span class="si">{</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">path</span><span class="p">))[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">spec</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">spec_from_file_location</span><span class="p">(</span><span class="n">mod_name</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
+        <span class="n">module</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">module_from_spec</span><span class="p">(</span><span class="n">spec</span><span class="p">)</span>
+        <span class="c1"># Mirror plugin_manager.load_all: inject the common globals so a backing</span>
+        <span class="c1"># file can use `plugins`/`logger` without importing them explicitly.</span>
+        <span class="n">module</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
+            <span class="s2">&quot;plugins&quot;</span><span class="p">:</span> <span class="n">plugins</span><span class="p">,</span>
+            <span class="s2">&quot;logger&quot;</span><span class="p">:</span> <span class="n">getColoredLogger</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;plugins.</span><span class="si">{</span><span class="n">mod_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">),</span>
+        <span class="p">})</span>
+        <span class="n">spec</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">exec_module</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">module</span>
+
+    <span class="k">def</span> <span class="nf">_resolve_backing_class</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ref</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Resolve a file-level ``plugin:`` backing reference to a class.</span>
+
+<span class="sd">        ``file:ClassName`` finds ``file.py`` on the pyplugin search path and</span>
+<span class="sd">        pulls ``ClassName`` from it; a bare name resolves against the built-in</span>
+<span class="sd">        ``backing_models`` registry.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="s2">&quot;:&quot;</span> <span class="ow">in</span> <span class="n">ref</span><span class="p">:</span>
+            <span class="n">file_token</span><span class="p">,</span> <span class="n">cls_name</span> <span class="o">=</span> <span class="n">ref</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="n">path</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">find_plugin_by_name</span><span class="p">(</span>
+                <span class="n">file_token</span><span class="p">,</span>
+                <span class="n">plugins</span><span class="o">.</span><span class="n">get_arg</span><span class="p">(</span><span class="s2">&quot;proj_dir&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+                <span class="n">plugins</span><span class="o">.</span><span class="n">get_arg</span><span class="p">(</span><span class="s2">&quot;plugin_path&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">module</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_import_backing_module</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+            <span class="bp">cls</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">cls_name</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">cls</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Backing class &#39;</span><span class="si">{</span><span class="n">cls_name</span><span class="si">}</span><span class="s2">&#39; not found in &#39;</span><span class="si">{</span><span class="n">file_token</span><span class="si">}</span><span class="s2">&#39; (</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="bp">cls</span>
+        <span class="k">if</span> <span class="n">ref</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">backing_models</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">backing_models</span><span class="p">[</span><span class="n">ref</span><span class="p">]</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Unknown pseudofile backing &#39;</span><span class="si">{</span><span class="n">ref</span><span class="si">}</span><span class="s2">&#39; &quot;</span>
+            <span class="s2">&quot;(use &#39;file:ClassName&#39; to reference a user class)&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_create_backing_class</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">details</span><span class="p">,</span> <span class="n">BaseClass</span><span class="p">,</span> <span class="n">backing_ref</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build a node whose whole fop surface is owned by one backing class.&quot;&quot;&quot;</span>
+        <span class="n">BackingClass</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_resolve_backing_class</span><span class="p">(</span><span class="n">backing_ref</span><span class="p">)</span>
+
+        <span class="n">safe_name</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Gen_</span><span class="si">{</span><span class="n">filename</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;/&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;_&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">bases</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_get_compat_bases</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">details</span><span class="p">))</span>
+        <span class="c1"># Legacy always-ready fallback only when the backing doesn&#39;t model poll.</span>
+        <span class="k">if</span> <span class="n">filename</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;/dev/&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_overrides_poll</span><span class="p">(</span><span class="n">BackingClass</span><span class="p">):</span>
+            <span class="n">bases</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">PollAlwaysReady</span><span class="p">)</span>
+        <span class="n">bases</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">BackingClass</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">BaseClass</span> <span class="ow">is</span> <span class="n">SysFile</span><span class="p">:</span>
+            <span class="n">bases</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">SysfsBridge</span><span class="p">)</span>
+        <span class="n">bases</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">BaseClass</span><span class="p">)</span>
+
+        <span class="n">all_kwargs</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;path&#39;</span><span class="p">:</span> <span class="n">filename</span><span class="p">,</span> <span class="s1">&#39;fs&#39;</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">BaseClass</span><span class="p">,</span> <span class="s1">&#39;FS&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)}</span>
+        <span class="c1"># Forward top-level file properties (size, mode, name, ...); the</span>
+        <span class="c1"># per-domain read/write/ioctl/poll keys and the backing ref itself are</span>
+        <span class="c1"># owned by the backing class, not passed through.</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">details</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_DOMAIN_KEYS</span><span class="p">:</span>
+                <span class="n">all_kwargs</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">val</span>
+
+        <span class="k">return</span> <span class="nb">type</span><span class="p">(</span><span class="n">safe_name</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">bases</span><span class="p">),</span> <span class="p">{})(</span><span class="o">**</span><span class="n">all_kwargs</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_create_dynamic_class</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">details</span><span class="p">,</span> <span class="n">BaseClass</span><span class="p">):</span>
+        <span class="c1"># First-class single-object backing: one class owns read/write/ioctl/poll.</span>
+        <span class="n">backing_ref</span> <span class="o">=</span> <span class="n">details</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;plugin&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">backing_ref</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_backing_class</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">details</span><span class="p">,</span> <span class="n">BaseClass</span><span class="p">,</span> <span class="n">backing_ref</span><span class="p">)</span>
+
+        <span class="n">read_conf</span> <span class="o">=</span> <span class="n">details</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;read&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="n">write_conf</span> <span class="o">=</span> <span class="n">details</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;write&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="n">ioctl_conf</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_normalize_ioctl_conf</span><span class="p">(</span><span class="n">details</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ioctl&quot;</span><span class="p">,</span> <span class="p">{}))</span>
+
+        <span class="c1"># Resolve Classes</span>
+        <span class="n">R_Mixin</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_resolve_mixin</span><span class="p">(</span><span class="s2">&quot;read&quot;</span><span class="p">,</span> <span class="n">read_conf</span><span class="p">)</span>
+        <span class="n">W_Mixin</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_resolve_mixin</span><span class="p">(</span><span class="s2">&quot;write&quot;</span><span class="p">,</span> <span class="n">write_conf</span><span class="p">)</span>
+        <span class="n">P_Mixin</span><span class="p">,</span> <span class="n">p_kwargs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_resolve_poll_mixin</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">details</span><span class="p">)</span>
+
+        <span class="c1"># Resolve Ioctl Handlers</span>
+        <span class="n">handlers_map</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">cmd_key</span><span class="p">,</span> <span class="n">cmd_details</span> <span class="ow">in</span> <span class="n">ioctl_conf</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">cmd_key</span> <span class="o">!=</span> <span class="s2">&quot;*&quot;</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">cmd_key</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">cmd_key</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                    <span class="k">pass</span>
+            <span class="n">handlers_map</span><span class="p">[</span><span class="n">cmd_key</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_ioctl_handler</span><span class="p">(</span><span class="n">cmd_details</span><span class="p">)</span>
+
+        <span class="c1"># Translate Args (as defined in previous turn)</span>
+        <span class="n">r_kwargs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_translate_kwargs</span><span class="p">(</span><span class="s2">&quot;read&quot;</span><span class="p">,</span> <span class="n">read_conf</span><span class="p">)</span>
+        <span class="n">w_kwargs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_translate_kwargs</span><span class="p">(</span><span class="s2">&quot;write&quot;</span><span class="p">,</span> <span class="n">write_conf</span><span class="p">)</span>
+
+        <span class="c1"># Resolve extra VFS ops (lseek/mmap/open/release/flush/fsync/...)</span>
+        <span class="n">extra_bases</span><span class="p">,</span> <span class="n">extra_kwargs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_resolve_extra_ops</span><span class="p">(</span><span class="n">details</span><span class="p">)</span>
+
+        <span class="c1"># compat_ioctl: &#39;same_as_ioctl&#39; reuses the ioctl handler map; otherwise</span>
+        <span class="c1"># &#39;from_plugin&#39; routes to a plugin. Handled here (not in EXTRA_OPS)</span>
+        <span class="c1"># because same_as_ioctl needs the handlers_map built above.</span>
+        <span class="n">compat_conf</span> <span class="o">=</span> <span class="n">details</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;compat_ioctl&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">compat_conf</span><span class="p">:</span>
+            <span class="n">compat_model</span> <span class="o">=</span> <span class="n">compat_conf</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;model&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">compat_model</span> <span class="o">==</span> <span class="s2">&quot;same_as_ioctl&quot;</span><span class="p">:</span>
+                <span class="n">extra_bases</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">CompatIoctlDispatcher</span><span class="p">)</span>
+                <span class="n">extra_kwargs</span><span class="p">[</span><span class="s2">&quot;compat_ioctl_handlers&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">handlers_map</span>
+            <span class="k">elif</span> <span class="n">compat_model</span> <span class="o">==</span> <span class="s2">&quot;from_plugin&quot;</span><span class="p">:</span>
+                <span class="n">extra_bases</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">CompatIoctlExternalVFS</span><span class="p">)</span>
+                <span class="n">extra_kwargs</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_translate_kwargs</span><span class="p">(</span><span class="s2">&quot;compat_ioctl&quot;</span><span class="p">,</span> <span class="n">compat_conf</span><span class="p">))</span>
+
+        <span class="c1"># Assemble. Extra-op mixins go FIRST so an explicit lseek/mmap/etc.</span>
+        <span class="c1"># model wins over the _LegacyDevSeekCompat fallback (which also defines</span>
+        <span class="c1"># lseek) in the compat bases.</span>
+        <span class="n">safe_name</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Gen_</span><span class="si">{</span><span class="n">filename</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;/&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;_&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">bases</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">extra_bases</span><span class="p">)</span>
+        <span class="n">bases</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_get_compat_bases</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">details</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">P_Mixin</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">bases</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">P_Mixin</span><span class="p">)</span>
+        <span class="n">bases</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="n">R_Mixin</span><span class="p">,</span> <span class="n">W_Mixin</span><span class="p">,</span> <span class="n">IoctlDispatcher</span><span class="p">])</span>
+
+        <span class="k">if</span> <span class="n">BaseClass</span> <span class="ow">is</span> <span class="n">SysFile</span><span class="p">:</span>
+            <span class="n">bases</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">SysfsBridge</span><span class="p">)</span>
+        <span class="n">bases</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">BaseClass</span><span class="p">)</span>
+
+        <span class="n">all_kwargs</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">r_kwargs</span><span class="p">,</span> <span class="o">**</span><span class="n">w_kwargs</span><span class="p">,</span> <span class="o">**</span><span class="n">p_kwargs</span><span class="p">,</span> <span class="o">**</span><span class="n">extra_kwargs</span><span class="p">}</span>
+        <span class="n">all_kwargs</span><span class="p">[</span><span class="s1">&#39;ioctl_handlers&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">handlers_map</span>
+        <span class="n">all_kwargs</span><span class="p">[</span><span class="s1">&#39;path&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">filename</span>
+        <span class="n">all_kwargs</span><span class="p">[</span><span class="s1">&#39;fs&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">BaseClass</span><span class="p">,</span> <span class="s1">&#39;FS&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tracking</span><span class="p">:</span>
+            <span class="n">all_kwargs</span><span class="p">[</span><span class="s1">&#39;default_hit_cb&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_default_hit</span>
+
+        <span class="c1"># --- Compatibility bridge for SysctlFile ---</span>
+        <span class="c1"># If the old config uses a const_buf read mixin to set a static sysctl value,</span>
+        <span class="c1"># map it to INITIAL_VALUE so the C driver can natively handle it.</span>
+        <span class="k">if</span> <span class="n">BaseClass</span> <span class="ow">is</span> <span class="n">SysctlFile</span> <span class="ow">and</span> <span class="s2">&quot;buffer&quot;</span> <span class="ow">in</span> <span class="n">r_kwargs</span><span class="p">:</span>
+            <span class="n">all_kwargs</span><span class="p">[</span><span class="s2">&quot;INITIAL_VALUE&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">r_kwargs</span><span class="p">[</span><span class="s2">&quot;buffer&quot;</span><span class="p">])</span>
+
+        <span class="c1"># Capture top-level file properties (size, mode, etc.)</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">details</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_DOMAIN_KEYS</span><span class="p">:</span>
+                <span class="n">all_kwargs</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">val</span>
+        <span class="c1"># -----------------------------------------------------------------</span>
+
+        <span class="k">return</span> <span class="nb">type</span><span class="p">(</span><span class="n">safe_name</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">bases</span><span class="p">),</span> <span class="p">{})(</span><span class="o">**</span><span class="n">all_kwargs</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_populate_hf_config</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="ow">or</span> <span class="s2">&quot;pseudofiles&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="k">for</span> <span class="n">filename</span><span class="p">,</span> <span class="n">details</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;pseudofiles&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="c1"># Ignore MTD devices; they are handled natively by mtd.py and portal_mtd.c</span>
+            <span class="k">if</span> <span class="n">filename</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;/dev/mtd&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">filename</span> <span class="o">==</span> <span class="s2">&quot;/proc/mtd&quot;</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Ignoring </span><span class="si">{</span><span class="n">filename</span><span class="si">}</span><span class="s2"> in pseudofiles (deferred to native MTD subsystem)&quot;</span><span class="p">)</span>
+                <span class="n">plugins</span><span class="o">.</span><span class="n">mtd</span><span class="o">.</span><span class="n">ensure_init</span><span class="p">()</span>
+                <span class="k">continue</span>
+
+            <span class="c1"># Determine Base Class and Registerer based on path prefix</span>
+            <span class="k">if</span> <span class="n">filename</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;/proc/sys/&quot;</span><span class="p">):</span>
+                <span class="n">BaseClass</span> <span class="o">=</span> <span class="n">SysctlFile</span>
+                <span class="n">registrar</span> <span class="o">=</span> <span class="n">plugins</span><span class="o">.</span><span class="n">sysctl</span><span class="o">.</span><span class="n">register_sysctl</span>
+            <span class="k">elif</span> <span class="n">filename</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;/proc/&quot;</span><span class="p">):</span>
+                <span class="n">BaseClass</span> <span class="o">=</span> <span class="n">ProcFile</span>
+                <span class="n">registrar</span> <span class="o">=</span> <span class="n">plugins</span><span class="o">.</span><span class="n">procfs</span><span class="o">.</span><span class="n">register_proc</span>
+            <span class="k">elif</span> <span class="n">filename</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;/dev/&quot;</span><span class="p">):</span>
+                <span class="n">BaseClass</span> <span class="o">=</span> <span class="n">DevFile</span>
+                <span class="n">registrar</span> <span class="o">=</span> <span class="n">plugins</span><span class="o">.</span><span class="n">devfs</span><span class="o">.</span><span class="n">register_devfs</span>
+            <span class="k">elif</span> <span class="n">filename</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;/sys/&quot;</span><span class="p">):</span>
+                <span class="c1"># Sysfs uses show/store, so read/write mixins might need</span>
+                <span class="c1"># the SysfsAdapterMixin we discussed earlier, or SysFile needs</span>
+                <span class="c1"># to map read-&gt;show internally.</span>
+                <span class="n">BaseClass</span> <span class="o">=</span> <span class="n">SysFile</span>
+                <span class="n">registrar</span> <span class="o">=</span> <span class="n">plugins</span><span class="o">.</span><span class="n">sysfs</span><span class="o">.</span><span class="n">register_sysfs</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Unknown path type for </span><span class="si">{</span><span class="n">filename</span><span class="si">}</span><span class="s2">, skipping.&quot;</span><span class="p">)</span>
+                <span class="k">continue</span>
+            <span class="c1"># Create the object</span>
+            <span class="n">instance</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_dynamic_class</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">details</span><span class="p">,</span> <span class="n">BaseClass</span><span class="p">)</span>
+
+            <span class="c1"># Register it</span>
+            <span class="c1"># Note: Some legacy configs might have specific devfs major/minors</span>
+            <span class="c1"># defined in &#39;details&#39;. You can extract them and pass them here.</span>
+            <span class="n">registrar</span><span class="p">(</span><span class="n">instance</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="n">filename</span><span class="p">)</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Dynamically registered </span><span class="si">{</span><span class="n">filename</span><span class="si">}</span><span class="s2"> as </span><span class="si">{</span><span class="n">instance</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+</pre></div>
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          
+          
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer no-toc">
+      
+      
+      
+    </aside>
+  </div>
+</div><script src="../../../_static/documentation_options.js?v=8fbf7bea"></script>
+    <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/scripts/furo.js?v=46bd48cc"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=f281be69"></script>
+    </body>
+</html>

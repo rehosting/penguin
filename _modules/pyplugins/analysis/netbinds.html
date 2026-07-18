@@ -1,0 +1,1363 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../../../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><link rel="index" title="Index" href="../../../genindex.html"><link rel="search" title="Search" href="../../../search.html">
+
+    <!-- Generated with Sphinx 8.1.3 and Furo 2025.12.19 -->
+        <title>pyplugins.analysis.netbinds - Penguin Docs</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=acfd86a5" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../../../index.html"><div class="brand">Penguin Docs</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../../../index.html">
+  
+  <span class="sidebar-brand-text">Penguin Docs</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../../../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Documentation</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/README.html">Penguin: Configuration Based Rehosting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/README.html#installation">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/README.html#learn-more-about-penguin">Learn more about Penguin</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/compose.html"><code class="docutils literal notranslate"><span class="pre">penguin</span> <span class="pre">compose</span></code> — Multi-Device Firmware Rehosting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/dev.html">Penguin Development Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/dev.html#example-local-kernel-development">Example: Local kernel development</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/kprobes.html">Kprobes Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/lib_inject.html">Library injection (<code class="docutils literal notranslate"><span class="pre">lib_inject</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/local_plugins.html">Local Plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/playbook.html">Penguin Playbook</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/plugin_args.html">Plugin arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/plugins.html">Penguin Plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/portal.html">Portal</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/pseudofile_models.html">Pseudofile model catalog</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/pyplugin_architecture.html">Plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/schema_doc.html">Penguin Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/scripts.html">Scripting Plugins in Penguin</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/singularity.html">Singularity</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/syscalls.html">Syscalls Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/testing.html">Testing pyplugins host-side</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/uprobes.html">Uprobes Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docs/workflow.html">Example Rehosting Workflow</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Packages</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../penguin.html">penguin package</a><input aria-label="Toggle navigation of penguin package" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../penguin.penguin_config.html">penguin.penguin_config package</a><input aria-label="Toggle navigation of penguin.penguin_config package" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3 has-children"><a class="reference internal" href="../../../penguin.penguin_config.versions.html">penguin.penguin_config.versions package</a><input aria-label="Toggle navigation of penguin.penguin_config.versions package" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../penguin.penguin_config.versions.v2.html">penguin.penguin_config.versions.v2 module</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../penguin.penguin_config.errors.html">penguin.penguin_config.errors module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../penguin.penguin_config.gen_docs.html">penguin.penguin_config.gen_docs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../penguin.penguin_config.structure.html">penguin.penguin_config.structure module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../penguin.penguin_config.templating.html">penguin.penguin_config.templating module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../penguin.testing.html">penguin.testing package</a><input aria-label="Toggle navigation of penguin.testing package" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../penguin.testing.harness.html">penguin.testing.harness module</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.abi_info.html">penguin.abi_info module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.analyses.html">penguin.analyses module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.arch.html">penguin.arch module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.arch_registry.html">penguin.arch_registry module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.boot_env.html">penguin.boot_env module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.common.html">penguin.common module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.compose.html">penguin.compose module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.config_patchers.html">penguin.config_patchers module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.defaults.html">penguin.defaults module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.dropin_compile.html">penguin.dropin_compile module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.gen_config.html">penguin.gen_config module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.gen_image.html">penguin.gen_image module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.graphs.html">penguin.graphs module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.init_plugin.html">penguin.init_plugin module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.init_runner.html">penguin.init_runner module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.manager.html">penguin.manager module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.penguin_prep.html">penguin.penguin_prep module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.penguin_run.html">penguin.penguin_run module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.plugin_manager.html">penguin.plugin_manager module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.q_config.html">penguin.q_config module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.run_summary.html">penguin.run_summary module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.static_analyses.html">penguin.static_analyses module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.stubs.html">penguin.stubs module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.utils.html">penguin.utils module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../penguin.utils_cli.html">penguin.utils_cli module</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../pengutils.html">pengutils package</a><input aria-label="Toggle navigation of pengutils package" class="toctree-checkbox" id="toctree-checkbox-5" name="toctree-checkbox-5" role="switch" type="checkbox"/><label for="toctree-checkbox-5"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pengutils.events.html">pengutils.events package</a><input aria-label="Toggle navigation of pengutils.events package" class="toctree-checkbox" id="toctree-checkbox-6" name="toctree-checkbox-6" role="switch" type="checkbox"/><label for="toctree-checkbox-6"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.events.base.html">pengutils.events.base module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.events.types.html">pengutils.events.types module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pengutils.utils.html">pengutils.utils package</a><input aria-label="Toggle navigation of pengutils.utils package" class="toctree-checkbox" id="toctree-checkbox-7" name="toctree-checkbox-7" role="switch" type="checkbox"/><label for="toctree-checkbox-7"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_breakpoint.html">pengutils.utils.cli_breakpoint module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_db.html">pengutils.utils.cli_db module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_guest_cmd.html">pengutils.utils.cli_guest_cmd module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_pengutils.html">pengutils.utils.cli_pengutils module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_plugins.html">pengutils.utils.cli_plugins module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.cli_snapshot.html">pengutils.utils.cli_snapshot module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.util_base.html">pengutils.utils.util_base module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pengutils.utils.util_events.html">pengutils.utils.util_events module</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../pyplugins.html">pyplugins package</a><input aria-label="Toggle navigation of pyplugins package" class="toctree-checkbox" id="toctree-checkbox-8" name="toctree-checkbox-8" role="switch" type="checkbox"/><label for="toctree-checkbox-8"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.actuation.html">pyplugins.actuation package</a><input aria-label="Toggle navigation of pyplugins.actuation package" class="toctree-checkbox" id="toctree-checkbox-9" name="toctree-checkbox-9" role="switch" type="checkbox"/><label for="toctree-checkbox-9"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.actuation.fetch_web.html">pyplugins.actuation.fetch_web module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.actuation.nmap.html">pyplugins.actuation.nmap module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.actuation.vpn.html">pyplugins.actuation.vpn module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.analysis.html">pyplugins.analysis package</a><input aria-label="Toggle navigation of pyplugins.analysis package" class="toctree-checkbox" id="toctree-checkbox-10" name="toctree-checkbox-10" role="switch" type="checkbox"/><label for="toctree-checkbox-10"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.crashes.html">pyplugins.analysis.crashes module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.env.html">pyplugins.analysis.env module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.ficd.html">pyplugins.analysis.ficd module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.health.html">pyplugins.analysis.health module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.hooklogger.html">pyplugins.analysis.hooklogger module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.indiv_debug.html">pyplugins.analysis.indiv_debug module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.interfaces.html">pyplugins.analysis.interfaces module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.netbinds.html">pyplugins.analysis.netbinds module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.analysis.repl.html">pyplugins.analysis.repl module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.apis.html">pyplugins.apis package</a><input aria-label="Toggle navigation of pyplugins.apis package" class="toctree-checkbox" id="toctree-checkbox-11" name="toctree-checkbox-11" role="switch" type="checkbox"/><label for="toctree-checkbox-11"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.events.html">pyplugins.apis.events module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.execs.html">pyplugins.apis.execs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.fs.html">pyplugins.apis.fs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.hypercall.html">pyplugins.apis.hypercall module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.kffi.html">pyplugins.apis.kffi module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.kprobes.html">pyplugins.apis.kprobes module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.mem.html">pyplugins.apis.mem module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.net.html">pyplugins.apis.net module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.osi.html">pyplugins.apis.osi module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.portalcall.html">pyplugins.apis.portalcall module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.send_hypercall.html">pyplugins.apis.send_hypercall module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.signal_monitor.html">pyplugins.apis.signal_monitor module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.signals.html">pyplugins.apis.signals module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.static_fs.html">pyplugins.apis.static_fs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.symbols.html">pyplugins.apis.symbols module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.syscalls.html">pyplugins.apis.syscalls module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.unwind.html">pyplugins.apis.unwind module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.apis.uprobes.html">pyplugins.apis.uprobes module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.compat.html">pyplugins.compat package</a><input aria-label="Toggle navigation of pyplugins.compat package" class="toctree-checkbox" id="toctree-checkbox-12" name="toctree-checkbox-12" role="switch" type="checkbox"/><label for="toctree-checkbox-12"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.compat.coverage.html">pyplugins.compat.coverage module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.compat.qemu_compat.html">pyplugins.compat.qemu_compat module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.core.html">pyplugins.core package</a><input aria-label="Toggle navigation of pyplugins.core package" class="toctree-checkbox" id="toctree-checkbox-13" name="toctree-checkbox-13" role="switch" type="checkbox"/><label for="toctree-checkbox-13"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.core.html">pyplugins.core.core module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.igloodriver.html">pyplugins.core.igloodriver module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.live_image.html">pyplugins.core.live_image module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.readiness.html">pyplugins.core.readiness module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.scope.html">pyplugins.core.scope module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.core.snapshot.html">pyplugins.core.snapshot module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.hyper.html">pyplugins.hyper package</a><input aria-label="Toggle navigation of pyplugins.hyper package" class="toctree-checkbox" id="toctree-checkbox-14" name="toctree-checkbox-14" role="switch" type="checkbox"/><label for="toctree-checkbox-14"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.bash_command.html">pyplugins.hyper.bash_command module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.canary.html">pyplugins.hyper.canary module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.consts.html">pyplugins.hyper.consts module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.portal.html">pyplugins.hyper.portal module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.shell.html">pyplugins.hyper.shell module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyper.uboot.html">pyplugins.hyper.uboot module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.hyperfile.html">pyplugins.hyperfile package</a><input aria-label="Toggle navigation of pyplugins.hyperfile package" class="toctree-checkbox" id="toctree-checkbox-15" name="toctree-checkbox-15" role="switch" type="checkbox"/><label for="toctree-checkbox-15"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.anonfs.html">pyplugins.hyperfile.anonfs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.devfs.html">pyplugins.hyperfile.devfs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.mtd.html">pyplugins.hyperfile.mtd module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.procfs.html">pyplugins.hyperfile.procfs module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.pseudofile_tracker.html">pyplugins.hyperfile.pseudofile_tracker module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.pseudofiles.html">pyplugins.hyperfile.pseudofiles module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.qemu_mem.html">pyplugins.hyperfile.qemu_mem module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.sysctl.html">pyplugins.hyperfile.sysctl module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.hyperfile.sysfs.html">pyplugins.hyperfile.sysfs module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.interventions.html">pyplugins.interventions package</a><input aria-label="Toggle navigation of pyplugins.interventions package" class="toctree-checkbox" id="toctree-checkbox-16" name="toctree-checkbox-16" role="switch" type="checkbox"/><label for="toctree-checkbox-16"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.core_pattern_guard.html">pyplugins.interventions.core_pattern_guard module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.hyperfile.html">pyplugins.interventions.hyperfile module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.kernelversion.html">pyplugins.interventions.kernelversion module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.kmods.html">pyplugins.interventions.kmods module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.lifeguard.html">pyplugins.interventions.lifeguard module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.mount.html">pyplugins.interventions.mount module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.nvram2.html">pyplugins.interventions.nvram2 module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.remotectrl.html">pyplugins.interventions.remotectrl module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.interventions.symex.html">pyplugins.interventions.symex module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.loggers.html">pyplugins.loggers package</a><input aria-label="Toggle navigation of pyplugins.loggers package" class="toctree-checkbox" id="toctree-checkbox-17" name="toctree-checkbox-17" role="switch" type="checkbox"/><label for="toctree-checkbox-17"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.loggers.db.html">pyplugins.loggers.db module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.loggers.exec_logger.html">pyplugins.loggers.exec_logger module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.loggers.rw_logger.html">pyplugins.loggers.rw_logger module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.loggers.syscalls_logger.html">pyplugins.loggers.syscalls_logger module</a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../../pyplugins.wrappers.html">pyplugins.wrappers package</a><input aria-label="Toggle navigation of pyplugins.wrappers package" class="toctree-checkbox" id="toctree-checkbox-18" name="toctree-checkbox-18" role="switch" type="checkbox"/><label for="toctree-checkbox-18"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.wrappers.generic.html">pyplugins.wrappers.generic module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.wrappers.osi_wrap.html">pyplugins.wrappers.osi_wrap module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../pyplugins.wrappers.ptregs_wrap.html">pyplugins.wrappers.ptregs_wrap module</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <h1>Source code for pyplugins.analysis.netbinds</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">NetBinds Plugin (netbinds.py) for Penguin</span>
+<span class="sd">=========================================</span>
+
+<span class="sd">This module provides the NetBinds plugin, which monitors and records the full</span>
+<span class="sd">lifecycle of network services within the guest during emulation. It tracks both</span>
+<span class="sd">IPv4 and IPv6 sockets, recording when they are *bound* (opened) and when they</span>
+<span class="sd">are *released* (closed), and publishes &#39;on_bind&#39; events for other plugins to</span>
+<span class="sd">react to new network services.</span>
+
+<span class="sd">Lifecycle tracking</span>
+<span class="sd">-------------------</span>
+
+<span class="sd">Each socket (keyed by IP version, socket type, address, and port) moves through</span>
+<span class="sd">a small state machine:</span>
+
+<span class="sd">- ``pending`` -- bound, but not yet announced. A new bind is held for</span>
+<span class="sd">  ``announce_debounce_s`` seconds before &#39;on_bind&#39; is published, so</span>
+<span class="sd">  short-lived binds never reach downstream actuation (VPN bridging, nmap,</span>
+<span class="sd">  fetchweb, ...). A socket still pending when the run ends keeps this state</span>
+<span class="sd">  in the final CSVs: it was bound at shutdown but never confirmed as a</span>
+<span class="sd">  listener, so consumers should not count it as a working service.</span>
+<span class="sd">- ``listening`` -- bound and announced: the bind survived the announce window.</span>
+<span class="sd">- ``transient`` -- bound and released *within* the announce window. Transient</span>
+<span class="sd">  binds are never announced; they appear in ``netbinds.csv`` (state</span>
+<span class="sd">  ``transient``) so analyses can see them without treating them as working</span>
+<span class="sd">  services.</span>
+<span class="sd">- ``closed`` -- was listening, later released for good.</span>
+
+<span class="sd">Both debounce windows are measured in **host wall-clock time** (like every</span>
+<span class="sd">other timestamp this plugin records): guest/emulation time is not exposed to</span>
+<span class="sd">pyplugins, so the transient-vs-listening classification of a short-lived bind</span>
+<span class="sd">depends on emulation speed and is not exactly reproducible across hosts. The</span>
+<span class="sd">in-guest test fixtures set ``announce_debounce_s: 0`` for this reason; the</span>
+<span class="sd">debounce machinery itself is covered by host-side unit tests.</span>
+
+<span class="sd">Announced services frequently flap: a process may close and re-bind the same</span>
+<span class="sd">address in rapid succession (e.g. supervisord restarting a daemon, or a server</span>
+<span class="sd">that briefly rebinds during startup). To avoid treating every flap as a genuine</span>
+<span class="sd">close, NetBinds also applies a *close debounce*:</span>
+
+<span class="sd">- When a listening socket is released, the close is held as *pending* rather</span>
+<span class="sd">  than being finalized immediately.</span>
+<span class="sd">- If the same socket is re-bound within ``debounce_period`` seconds, the close</span>
+<span class="sd">  is cancelled and the event is recorded as a *flap* (the service is considered</span>
+<span class="sd">  to have stayed up continuously).</span>
+<span class="sd">- A pending close older than ``debounce_period`` is *finalized* into a real</span>
+<span class="sd">  close. Finalization happens opportunistically when later events arrive, and</span>
+<span class="sd">  unconditionally when the plugin unloads.</span>
+
+<span class="sd">A socket that flaps ``transient_threshold`` or more times during the run is</span>
+<span class="sd">also flagged transient in the lifecycle summary, marking it as an unstable</span>
+<span class="sd">service worth attention.</span>
+
+<span class="sd">Known limitation: the guest kernel only reports TCP releases for sockets in</span>
+<span class="sd">the LISTEN state (accepted connections share the listener&#39;s local port, so</span>
+<span class="sd">their teardown must not be reported). A TCP socket that binds but closes</span>
+<span class="sd">without ever listening therefore never emits a release and remains</span>
+<span class="sd">``listening``/``pending`` until the end of the run.</span>
+
+<span class="sd">Snapshot / restore</span>
+<span class="sd">------------------</span>
+
+<span class="sd">A restored VM is already past its binds, so it never re-issues the bind</span>
+<span class="sd">hypercalls this plugin watches. NetBinds therefore participates in the</span>
+<span class="sd">snapshot host-state protocol (``save_state`` / ``load_state`` / ``on_restore``):</span>
+<span class="sd">the socket lifecycle is bundled with the snapshot and rebuilt on restore, so</span>
+<span class="sd">``netbinds.csv``, the lifecycle summary, and ``give_list`` stay accurate across</span>
+<span class="sd">a (possibly cross-process) restore. Already-announced services are rebuilt</span>
+<span class="sd">silently -- downstream consumers such as the VPN bridge replay their own saved</span>
+<span class="sd">state, so re-announcing would double-actuate -- while a service still within</span>
+<span class="sd">its announce window at snapshot time is a ground-truth listener in the restored</span>
+<span class="sd">guest and is announced on restore.</span>
+
+<span class="sd">Features</span>
+<span class="sd">--------</span>
+
+<span class="sd">- Subscribes to low-level bind/setup/release events for IPv4 and IPv6 sockets.</span>
+<span class="sd">- Tracks and deduplicates first-seen binds (process name, IP version, socket</span>
+<span class="sd">  type, IP, port), as before.</span>
+<span class="sd">- Logs announced binds and summary statistics to CSV files in the output</span>
+<span class="sd">  directory (``netbinds.csv``, ``netbinds_summary.csv``). ``netbinds.csv``</span>
+<span class="sd">  carries ``state`` and ``closed_time`` columns and is rewritten on unload with</span>
+<span class="sd">  each socket&#39;s final state (including never-announced transient binds).</span>
+<span class="sd">- Logs every open/flap/transient/close transition to ``netbind_events.csv`` and</span>
+<span class="sd">  writes a per-socket lifecycle summary to ``netbinds_lifecycle.csv`` on unload.</span>
+<span class="sd">- Publishes &#39;on_bind&#39; events for other plugins (such as VPN, Nmap, FetchWeb)</span>
+<span class="sd">  after the announce debounce.</span>
+<span class="sd">- Optionally shuts down emulation when a web service (port 80) is announced.</span>
+
+<span class="sd">Arguments</span>
+<span class="sd">---------</span>
+
+<span class="sd">- shutdown_on_www (bool, optional): If True, shut down emulation when a bind</span>
+<span class="sd">  on port 80 is announced (i.e. survives the announce debounce).</span>
+<span class="sd">- announce_debounce_s (float, optional): Seconds a new bind is held before</span>
+<span class="sd">  being announced via &#39;on_bind&#39;. A release within this window marks the bind</span>
+<span class="sd">  transient and suppresses the announcement. &lt;= 0 announces immediately.</span>
+<span class="sd">  Default: 2.0.</span>
+<span class="sd">- debounce_period (float, optional): Seconds a close is held pending before</span>
+<span class="sd">  being treated as a real close. A re-bind within this window is a flap.</span>
+<span class="sd">  Default: 2.0.</span>
+<span class="sd">- transient_threshold (int, optional): Number of flaps at which a socket is</span>
+<span class="sd">  labelled transient. Default: 3.</span>
+
+<span class="sd">Plugin Interface</span>
+<span class="sd">----------------</span>
+
+<span class="sd">- Publishes &#39;on_bind&#39; events with (sock_type, ipvn, ip, port, procname) for</span>
+<span class="sd">  other plugins to consume. (Semantics unchanged apart from the announce</span>
+<span class="sd">  debounce: fired once per first-seen unique bind that survives the window.)</span>
+<span class="sd">- Listens to low-level system bind/setup/release events.</span>
+<span class="sd">- Writes bind logs, a lifecycle event log, and summaries to the output dir.</span>
+
+<span class="sd">Overall Purpose</span>
+<span class="sd">---------------</span>
+
+<span class="sd">The NetBinds plugin provides a comprehensive record of the network services</span>
+<span class="sd">started -- and stopped -- by the guest, enabling automation, analysis, and</span>
+<span class="sd">integration with other actuation plugins.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">socket</span>
+<span class="kn">import</span> <span class="nn">struct</span>
+<span class="kn">import</span> <span class="nn">threading</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">from</span> <span class="nn">os.path</span> <span class="kn">import</span> <span class="n">join</span>
+
+<span class="kn">from</span> <span class="nn">pydantic</span> <span class="kn">import</span> <span class="n">Field</span>
+<span class="kn">from</span> <span class="nn">penguin</span> <span class="kn">import</span> <span class="n">plugins</span><span class="p">,</span> <span class="n">Plugin</span><span class="p">,</span> <span class="n">PluginArgs</span>
+
+<span class="n">BINDS_FILE</span> <span class="o">=</span> <span class="s2">&quot;netbinds.csv&quot;</span>
+<span class="n">SUMMARY_BINDS_FILE</span> <span class="o">=</span> <span class="s2">&quot;netbinds_summary.csv&quot;</span>
+<span class="n">EVENTS_FILE</span> <span class="o">=</span> <span class="s2">&quot;netbind_events.csv&quot;</span>
+<span class="n">LIFECYCLE_FILE</span> <span class="o">=</span> <span class="s2">&quot;netbinds_lifecycle.csv&quot;</span>
+
+<span class="n">BINDS_HEADER</span> <span class="o">=</span> <span class="s2">&quot;procname,ipvn,domain,guest_ip,guest_port,pid,time,state,closed_time</span><span class="se">\n</span><span class="s2">&quot;</span>
+
+<span class="n">DEFAULT_ANNOUNCE_DEBOUNCE_S</span> <span class="o">=</span> <span class="mf">2.0</span>
+<span class="n">DEFAULT_DEBOUNCE_PERIOD</span> <span class="o">=</span> <span class="mf">2.0</span>
+<span class="n">DEFAULT_TRANSIENT_THRESHOLD</span> <span class="o">=</span> <span class="mi">3</span>
+
+
+<div class="viewcode-block" id="NetBinds">
+<a class="viewcode-back" href="../../../pyplugins.analysis.netbinds.html#pyplugins.analysis.netbinds.NetBinds">[docs]</a>
+<span class="k">class</span> <span class="nc">NetBinds</span><span class="p">(</span><span class="n">Plugin</span><span class="p">):</span>
+<div class="viewcode-block" id="NetBinds.Args">
+<a class="viewcode-back" href="../../../pyplugins.analysis.netbinds.html#pyplugins.analysis.netbinds.NetBinds.Args">[docs]</a>
+    <span class="k">class</span> <span class="nc">Args</span><span class="p">(</span><span class="n">PluginArgs</span><span class="p">):</span>
+        <span class="n">shutdown_on_www</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
+            <span class="n">default</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;If true, shut down emulation when a bind on port 80 is announced.&quot;</span>
+        <span class="p">)</span>
+        <span class="n">announce_debounce_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
+            <span class="n">default</span><span class="o">=</span><span class="n">DEFAULT_ANNOUNCE_DEBOUNCE_S</span><span class="p">,</span>
+            <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Seconds a new bind is held before being announced via &#39;on_bind&#39;. &quot;</span>
+            <span class="s2">&quot;A release within this window marks the bind transient and suppresses the &quot;</span>
+            <span class="s2">&quot;announcement (so e.g. the VPN never bridges it). &lt;= 0 announces immediately.&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">debounce_period</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
+            <span class="n">default</span><span class="o">=</span><span class="n">DEFAULT_DEBOUNCE_PERIOD</span><span class="p">,</span>
+            <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Seconds a close is held pending before being treated as a real close. &quot;</span>
+            <span class="s2">&quot;A re-bind within this window is recorded as a flap, not a close.&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">transient_threshold</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
+            <span class="n">default</span><span class="o">=</span><span class="n">DEFAULT_TRANSIENT_THRESHOLD</span><span class="p">,</span>
+            <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Number of flaps at which a socket is labelled transient.&quot;</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initialize the NetBinds plugin, set up event subscriptions, and prepare log files.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">outdir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_arg</span><span class="p">(</span><span class="s2">&quot;outdir&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">seen_binds</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">shutdown_on_www</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_arg_bool</span><span class="p">(</span><span class="s2">&quot;shutdown_on_www&quot;</span><span class="p">)</span>
+
+        <span class="n">announce</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_arg</span><span class="p">(</span><span class="s2">&quot;announce_debounce_s&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">announce_debounce_s</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">announce</span><span class="p">)</span> <span class="k">if</span> <span class="n">announce</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">DEFAULT_ANNOUNCE_DEBOUNCE_S</span>
+        <span class="n">debounce</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_arg</span><span class="p">(</span><span class="s2">&quot;debounce_period&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">debounce_period</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">debounce</span><span class="p">)</span> <span class="k">if</span> <span class="n">debounce</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">DEFAULT_DEBOUNCE_PERIOD</span>
+        <span class="n">threshold</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_arg</span><span class="p">(</span><span class="s2">&quot;transient_threshold&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">transient_threshold</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">threshold</span><span class="p">)</span> <span class="k">if</span> <span class="n">threshold</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">DEFAULT_TRANSIENT_THRESHOLD</span>
+
+        <span class="c1"># Per-socket lifecycle state, keyed by (ipvn, sock_type, normalized_ip, port).</span>
+        <span class="c1"># This is the source of truth for currently-active binds (see give_list).</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sockets</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="c1"># Rows appended to netbinds.csv during the run (announced binds), kept</span>
+        <span class="c1"># so the file can be rewritten with final states on unload.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bind_rows</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="c1"># Guards sockets/seen_binds/bind_rows and the CSV files: bind/release</span>
+        <span class="c1"># events arrive on the hypercall path while announce timers fire on</span>
+        <span class="c1"># timer threads.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+        <span class="c1"># Lifecycle state stashed by load_state() on a snapshot restore, applied</span>
+        <span class="c1"># in on_restore() once every plugin has loaded. None when not restoring.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_restore_data</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="c1"># The NetBinds.on_bind PPP callback happens once per first-seen bind</span>
+        <span class="c1"># that survives the announce debounce.</span>
+        <span class="c1"># Don&#39;t be confused by the vpn on_bind callback that happens</span>
+        <span class="c1"># after the VPN bridges a connection. This one has the better name</span>
+        <span class="c1"># but that one is more of a pain to change.</span>
+
+        <span class="n">plugins</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;on_bind&quot;</span><span class="p">)</span>
+
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outdir</span><span class="p">,</span> <span class="n">BINDS_FILE</span><span class="p">),</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">BINDS_HEADER</span><span class="p">)</span>
+
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outdir</span><span class="p">,</span> <span class="n">SUMMARY_BINDS_FILE</span><span class="p">),</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;n_procs,n_sockets,bound_www,time</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outdir</span><span class="p">,</span> <span class="n">EVENTS_FILE</span><span class="p">),</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;event,procname,ipvn,domain,guest_ip,guest_port,pid,time</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">plugins</span><span class="o">.</span><span class="n">subscribe</span><span class="p">(</span><span class="n">plugins</span><span class="o">.</span><span class="n">Events</span><span class="p">,</span> <span class="s2">&quot;igloo_ipv4_bind&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">on_ipv4_bind</span><span class="p">)</span>
+        <span class="n">plugins</span><span class="o">.</span><span class="n">subscribe</span><span class="p">(</span><span class="n">plugins</span><span class="o">.</span><span class="n">Events</span><span class="p">,</span> <span class="s2">&quot;igloo_ipv6_bind&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">on_ipv6_bind</span><span class="p">)</span>
+        <span class="n">plugins</span><span class="o">.</span><span class="n">subscribe</span><span class="p">(</span><span class="n">plugins</span><span class="o">.</span><span class="n">Events</span><span class="p">,</span> <span class="s2">&quot;igloo_ipv4_setup&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">on_ipv4_setup</span><span class="p">)</span>
+        <span class="n">plugins</span><span class="o">.</span><span class="n">subscribe</span><span class="p">(</span><span class="n">plugins</span><span class="o">.</span><span class="n">Events</span><span class="p">,</span> <span class="s2">&quot;igloo_ipv6_setup&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">on_ipv6_setup</span><span class="p">)</span>
+        <span class="n">plugins</span><span class="o">.</span><span class="n">subscribe</span><span class="p">(</span><span class="n">plugins</span><span class="o">.</span><span class="n">Events</span><span class="p">,</span> <span class="s2">&quot;igloo_ipv4_release&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">on_ipv4_release</span><span class="p">)</span>
+        <span class="n">plugins</span><span class="o">.</span><span class="n">subscribe</span><span class="p">(</span><span class="n">plugins</span><span class="o">.</span><span class="n">Events</span><span class="p">,</span> <span class="s2">&quot;igloo_ipv6_release&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">on_ipv6_release</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pending_procname</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pending_sinaddr</span> <span class="o">=</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="NetBinds.on_ipv4_setup">
+<a class="viewcode-back" href="../../../pyplugins.analysis.netbinds.html#pyplugins.analysis.netbinds.NetBinds.on_ipv4_setup">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_ipv4_setup</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cpu</span><span class="p">,</span> <span class="n">procname</span><span class="p">,</span> <span class="n">sin_addr</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Handle IPv4 socket setup event, record pending bind state.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            cpu: The CPU core where the event occurred.</span>
+<span class="sd">            procname: The name of the process attempting the bind.</span>
+<span class="sd">            sin_addr: The IPv4 address being bound, in network byte order.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">pending_procname</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Pending bind not cleared before new bind for ipv4: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">pending_procname</span><span class="si">}</span><span class="s2"> vs </span><span class="si">{</span><span class="n">procname</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pending_procname</span> <span class="o">=</span> <span class="n">procname</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pending_sinaddr</span> <span class="o">=</span> <span class="nb">int</span><span class="o">.</span><span class="n">to_bytes</span><span class="p">(</span><span class="n">sin_addr</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="s2">&quot;little&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="NetBinds.on_ipv6_setup">
+<a class="viewcode-back" href="../../../pyplugins.analysis.netbinds.html#pyplugins.analysis.netbinds.NetBinds.on_ipv6_setup">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_ipv6_setup</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cpu</span><span class="p">,</span> <span class="n">procname</span><span class="p">,</span> <span class="n">sinaddr_addr</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Handle IPv6 socket setup event, record pending bind state.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            cpu: The CPU core where the event occurred.</span>
+<span class="sd">            procname: The name of the process attempting the bind.</span>
+<span class="sd">            sinaddr_addr: The memory address where the IPv6 address is stored.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">pending_procname</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Pending bind not cleared before new bind for ipv6: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">pending_procname</span><span class="si">}</span><span class="s2"> vs </span><span class="si">{</span><span class="n">procname</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pending_procname</span> <span class="o">=</span> <span class="n">procname</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pending_sinaddr</span> <span class="o">=</span> <span class="n">plugins</span><span class="o">.</span><span class="n">mem</span><span class="o">.</span><span class="n">read_bytes_panda</span><span class="p">(</span><span class="n">cpu</span><span class="p">,</span> <span class="n">sinaddr_addr</span><span class="p">,</span> <span class="mi">16</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="NetBinds.on_ipv4_bind">
+<a class="viewcode-back" href="../../../pyplugins.analysis.netbinds.html#pyplugins.analysis.netbinds.NetBinds.on_ipv4_bind">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_ipv4_bind</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cpu</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">is_steam</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Handle IPv4 bind event, trigger on_bind and clear pending state.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            cpu: The CPU core where the event occurred.</span>
+<span class="sd">            port: The port number being bound, in host byte order.</span>
+<span class="sd">            is_steam: Boolean indicating if this is a stream (TCP) bind.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">on_bind</span><span class="p">(</span>
+            <span class="n">cpu</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">pending_procname</span><span class="p">,</span> <span class="kc">True</span><span class="p">,</span> <span class="n">is_steam</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">pending_sinaddr</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pending_procname</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pending_sinaddr</span> <span class="o">=</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="NetBinds.on_ipv6_bind">
+<a class="viewcode-back" href="../../../pyplugins.analysis.netbinds.html#pyplugins.analysis.netbinds.NetBinds.on_ipv6_bind">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_ipv6_bind</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cpu</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">is_steam</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Handle IPv6 bind event, trigger on_bind and clear pending state.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            cpu: The CPU core where the event occurred.</span>
+<span class="sd">            port: The port number being bound, in host byte order.</span>
+<span class="sd">            is_steam: Boolean indicating if this is a stream (TCP) bind.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">on_bind</span><span class="p">(</span>
+            <span class="n">cpu</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">pending_procname</span><span class="p">,</span> <span class="kc">False</span><span class="p">,</span> <span class="n">is_steam</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">pending_sinaddr</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pending_procname</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pending_sinaddr</span> <span class="o">=</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="NetBinds.on_ipv4_release">
+<a class="viewcode-back" href="../../../pyplugins.analysis.netbinds.html#pyplugins.analysis.netbinds.NetBinds.on_ipv4_release">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_ipv4_release</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cpu</span><span class="p">,</span> <span class="n">ip_port</span><span class="p">,</span> <span class="n">is_stream</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Handle IPv4 socket release event, record a (debounced) close.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            cpu: The CPU core where the event occurred.</span>
+<span class="sd">            ip_port: The IP:port string of the released socket.</span>
+<span class="sd">            is_stream: Boolean indicating if this was a stream (TCP) socket.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">sock_type</span> <span class="o">=</span> <span class="s2">&quot;tcp&quot;</span> <span class="k">if</span> <span class="n">is_stream</span> <span class="k">else</span> <span class="s2">&quot;udp&quot;</span>
+        <span class="n">ip</span><span class="p">,</span> <span class="n">port</span> <span class="o">=</span> <span class="n">ip_port</span><span class="o">.</span><span class="n">rsplit</span><span class="p">(</span><span class="s1">&#39;:&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="n">port</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">record_close</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="n">sock_type</span><span class="p">,</span> <span class="n">ip</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">port</span><span class="p">))</span></div>
+
+
+<div class="viewcode-block" id="NetBinds.on_ipv6_release">
+<a class="viewcode-back" href="../../../pyplugins.analysis.netbinds.html#pyplugins.analysis.netbinds.NetBinds.on_ipv6_release">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_ipv6_release</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cpu</span><span class="p">,</span> <span class="n">ip_port</span><span class="p">,</span> <span class="n">is_stream</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Handle IPv6 socket release event, record a (debounced) close.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            cpu: The CPU core where the event occurred.</span>
+<span class="sd">            ip_port: The IP:port string of the released socket, e.g. &quot;[::1]:80&quot;.</span>
+<span class="sd">            is_stream: Boolean indicating if this was a stream (TCP) socket.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">sock_type</span> <span class="o">=</span> <span class="s2">&quot;tcp&quot;</span> <span class="k">if</span> <span class="n">is_stream</span> <span class="k">else</span> <span class="s2">&quot;udp&quot;</span>
+        <span class="n">ip_part</span><span class="p">,</span> <span class="n">port</span> <span class="o">=</span> <span class="n">ip_port</span><span class="o">.</span><span class="n">rsplit</span><span class="p">(</span><span class="s1">&#39;]:&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="n">port</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">ip</span> <span class="o">=</span> <span class="n">ip_part</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s1">&#39;[&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">record_close</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="n">sock_type</span><span class="p">,</span> <span class="n">ip</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">port</span><span class="p">))</span></div>
+
+
+<div class="viewcode-block" id="NetBinds.on_bind">
+<a class="viewcode-back" href="../../../pyplugins.analysis.netbinds.html#pyplugins.analysis.netbinds.NetBinds.on_bind">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_bind</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cpu</span><span class="p">,</span> <span class="n">procname</span><span class="p">,</span> <span class="n">is_ipv4</span><span class="p">,</span> <span class="n">is_stream</span><span class="p">,</span> <span class="n">port_pid</span><span class="p">,</span> <span class="n">sin_addr</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Handle a completed bind event: decode it and feed the socket lifecycle.</span>
+<span class="sd">        Announcement (CSV row, &#39;on_bind&#39; publication, shutdown_on_www) happens</span>
+<span class="sd">        after the announce debounce -- see record_open.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            cpu: The CPU core where the event occurred.</span>
+<span class="sd">            procname: The name of the process that performed the bind.</span>
+<span class="sd">            is_ipv4: Boolean indicating if this is an IPv4 bind.</span>
+<span class="sd">            is_stream: Boolean indicating if this is a stream (TCP) bind.</span>
+<span class="sd">            port_pid: &quot;port:pid&quot; string, port in network byte order.</span>
+<span class="sd">            sin_addr: The IP address being bound, in network byte order.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">now</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="n">ipvn</span> <span class="o">=</span> <span class="mi">4</span> <span class="k">if</span> <span class="n">is_ipv4</span> <span class="k">else</span> <span class="mi">6</span>
+        <span class="n">sock_type</span> <span class="o">=</span> <span class="s2">&quot;tcp&quot;</span> <span class="k">if</span> <span class="n">is_stream</span> <span class="k">else</span> <span class="s2">&quot;udp&quot;</span>
+        <span class="n">is_le</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">panda</span><span class="o">.</span><span class="n">endianness</span> <span class="o">==</span> <span class="s2">&quot;little&quot;</span>
+        <span class="n">time_delta</span> <span class="o">=</span> <span class="n">now</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_time</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">port_str</span><span class="p">,</span> <span class="n">pid_str</span> <span class="o">=</span> <span class="n">port_pid</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)</span>
+            <span class="c1"># Ensure port is only 16 bits</span>
+            <span class="n">port</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">port_str</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0xFFFF</span>
+            <span class="n">pid</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">pid_str</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid port_pid format: </span><span class="si">{</span><span class="n">port_pid</span><span class="si">}</span><span class="s2">. Expected format &#39;port:pid&#39;.&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Convert to little endian if necessary</span>
+        <span class="k">if</span> <span class="n">is_le</span><span class="p">:</span>
+            <span class="n">port</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">ntohs</span><span class="p">(</span><span class="n">port</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">ipvn</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+            <span class="n">ip</span> <span class="o">=</span> <span class="s2">&quot;0.0.0.0&quot;</span>
+            <span class="k">if</span> <span class="n">sin_addr</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">is_le</span><span class="p">:</span>
+                    <span class="n">sin_addr</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="s2">&quot;&lt;I&quot;</span><span class="p">,</span> <span class="n">struct</span><span class="o">.</span><span class="n">unpack</span><span class="p">(</span><span class="s2">&quot;&gt;I&quot;</span><span class="p">,</span> <span class="n">sin_addr</span><span class="p">)[</span><span class="mi">0</span><span class="p">])</span>
+                <span class="n">ip</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">inet_ntop</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">AF_INET</span><span class="p">,</span> <span class="n">sin_addr</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ip</span> <span class="o">=</span> <span class="s2">&quot;::1&quot;</span>
+            <span class="k">if</span> <span class="n">sin_addr</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">is_le</span><span class="p">:</span>
+                    <span class="n">sin_addr</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="s2">&quot;&lt;IIII&quot;</span><span class="p">,</span> <span class="o">*</span><span class="p">(</span><span class="n">struct</span><span class="o">.</span><span class="n">unpack</span><span class="p">(</span><span class="s2">&quot;&gt;IIII&quot;</span><span class="p">,</span> <span class="n">sin_addr</span><span class="p">)))</span>
+                <span class="n">ip</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="n">socket</span><span class="o">.</span><span class="n">inet_ntop</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">AF_INET6</span><span class="p">,</span><span class="w"> </span><span class="n">sin_addr</span><span class="p">)</span><span class="si">}</span><span class="s2">]&quot;</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">record_open</span><span class="p">(</span><span class="n">now</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">,</span> <span class="n">procname</span><span class="p">,</span> <span class="n">ipvn</span><span class="p">,</span> <span class="n">sock_type</span><span class="p">,</span> <span class="n">ip</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">pid</span><span class="p">)</span></div>
+
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">_norm_ip</span><span class="p">(</span><span class="n">ip</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Normalize an IP for keying: strip IPv6 brackets so bind (&#39;[::1]&#39;)</span>
+<span class="sd">        and release (&#39;::1&#39;) refer to the same socket.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">ip</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="s2">&quot;[]&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_socket_key</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ipvn</span><span class="p">,</span> <span class="n">sock_type</span><span class="p">,</span> <span class="n">ip</span><span class="p">,</span> <span class="n">port</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build the lifecycle dict key for a socket.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">ipvn</span><span class="p">,</span> <span class="n">sock_type</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_norm_ip</span><span class="p">(</span><span class="n">ip</span><span class="p">),</span> <span class="nb">int</span><span class="p">(</span><span class="n">port</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">_log_event</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">,</span> <span class="n">rec</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Append one lifecycle transition to the event log.&quot;&quot;&quot;</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outdir</span><span class="p">,</span> <span class="n">EVENTS_FILE</span><span class="p">),</span> <span class="s2">&quot;a&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">event</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;procname&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;ipvn&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;sock_type&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;ip&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;port&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;pid&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">time_delta</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_sweep_pending_closes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">now</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Finalize any pending closes that have outlived the debounce period.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">rec</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">sockets</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_close&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="p">(</span><span class="n">now</span> <span class="o">-</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_close&quot;</span><span class="p">])</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">debounce_period</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_finalize_close</span><span class="p">(</span><span class="n">rec</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_finalize_close</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">rec</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Turn a pending close into a real close, accounting for uptime.&quot;&quot;&quot;</span>
+        <span class="n">close_delta</span> <span class="o">=</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_close_delta&quot;</span><span class="p">]</span>
+        <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;closed&quot;</span>
+        <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;close_count&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;last_close&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">close_delta</span>
+        <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;last_open&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;total_uptime&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="nb">max</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">close_delta</span> <span class="o">-</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;last_open&quot;</span><span class="p">])</span>
+        <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_close&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_close_delta&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log_event</span><span class="p">(</span><span class="s2">&quot;close&quot;</span><span class="p">,</span> <span class="n">rec</span><span class="p">,</span> <span class="n">close_delta</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_schedule_announce</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">rec</span><span class="p">,</span> <span class="n">now</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Hold the socket in &#39;pending&#39; for the announce window. A release that</span>
+<span class="sd">        arrives first cancels the announcement (transient bind); otherwise the</span>
+<span class="sd">        socket is promoted to &#39;listening&#39; and announced.</span>
+
+<span class="sd">        Promotion happens on whichever comes first: the announce sweep run on</span>
+<span class="sd">        the hypercall path by later bind/release events, or this backup timer.</span>
+<span class="sd">        The timer alone is not enough -- under heavy instrumentation the vCPU</span>
+<span class="sd">        thread spends nearly all its time in Python callbacks and background</span>
+<span class="sd">        threads can be GIL-starved for many seconds -- while the sweep alone</span>
+<span class="sd">        would never announce a quiet guest&#39;s only service. Together they</span>
+<span class="sd">        cover both cases.</span>
+
+<span class="sd">        Returns the announcement payload when announcing inline</span>
+<span class="sd">        (announce_debounce_s &lt;= 0), else None.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">announce_debounce_s</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_promote_to_listening</span><span class="p">(</span><span class="n">rec</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">)</span>
+        <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_since&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">now</span>
+        <span class="n">timer</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Timer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">announce_debounce_s</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_announce_cb</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="n">key</span><span class="p">,))</span>
+        <span class="n">timer</span><span class="o">.</span><span class="n">daemon</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;announce_timer&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">timer</span>
+        <span class="n">timer</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+    <span class="k">def</span> <span class="nf">_sweep_pending_announces</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">now</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Promote any pending sockets whose announce window has elapsed.</span>
+<span class="sd">        Runs on the hypercall path (see _schedule_announce). Caller holds</span>
+<span class="sd">        _lock. Returns the announcement payloads to publish.&quot;&quot;&quot;</span>
+        <span class="n">time_delta</span> <span class="o">=</span> <span class="n">now</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_time</span>
+        <span class="n">announcements</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">rec</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sockets</span><span class="o">.</span><span class="n">values</span><span class="p">()):</span>
+            <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">!=</span> <span class="s2">&quot;pending&quot;</span> <span class="ow">or</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_since&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">now</span> <span class="o">-</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_since&quot;</span><span class="p">])</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">announce_debounce_s</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;announce_timer&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;announce_timer&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+                    <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;announce_timer&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+                <span class="n">announcement</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_promote_to_listening</span><span class="p">(</span><span class="n">rec</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">announcement</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">announcements</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">announcement</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">announcements</span>
+
+    <span class="k">def</span> <span class="nf">_announce_cb</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Timer callback: the bind survived the announce window.&quot;&quot;&quot;</span>
+        <span class="n">now</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="n">time_delta</span> <span class="o">=</span> <span class="n">now</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_time</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="n">rec</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sockets</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">rec</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">!=</span> <span class="s2">&quot;pending&quot;</span><span class="p">:</span>
+                <span class="k">return</span>
+            <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;announce_timer&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="n">announcement</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_promote_to_listening</span><span class="p">(</span><span class="n">rec</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">announcement</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_publish_announcements</span><span class="p">([</span><span class="n">announcement</span><span class="p">])</span>
+
+    <span class="k">def</span> <span class="nf">_promote_to_listening</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">rec</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Mark a pending socket listening and record its announcement.</span>
+<span class="sd">        Caller holds _lock. Returns the announcement payload to publish</span>
+<span class="sd">        (after releasing _lock -- see _publish_announcements), or None for a</span>
+<span class="sd">        duplicate.&quot;&quot;&quot;</span>
+        <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;listening&quot;</span>
+        <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_since&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_announcement</span><span class="p">(</span><span class="n">rec</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_record_announcement</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">rec</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Record an announced bind: netbinds.csv row, summary stats, and the</span>
+<span class="sd">        bind_rows bookkeeping for the final rewrite. Deduplicated per unique</span>
+<span class="sd">        (procname, ipvn, sock_type, ip, port) as before. Caller holds _lock.</span>
+<span class="sd">        Returns the &#39;on_bind&#39; payload to publish, or None for a duplicate.&quot;&quot;&quot;</span>
+        <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;announced&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+
+        <span class="c1"># Only report each bind once, if it&#39;s identical</span>
+        <span class="c1"># VPN / stats will just get confused if we report the same bind twice</span>
+        <span class="n">ident</span> <span class="o">=</span> <span class="p">(</span><span class="n">rec</span><span class="p">[</span><span class="s2">&quot;procname&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;ipvn&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;sock_type&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;ip&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;port&quot;</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">ident</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">seen_binds</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">seen_binds</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">ident</span><span class="p">)</span>
+
+        <span class="c1"># Log details to disk</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">report_bind_info</span><span class="p">(</span><span class="n">time_delta</span><span class="p">,</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;procname&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;ipvn&quot;</span><span class="p">],</span>
+                              <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;sock_type&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;ip&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;port&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pid&quot;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bind_rows</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+            <span class="s2">&quot;procname&quot;</span><span class="p">:</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;procname&quot;</span><span class="p">],</span> <span class="s2">&quot;ipvn&quot;</span><span class="p">:</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;ipvn&quot;</span><span class="p">],</span> <span class="s2">&quot;sock_type&quot;</span><span class="p">:</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;sock_type&quot;</span><span class="p">],</span>
+            <span class="s2">&quot;ip&quot;</span><span class="p">:</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;ip&quot;</span><span class="p">],</span> <span class="s2">&quot;port&quot;</span><span class="p">:</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;port&quot;</span><span class="p">],</span> <span class="s2">&quot;pid&quot;</span><span class="p">:</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pid&quot;</span><span class="p">],</span> <span class="s2">&quot;time&quot;</span><span class="p">:</span> <span class="n">time_delta</span><span class="p">,</span>
+            <span class="s2">&quot;key&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_socket_key</span><span class="p">(</span><span class="n">rec</span><span class="p">[</span><span class="s2">&quot;ipvn&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;sock_type&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;ip&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;port&quot;</span><span class="p">]),</span>
+        <span class="p">})</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">rec</span><span class="p">[</span><span class="s2">&quot;sock_type&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;ipvn&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;ip&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;port&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;procname&quot;</span><span class="p">])</span>
+
+    <span class="k">def</span> <span class="nf">_publish_announcements</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">announcements</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Publish &#39;on_bind&#39; for recorded announcements and handle</span>
+<span class="sd">        shutdown_on_www. Must be called WITHOUT _lock held: subscribers run</span>
+<span class="sd">        arbitrary code (VPN bridging, probes) and must be able to call back</span>
+<span class="sd">        into this plugin (e.g. give_list) without deadlocking.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">sock_type</span><span class="p">,</span> <span class="n">ipvn</span><span class="p">,</span> <span class="n">ip</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">procname</span> <span class="ow">in</span> <span class="n">announcements</span><span class="p">:</span>
+            <span class="n">plugins</span><span class="o">.</span><span class="n">publish</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;on_bind&quot;</span><span class="p">,</span> <span class="n">sock_type</span><span class="p">,</span> <span class="n">ipvn</span><span class="p">,</span> <span class="n">ip</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">procname</span><span class="p">)</span>
+
+            <span class="c1"># If an announced bind is on 80 and we have the shutdown_www</span>
+            <span class="c1"># option, end the emulation. Announce-debounced on purpose: a</span>
+            <span class="c1"># transient www bind should not end the run before the real</span>
+            <span class="c1"># service comes up.</span>
+            <span class="k">if</span> <span class="n">port</span> <span class="o">==</span> <span class="mi">80</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">shutdown_on_www</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Shutting down emulation due to bind on port 80&quot;</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">panda</span><span class="o">.</span><span class="n">end_analysis</span><span class="p">()</span>
+
+<div class="viewcode-block" id="NetBinds.record_open">
+<a class="viewcode-back" href="../../../pyplugins.analysis.netbinds.html#pyplugins.analysis.netbinds.NetBinds.record_open">[docs]</a>
+    <span class="k">def</span> <span class="nf">record_open</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">now</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">,</span> <span class="n">procname</span><span class="p">,</span> <span class="n">ipvn</span><span class="p">,</span> <span class="n">sock_type</span><span class="p">,</span> <span class="n">ip</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">pid</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Record a bind (open) in the socket lifecycle. New sockets are held in</span>
+<span class="sd">        &#39;pending&#39; for the announce debounce; re-binds shortly after a close are</span>
+<span class="sd">        treated as flaps rather than new services.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="n">announcements</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_open_locked</span><span class="p">(</span>
+                <span class="n">now</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">,</span> <span class="n">procname</span><span class="p">,</span> <span class="n">ipvn</span><span class="p">,</span> <span class="n">sock_type</span><span class="p">,</span> <span class="n">ip</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">pid</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_publish_announcements</span><span class="p">(</span><span class="n">announcements</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_record_open_locked</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">now</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">,</span> <span class="n">procname</span><span class="p">,</span> <span class="n">ipvn</span><span class="p">,</span> <span class="n">sock_type</span><span class="p">,</span> <span class="n">ip</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">pid</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;State-machine half of record_open; caller holds _lock. Returns the</span>
+<span class="sd">        announcement payloads to publish once the lock is released.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_sweep_pending_closes</span><span class="p">(</span><span class="n">now</span><span class="p">)</span>
+        <span class="n">announcements</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sweep_pending_announces</span><span class="p">(</span><span class="n">now</span><span class="p">)</span>
+        <span class="n">key</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_socket_key</span><span class="p">(</span><span class="n">ipvn</span><span class="p">,</span> <span class="n">sock_type</span><span class="p">,</span> <span class="n">ip</span><span class="p">,</span> <span class="n">port</span><span class="p">)</span>
+        <span class="n">rec</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sockets</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">rec</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">rec</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;procname&quot;</span><span class="p">:</span> <span class="n">procname</span><span class="p">,</span>
+                <span class="s2">&quot;pid&quot;</span><span class="p">:</span> <span class="n">pid</span><span class="p">,</span>
+                <span class="s2">&quot;ipvn&quot;</span><span class="p">:</span> <span class="n">ipvn</span><span class="p">,</span>
+                <span class="s2">&quot;sock_type&quot;</span><span class="p">:</span> <span class="n">sock_type</span><span class="p">,</span>
+                <span class="s2">&quot;ip&quot;</span><span class="p">:</span> <span class="n">ip</span><span class="p">,</span>
+                <span class="s2">&quot;port&quot;</span><span class="p">:</span> <span class="n">port</span><span class="p">,</span>
+                <span class="s2">&quot;state&quot;</span><span class="p">:</span> <span class="s2">&quot;pending&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;announced&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                <span class="s2">&quot;announce_timer&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                <span class="s2">&quot;pending_since&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                <span class="s2">&quot;open_count&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+                <span class="s2">&quot;close_count&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+                <span class="s2">&quot;flap_count&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+                <span class="s2">&quot;first_open&quot;</span><span class="p">:</span> <span class="n">time_delta</span><span class="p">,</span>
+                <span class="s2">&quot;last_open&quot;</span><span class="p">:</span> <span class="n">time_delta</span><span class="p">,</span>
+                <span class="s2">&quot;last_close&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                <span class="s2">&quot;pending_close&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                <span class="s2">&quot;pending_close_delta&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                <span class="s2">&quot;total_uptime&quot;</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span>
+                <span class="s2">&quot;transient&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+            <span class="p">}</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">sockets</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">rec</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log_event</span><span class="p">(</span><span class="s2">&quot;open&quot;</span><span class="p">,</span> <span class="n">rec</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">)</span>
+            <span class="n">announcement</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_schedule_announce</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">rec</span><span class="p">,</span> <span class="n">now</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">announcement</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">announcements</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">announcement</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">announcements</span>
+
+        <span class="c1"># Refresh identity from the latest binder.</span>
+        <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;procname&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">procname</span>
+        <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pid&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pid</span>
+        <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;ip&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ip</span>
+
+        <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_close&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># Re-bound within the debounce window -&gt; a flap. The close never</span>
+            <span class="c1"># really happened; the service is considered continuously up.</span>
+            <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_close&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_close_delta&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;flap_count&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;open_count&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;listening&quot;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log_event</span><span class="p">(</span><span class="s2">&quot;flap&quot;</span><span class="p">,</span> <span class="n">rec</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;flap_count&quot;</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">transient_threshold</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;transient&quot;</span><span class="p">]:</span>
+                <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;transient&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Service </span><span class="si">{</span><span class="n">sock_type</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">ip</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">port</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">procname</span><span class="si">}</span><span class="s2">) marked transient &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;after </span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;flap_count&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> flaps&quot;</span>
+                <span class="p">)</span>
+                <span class="c1"># Record the transition to transient as its own lifecycle event so</span>
+                <span class="c1"># it is observable incrementally (the per-socket summary is only</span>
+                <span class="c1"># written at unload).</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_log_event</span><span class="p">(</span><span class="s2">&quot;transient&quot;</span><span class="p">,</span> <span class="n">rec</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;closed&quot;</span><span class="p">,</span> <span class="s2">&quot;transient&quot;</span><span class="p">):</span>
+            <span class="c1"># Genuine re-open after a finalized close or a transient bind</span>
+            <span class="c1"># (outside any debounce window) -- a spaced restart.</span>
+            <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;open_count&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;last_open&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">time_delta</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log_event</span><span class="p">(</span><span class="s2">&quot;open&quot;</span><span class="p">,</span> <span class="n">rec</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;announced&quot;</span><span class="p">]:</span>
+                <span class="c1"># Already survived the announce window once; no need to</span>
+                <span class="c1"># debounce the restart. (A new procname on an announced</span>
+                <span class="c1"># socket still publishes, via the seen_binds dedup.)</span>
+                <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;listening&quot;</span>
+                <span class="n">announcement</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_announcement</span><span class="p">(</span><span class="n">rec</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">announcement</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">announcements</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">announcement</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;pending&quot;</span>
+                <span class="n">announcement</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_schedule_announce</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">rec</span><span class="p">,</span> <span class="n">now</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">announcement</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">announcements</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">announcement</span><span class="p">)</span>
+        <span class="c1"># else: pending or listening and not pending close -&gt; duplicate</span>
+        <span class="c1"># bind, no change.</span>
+        <span class="k">return</span> <span class="n">announcements</span>
+
+<div class="viewcode-block" id="NetBinds.record_close">
+<a class="viewcode-back" href="../../../pyplugins.analysis.netbinds.html#pyplugins.analysis.netbinds.NetBinds.record_close">[docs]</a>
+    <span class="k">def</span> <span class="nf">record_close</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ipvn</span><span class="p">,</span> <span class="n">sock_type</span><span class="p">,</span> <span class="n">ip</span><span class="p">,</span> <span class="n">port</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Record a release (close) in the socket lifecycle. A release within the</span>
+<span class="sd">        announce window marks the bind transient (never announced); a release</span>
+<span class="sd">        of a listening socket is held pending until the close debounce elapses</span>
+<span class="sd">        (see _sweep_pending_closes and uninit), so a quick re-bind can cancel</span>
+<span class="sd">        it as a flap.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">now</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="n">time_delta</span> <span class="o">=</span> <span class="n">now</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_time</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_sweep_pending_closes</span><span class="p">(</span><span class="n">now</span><span class="p">)</span>
+            <span class="n">announcements</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sweep_pending_announces</span><span class="p">(</span><span class="n">now</span><span class="p">)</span>
+
+            <span class="n">key</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_socket_key</span><span class="p">(</span><span class="n">ipvn</span><span class="p">,</span> <span class="n">sock_type</span><span class="p">,</span> <span class="n">ip</span><span class="p">,</span> <span class="n">port</span><span class="p">)</span>
+            <span class="n">rec</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sockets</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">rec</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;closed&quot;</span><span class="p">,</span> <span class="s2">&quot;transient&quot;</span><span class="p">):</span>
+                <span class="c1"># Release for a socket we never saw bound, or already closed.</span>
+                <span class="k">pass</span>
+            <span class="k">elif</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;pending&quot;</span><span class="p">:</span>
+                <span class="c1"># Released before the announce window elapsed: a transient</span>
+                <span class="c1"># bind. Cancel the announcement -- downstream plugins (VPN,</span>
+                <span class="c1"># nmap, ...) never hear about it.</span>
+                <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;announce_timer&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;announce_timer&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+                    <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;announce_timer&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+                <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_since&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+                <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;transient&quot;</span>
+                <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;transient&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+                <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;close_count&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;last_close&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">time_delta</span>
+                <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;last_open&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;total_uptime&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="nb">max</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">time_delta</span> <span class="o">-</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;last_open&quot;</span><span class="p">])</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_log_event</span><span class="p">(</span><span class="s2">&quot;transient&quot;</span><span class="p">,</span> <span class="n">rec</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># Listening: hold the close pending for the debounce window.</span>
+                <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_close&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">now</span>
+                <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_close_delta&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">time_delta</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_publish_announcements</span><span class="p">(</span><span class="n">announcements</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="NetBinds.give_list">
+<a class="viewcode-back" href="../../../pyplugins.analysis.netbinds.html#pyplugins.analysis.netbinds.NetBinds.give_list">[docs]</a>
+    <span class="k">def</span> <span class="nf">give_list</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Return the list of currently-active binds: listening, pending</span>
+<span class="sd">        announcement, or closed-but-pending within the close debounce window.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            list: A list of dictionaries, each representing an active bind.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="n">active</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">rec</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">sockets</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+                <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;pending&quot;</span><span class="p">,</span> <span class="s2">&quot;listening&quot;</span><span class="p">):</span>
+                    <span class="n">active</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                        <span class="s2">&quot;Process Name&quot;</span><span class="p">:</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;procname&quot;</span><span class="p">],</span>
+                        <span class="s2">&quot;IPvN&quot;</span><span class="p">:</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;ipvn&quot;</span><span class="p">],</span>
+                        <span class="s2">&quot;Socket Type&quot;</span><span class="p">:</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;sock_type&quot;</span><span class="p">],</span>
+                        <span class="s2">&quot;IP&quot;</span><span class="p">:</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;ip&quot;</span><span class="p">],</span>
+                        <span class="s2">&quot;Port&quot;</span><span class="p">:</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;port&quot;</span><span class="p">],</span>
+                        <span class="s2">&quot;PID&quot;</span><span class="p">:</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pid&quot;</span><span class="p">],</span>
+                        <span class="s2">&quot;Time&quot;</span><span class="p">:</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;first_open&quot;</span><span class="p">],</span>
+                        <span class="s2">&quot;State&quot;</span><span class="p">:</span> <span class="s2">&quot;transient&quot;</span> <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;transient&quot;</span><span class="p">]</span> <span class="k">else</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">],</span>
+                        <span class="s2">&quot;Flaps&quot;</span><span class="p">:</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;flap_count&quot;</span><span class="p">],</span>
+                    <span class="p">})</span>
+            <span class="k">return</span> <span class="n">active</span></div>
+
+
+<div class="viewcode-block" id="NetBinds.save_state">
+<a class="viewcode-back" href="../../../pyplugins.analysis.netbinds.html#pyplugins.analysis.netbinds.NetBinds.save_state">[docs]</a>
+    <span class="k">def</span> <span class="nf">save_state</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Capture the socket lifecycle so a cross-process snapshot restore can</span>
+<span class="sd">        reproduce netbinds.csv, the lifecycle summary, and give_list().</span>
+
+<span class="sd">        A VM snapshot restores the *guest*, which is then already past its</span>
+<span class="sd">        binds, so it never re-issues the bind hypercalls NetBinds reacts to.</span>
+<span class="sd">        Without this, a restored run would start blank and every pre-snapshot</span>
+<span class="sd">        service would vanish from the record. Non-serialisable / host-clock</span>
+<span class="sd">        fields (the announce timer thread and the absolute pending_since /</span>
+<span class="sd">        pending_close instants) are dropped -- they cannot survive a</span>
+<span class="sd">        cross-process, possibly cross-host restore; see on_restore.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">sockets</span><span class="p">:</span>
+                <span class="k">return</span> <span class="kc">None</span>
+            <span class="n">drop</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;announce_timer&quot;</span><span class="p">,</span> <span class="s2">&quot;pending_since&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;pending_close&quot;</span><span class="p">,</span> <span class="s2">&quot;pending_close_delta&quot;</span><span class="p">)</span>
+            <span class="n">sockets</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">rec</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">drop</span><span class="p">}</span>
+                <span class="k">for</span> <span class="n">rec</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">sockets</span><span class="o">.</span><span class="n">values</span><span class="p">()</span>
+            <span class="p">]</span>
+            <span class="k">return</span> <span class="p">{</span>
+                <span class="s2">&quot;sockets&quot;</span><span class="p">:</span> <span class="n">sockets</span><span class="p">,</span>
+                <span class="s2">&quot;seen_binds&quot;</span><span class="p">:</span> <span class="p">[</span><span class="nb">list</span><span class="p">(</span><span class="n">b</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">seen_binds</span><span class="p">],</span>
+                <span class="s2">&quot;bind_rows&quot;</span><span class="p">:</span> <span class="p">[{</span><span class="o">**</span><span class="n">r</span><span class="p">,</span> <span class="s2">&quot;key&quot;</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">r</span><span class="p">[</span><span class="s2">&quot;key&quot;</span><span class="p">])}</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">bind_rows</span><span class="p">],</span>
+            <span class="p">}</span></div>
+
+
+<div class="viewcode-block" id="NetBinds.load_state">
+<a class="viewcode-back" href="../../../pyplugins.analysis.netbinds.html#pyplugins.analysis.netbinds.NetBinds.load_state">[docs]</a>
+    <span class="k">def</span> <span class="nf">load_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Stash lifecycle state captured at snapshot time. Applied in</span>
+<span class="sd">        on_restore(), which runs after every plugin has loaded.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_restore_data</span> <span class="o">=</span> <span class="n">data</span> <span class="ow">or</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="NetBinds.on_restore">
+<a class="viewcode-back" href="../../../pyplugins.analysis.netbinds.html#pyplugins.analysis.netbinds.NetBinds.on_restore">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_restore</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tag</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Rehydrate the socket lifecycle after a snapshot restore.</span>
+
+<span class="sd">        Already-announced sockets (listening/closed) are restored *silently*:</span>
+<span class="sd">        downstream consumers such as the VPN bridge replay their own saved</span>
+<span class="sd">        state on restore, so re-publishing &#39;on_bind&#39; for them would</span>
+<span class="sd">        double-actuate. Sockets still &#39;pending&#39; (bound but never announced)</span>
+<span class="sd">        at snapshot time are ground-truth listeners in the restored guest that</span>
+<span class="sd">        no downstream plugin saved, so they are promoted to &#39;listening&#39; and</span>
+<span class="sd">        announced now.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_restore_data</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_restore_data</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">data</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">time_delta</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_time</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="n">announcements</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_rehydrate_locked</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_publish_announcements</span><span class="p">(</span><span class="n">announcements</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_rehydrate_locked</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Rebuild sockets/seen_binds/bind_rows from saved state and rewrite</span>
+<span class="sd">        netbinds.csv. Caller holds _lock. Returns announcements to publish for</span>
+<span class="sd">        pending sockets promoted to listening on restore.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">seen_binds</span> <span class="o">=</span> <span class="p">{</span><span class="nb">tuple</span><span class="p">(</span><span class="n">b</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;seen_binds&quot;</span><span class="p">,</span> <span class="p">[])}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bind_rows</span> <span class="o">=</span> <span class="p">[{</span><span class="o">**</span><span class="n">r</span><span class="p">,</span> <span class="s2">&quot;key&quot;</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">r</span><span class="p">[</span><span class="s2">&quot;key&quot;</span><span class="p">])}</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;bind_rows&quot;</span><span class="p">,</span> <span class="p">[])]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sockets</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">announcements</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">saved</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;sockets&quot;</span><span class="p">,</span> <span class="p">[]):</span>
+            <span class="n">rec</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">saved</span><span class="p">)</span>
+            <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;announce_timer&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_since&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_close&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_close_delta&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="n">key</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_socket_key</span><span class="p">(</span><span class="n">rec</span><span class="p">[</span><span class="s2">&quot;ipvn&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;sock_type&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;ip&quot;</span><span class="p">],</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;port&quot;</span><span class="p">])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">sockets</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">rec</span>
+            <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;pending&quot;</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">rec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;announced&quot;</span><span class="p">):</span>
+                <span class="n">announcement</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_promote_to_listening</span><span class="p">(</span><span class="n">rec</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">announcement</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">announcements</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">announcement</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_rewrite_binds_file</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">announcements</span>
+
+<div class="viewcode-block" id="NetBinds.report_bind_info">
+<a class="viewcode-back" href="../../../pyplugins.analysis.netbinds.html#pyplugins.analysis.netbinds.NetBinds.report_bind_info">[docs]</a>
+    <span class="k">def</span> <span class="nf">report_bind_info</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">time_delta</span><span class="p">,</span> <span class="n">procname</span><span class="p">,</span> <span class="n">ipvn</span><span class="p">,</span> <span class="n">sock_type</span><span class="p">,</span> <span class="n">ip</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">pid</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Log bind details and summary statistics to disk. Called at announce</span>
+<span class="sd">        time, so the row is written with state &#39;listening&#39;; final states are</span>
+<span class="sd">        filled in when the file is rewritten on unload.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            time_delta: The time since emulation start when the bind was announced.</span>
+<span class="sd">            procname: The name of the process that performed the bind.</span>
+<span class="sd">            ipvn: The IP version (4 or 6) of the bind.</span>
+<span class="sd">            sock_type: The type of socket (TCP or UDP).</span>
+<span class="sd">            ip: The IP address being bound.</span>
+<span class="sd">            port: The port number being bound.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Collect summary stats at this time (unique processes, total binds, bound_www, time)</span>
+        <span class="n">n_sockets</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">procs</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="n">bound_www</span> <span class="o">=</span> <span class="kc">False</span>
+
+        <span class="c1"># Report this specific bind</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outdir</span><span class="p">,</span> <span class="n">BINDS_FILE</span><span class="p">),</span> <span class="s2">&quot;a&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">procname</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">ipvn</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">sock_type</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">ip</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">port</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">pid</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">time_delta</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">,listening,</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Look through self.seen_binds, count unique procnames, total binds, and bound_www</span>
+        <span class="k">for</span> <span class="n">data</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">seen_binds</span><span class="p">:</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">port</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span>
+            <span class="n">procs</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+            <span class="n">n_sockets</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="n">port</span> <span class="o">==</span> <span class="mi">80</span><span class="p">:</span>
+                <span class="n">bound_www</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="n">n_procs</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">procs</span><span class="p">)</span>
+
+        <span class="c1"># Report summary stats</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outdir</span><span class="p">,</span> <span class="n">SUMMARY_BINDS_FILE</span><span class="p">),</span> <span class="s2">&quot;a&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">n_procs</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">n_sockets</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">bound_www</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">time_delta</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_rewrite_binds_file</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Rewrite netbinds.csv with final lifecycle states.</span>
+
+<span class="sd">        Rows appended during the run always carry state &#39;listening&#39; (only</span>
+<span class="sd">        announced binds get rows); on unload the file is rewritten so each row</span>
+<span class="sd">        shows its final state and closed_time, plus one row per socket that</span>
+<span class="sd">        was never announced (transient binds, and still-pending binds younger</span>
+<span class="sd">        than the announce window at shutdown). Written to a temp file and</span>
+<span class="sd">        renamed so a crash mid-rewrite cannot destroy the data accumulated</span>
+<span class="sd">        during the run.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">tmp_path</span> <span class="o">=</span> <span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outdir</span><span class="p">,</span> <span class="n">BINDS_FILE</span> <span class="o">+</span> <span class="s2">&quot;.tmp&quot;</span><span class="p">)</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">tmp_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">BINDS_HEADER</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">bind_rows</span><span class="p">:</span>
+                <span class="n">rec</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sockets</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s2">&quot;key&quot;</span><span class="p">])</span>
+                <span class="n">state</span> <span class="o">=</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="k">if</span> <span class="n">rec</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="s2">&quot;listening&quot;</span>
+                <span class="n">closed_time</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+                <span class="k">if</span> <span class="n">rec</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">state</span> <span class="o">==</span> <span class="s2">&quot;closed&quot;</span> <span class="ow">and</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;last_close&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">closed_time</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;last_close&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;procname&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;ipvn&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;sock_type&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;ip&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;port&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;pid&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;time&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">state</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">closed_time</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+            <span class="k">for</span> <span class="n">rec</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">sockets</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+                <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;announced&quot;</span><span class="p">]:</span>
+                    <span class="k">continue</span>
+                <span class="n">closed_time</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span> <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;last_close&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;last_close&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;procname&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;ipvn&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;sock_type&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;ip&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;port&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;pid&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;first_open&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;state&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">closed_time</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">tmp_path</span><span class="p">,</span> <span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outdir</span><span class="p">,</span> <span class="n">BINDS_FILE</span><span class="p">))</span>
+
+<div class="viewcode-block" id="NetBinds.uninit">
+<a class="viewcode-back" href="../../../pyplugins.analysis.netbinds.html#pyplugins.analysis.netbinds.NetBinds.uninit">[docs]</a>
+    <span class="k">def</span> <span class="nf">uninit</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Finalize the socket lifecycle on unload and write the lifecycle summary.</span>
+
+<span class="sd">        Announce timers are cancelled; sockets still pending announcement keep</span>
+<span class="sd">        the &#39;pending&#39; state in the final CSVs -- they were bound when the run</span>
+<span class="sd">        ended but never confirmed as listeners (and never published).</span>
+<span class="sd">        Any pending closes are finalized at their real (pending) close time,</span>
+<span class="sd">        and any sockets still open at shutdown have their uptime closed out at</span>
+<span class="sd">        the end of the run.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">now</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="n">final_delta</span> <span class="o">=</span> <span class="n">now</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_time</span>
+
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">rec</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">sockets</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+                <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;announce_timer&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;announce_timer&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+                    <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;announce_timer&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+                <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_close&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="c1"># A close that never got a re-bind: it was real.</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_finalize_close</span><span class="p">(</span><span class="n">rec</span><span class="p">)</span>
+                <span class="k">elif</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;pending&quot;</span><span class="p">:</span>
+                    <span class="c1"># Still bound at shutdown but younger than the announce</span>
+                    <span class="c1"># window: never confirmed as a listener. Keep the honest</span>
+                    <span class="c1"># &#39;pending&#39; state rather than promoting -- promoting would</span>
+                    <span class="c1"># also affirmatively mislabel a socket whose release was</span>
+                    <span class="c1"># missed (TCP bind-without-listen; see module docstring).</span>
+                    <span class="c1"># A pid-exit fallback was considered and rejected:</span>
+                    <span class="c1"># daemonizing services bind in a parent that exits while a</span>
+                    <span class="c1"># child keeps the socket, so pid-exit would mark real</span>
+                    <span class="c1"># listeners closed.</span>
+                    <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;pending_since&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+                    <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;last_open&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                        <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;total_uptime&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="nb">max</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">final_delta</span> <span class="o">-</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;last_open&quot;</span><span class="p">])</span>
+                <span class="k">elif</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;listening&quot;</span> <span class="ow">and</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;last_open&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="c1"># Still up at shutdown: count uptime through end of run.</span>
+                    <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;total_uptime&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="nb">max</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">final_delta</span> <span class="o">-</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;last_open&quot;</span><span class="p">])</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">_rewrite_binds_file</span><span class="p">()</span>
+
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outdir</span><span class="p">,</span> <span class="n">LIFECYCLE_FILE</span><span class="p">),</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span>
+                    <span class="s2">&quot;procname,ipvn,domain,guest_ip,guest_port,pid,state,transient,&quot;</span>
+                    <span class="s2">&quot;open_count,close_count,flap_count,first_open,last_close,total_uptime</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="p">)</span>
+                <span class="k">for</span> <span class="n">rec</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">sockets</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+                    <span class="n">last_close</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span> <span class="k">if</span> <span class="n">rec</span><span class="p">[</span><span class="s2">&quot;last_close&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;last_close&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;procname&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;ipvn&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;sock_type&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;ip&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,&quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;port&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;pid&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;state&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;transient&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,&quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;open_count&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;close_count&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;flap_count&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">,&quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;first_open&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">last_close</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">rec</span><span class="p">[</span><span class="s1">&#39;total_uptime&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+                    <span class="p">)</span></div>
+</div>
+
+</pre></div>
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          
+          
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer no-toc">
+      
+      
+      
+    </aside>
+  </div>
+</div><script src="../../../_static/documentation_options.js?v=8fbf7bea"></script>
+    <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/scripts/furo.js?v=46bd48cc"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=f281be69"></script>
+    </body>
+</html>
