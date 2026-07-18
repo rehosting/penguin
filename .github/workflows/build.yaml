@@ -167,42 +167,25 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Trust Harbor's self-signed certificate
+      # Harbor cert trust + insecure buildx + registry login, all via the
+      # shared org action instead of three hand-rolled steps (which drifted out
+      # of sync with arc-registry-setup and, notably, missed the buildkit pin —
+      # so this job broke on the buildx-stable-1 -> v0.31.2 /proc/acpi break
+      # while the shared action could carry the fix centrally).
+      - name: Set up Arc registry (cert, buildx, login)
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: |
-          echo "Fetching certificate from ${{ env.REGISTRY }}"
-          openssl s_client -showcerts -connect ${{ env.REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
-          sudo update-ca-certificates
-      
-      - name: Set up Docker Buildx
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            image=moby/buildkit:v0.30.0
-            network=host
-          # Pin buildkit: the floating buildx-stable-1 default advanced to
-          # v0.31.2, whose runc masks /proc/acpi in a way the 5.4-kernel Arc
-          # runners reject ("can't mask dir /proc/acpi ... invalid argument"),
-          # breaking every build. The nodes prune images every 30m, so a bad
-          # floating-tag move hits the whole fleet within one cycle. v0.30.0 is
-          # the last minor before the bad runc and an immutable release tag.
-          # (This workflow hand-rolls buildx instead of using
-          # rehosting/ci arc-registry-setup, so the org-wide default pin there
-          # doesn't reach it.) Revisit once the runner kernel is bumped.
-          buildkitd-config-inline: |
-            [registry."${{ env.REGISTRY }}"]
-              insecure = true
-              http = true
-      
-      - name: Log in to Rehosting Arc Registry
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: docker/login-action@v3
+        uses: rehosting/ci/actions/arc-registry-setup@v1
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ env.USER }}
           password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
-      
+          # Explicit pin so this is safe to merge in any order relative to
+          # rehosting/ci#14 (which flips the action's DEFAULT to this same
+          # v0.30.0). Drop this line once that default has shipped via v1.4.0
+          # and the runner kernel is bumped past 5.4 — then this job inherits
+          # the central pin with no local override.
+          buildkit-image: moby/buildkit:v0.30.0
+
       - name: Build Docker image and push to Docker Hub
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         uses: docker/build-push-action@v6
