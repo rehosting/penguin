@@ -339,3 +339,35 @@ class RealtekRtl819xBootProfile(InitPlugin):
 
     def patch(self, ctx: InitContext) -> dict | None:
         return _profile_patch(self, 'realtek_rtl819x', tier='boot', default_tier=False)
+
+
+class AvmFritzosProfile(InitPlugin):
+    '''AVM FRITZ!OS profile, Tier-0 libinject bundle. Unlike the other SDK
+    profiles this tier carries a PSEUDOFILE, not lib_inject symbol aliases:
+    FRITZ!OS userland is uClibc (LD_PRELOAD-blind), so aliasing libtffs/libboxlib
+    exports would not bind on their DT_NEEDED consumers. The LD_PRELOAD-independent
+    surface it serves is the MANDATORY urlader boot environment
+    (/proc/sys/urlader/environment) as a const_buf -- /etc/boot.d/1 hard-blocks the
+    boot until that node exists, then reads the systemd.unit target from its
+    kernel_args. The TFFS config-store char devices are the additive boot tier.'''
+    patch_name = 'sdk.avm_fritzos'
+    order = 135
+
+    def patch(self, ctx: InitContext) -> dict | None:
+        return _profile_patch(self, 'avm_fritzos', tier='libinject')
+
+
+class AvmFritzosBootProfile(InitPlugin):
+    '''AVM FRITZ!OS boot-to-runtime bundle, SILICON surface: model the TFFS
+    config-store char devices (/proc/tffs, /dev/tffs/mtdN, /dev/tffs_userlog,
+    /dev/tffs_panic) as read-after-write (stateful read + discard write) so
+    libtffs tffs_write_value's writes read back and ioctls answer success.
+    Emitted as the DISABLED candidate `sdk.avm_fritzos.boot`; additive to the
+    Tier-0 libinject bundle (which already serves the mandatory urlader boot-env).
+    Opt-in because read-after-write flash is higher-fidelity modeling, not needed
+    merely to detect the SDK.'''
+    patch_name = 'sdk.avm_fritzos.boot'
+    order = 137
+
+    def patch(self, ctx: InitContext) -> dict | None:
+        return _profile_patch(self, 'avm_fritzos', tier='boot', default_tier=False)

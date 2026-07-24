@@ -354,5 +354,59 @@ class TestRealtekRtl819xProfile(unittest.TestCase):
         self.assertNotIn("sdk.realtek_rtl819x", patches)
 
 
+class TestAvmFritzosProfile(unittest.TestCase):
+    def _run(self, **kw):
+        return run(profile_classes=("AvmFritzosProfile",), **kw)
+
+    def _match(self, runner):
+        return runner.manager.plugins["SdkFinder"].verdict("avm_fritzos")
+
+    def test_libboxlib_plus_symbol_enables(self):
+        # libboxlib.so (file) + tffs_read_value (symbol) = 2 signals -> enabled.
+        runner, patches = self._run(
+            files=["libboxlib.so"], symbols=["tffs_read_value", "avmipc_msg_send"],
+        )
+        v = self._match(runner)
+        self.assertEqual(v["score"], 2)
+        self.assertTrue(v["enabled"])
+
+        data, enabled = patches["sdk.avm_fritzos"]
+        self.assertTrue(enabled)
+        # Tier-0 serves the MANDATORY urlader boot-env as a const_buf (uClibc is
+        # LD_PRELOAD-blind, so this profile uses a pseudofile, not symbol aliases).
+        urlader = data["pseudofiles"]["/proc/sys/urlader/environment"]
+        self.assertEqual(urlader["read"]["model"], "const_buf")
+        self.assertIn("systemd.unit=", urlader["read"]["val"])
+
+    def test_lib_alone_is_disabled_candidate(self):
+        # Only the libtffs.so file signal fires -> score 1 -> disabled candidate.
+        runner, patches = self._run(files=["libtffs.so"])
+        v = self._match(runner)
+        self.assertEqual(v["score"], 1)
+        self.assertFalse(v["enabled"])
+        self.assertFalse(patches["sdk.avm_fritzos"][1])
+
+    def test_boot_tier_is_disabled_tffs_candidate(self):
+        # Tier-0 (urlader boot-env) auto-enables; the TFFS char-device tier is an
+        # additive DISABLED candidate (opt-in read-after-write flash fidelity).
+        runner, patches = run(
+            profile_classes=("AvmFritzosProfile", "AvmFritzosBootProfile"),
+            files=["libboxlib.so", "libtffs.so"], executables=["ctlmgr"],
+            symbols=["tffs_read_value"],
+        )
+        self.assertTrue(patches["sdk.avm_fritzos"][1])           # Tier-0: enabled
+        self.assertIn("sdk.avm_fritzos.boot", patches)
+        self.assertFalse(patches["sdk.avm_fritzos.boot"][1])      # boot: disabled candidate
+        boot = patches["sdk.avm_fritzos.boot"][0]
+        self.assertIn("/dev/tffs/mtd3", boot["pseudofiles"])
+        self.assertEqual(boot["pseudofiles"]["/dev/tffs/mtd3"]["read"]["model"], "stateful")
+
+    def test_broadcom_target_does_not_fire_avm(self):
+        # et/nvram_get (Broadcom) must not trip the AVM profile.
+        runner, patches = self._run(interfaces=["vlan1", "et"], symbols=["nvram_get"])
+        self.assertIsNone(self._match(runner))
+        self.assertNotIn("sdk.avm_fritzos", patches)
+
+
 if __name__ == "__main__":
     unittest.main()
