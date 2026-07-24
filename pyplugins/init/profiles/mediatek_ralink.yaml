@@ -1,0 +1,81 @@
+# SDK profile: MediaTek/Ralink APSoC (raeth Ethernet + MT7530-style robo-switch).
+#
+# The MediaTek "APSoC" SDK (formerly Ralink) drives the built-in Ethernet switch
+# through the `raeth` driver and the `mii_mgr` / `switch` register tools over a
+# private ioctl on the raeth netdev. Seen here on a TP-Link Archer C20 V4 (MT7628),
+# but the raeth/mii_mgr surface is silicon-SDK-generic across MediaTek vendors, so
+# this is the silicon profile (cf. broadcom_hnd / qualcomm_qsdk); vendor userland
+# (TP-Link libcmm/data-model, etc.) is separate.
+name: mediatek_ralink
+description: MediaTek/Ralink APSoC (raeth Ethernet driver + mii_mgr/switch register tools)
+
+provenance: MediaTek APSoC reference (TP-Link Archer C20 V4 / MT7628 GPL)
+
+# raeth.ko / rt_rdm.ko are the MediaTek/Ralink Ethernet-driver discriminators; the
+# mii_mgr(_cl45) MII register tools ride on that driver; ra0/rai0/apcli0 are the
+# Ralink wireless netdevs. None appear on Broadcom/Qualcomm/asuswrt. Require two.
+fingerprint:
+  - {kind: file, any: [raeth.ko, rt_rdm.ko]}              # ClusterCollector.files (MediaTek Ethernet driver)
+  - {kind: executable, any: [mii_mgr, mii_mgr_cl45]}      # ClusterCollector.executables (RAETH MII tools)
+  - {kind: interface, any: [ra0, rai0, apcli0]}           # InterfaceFinder (Ralink wireless)
+enable_if:
+  min_signals: 2
+
+bundles:
+  # Tier: boot-to-runtime, SILICON switch. Under emulation raeth.ko (a vendor
+  # 2.6.36/4.x module) does not load, so the real mii_mgr's ioctl fails and switch
+  # bring-up spams "mii_mgr: ioctl error". Shim the register tools with canned
+  # output (config-only static_files, like the QCA ssdk_sh shim) so switch setup
+  # is quiet and PHY/register reads return plausible values. Emitted as the
+  # DISABLED candidate `sdk.mediatek_ralink.boot`.
+  #
+  # mii_mgr grammar (from the binary): `-g -p <phy> -r <reg>` (read) ->
+  # "Get: phy[P].reg[R] = HHHH"; `-s -p <phy> -r <reg> -v <val>` (write) ->
+  # "Set: phy[P].reg[R] = HHHH". `switch` (MT7530 tool) config subcommands are
+  # fire-and-forget.
+  boot:
+    static_files:
+      /sbin/mii_mgr:
+        type: inline_file
+        mode: 0755  # YAML 1.1 octal (safe_load keeps it a string)
+        contents: |
+          #!/bin/sh
+          # penguin sdk.mediatek_ralink.boot -- canned RAETH mii_mgr. raeth.ko is
+          # absent under emulation, so the real tool's ioctl fails; parse the args
+          # and echo the expected Get/Set line, no ioctl, always succeed.
+          op=g; phy=0; reg=0; val=0000
+          while [ $# -gt 0 ]; do
+              case "$1" in
+                  -g) op=g ;;
+                  -s) op=s ;;
+                  -p) phy=$2; shift ;;
+                  -r) reg=$2; shift ;;
+                  -v) val=$2; shift ;;
+              esac
+              shift
+          done
+          if [ "$op" = s ]; then
+              echo "Set: phy[$phy].reg[$reg] = $val"
+          else
+              echo "Get: phy[$phy].reg[$reg] = 0000"
+          fi
+          exit 0
+      /sbin/mii_mgr_cl45:
+        type: inline_file
+        mode: 0755
+        contents: |
+          #!/bin/sh
+          # penguin sdk.mediatek_ralink.boot -- canned clause-45 mii_mgr.
+          echo "0000"
+          exit 0
+      /sbin/switch:
+        type: inline_file
+        mode: 0755
+        contents: |
+          #!/bin/sh
+          # penguin sdk.mediatek_ralink.boot -- canned MT7530 switch tool. raeth.ko
+          # absent; reads return 0, config subcommands succeed.
+          case "$*" in
+              *" r "*|*reg*read*) echo "0" ;;
+          esac
+          exit 0

@@ -1630,6 +1630,54 @@ Constant POLLIN|POLLRDNORM|POLLOUT|POLLWRNORM mask (legacy behavior).
 
 Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
 
+##### `pseudofiles.<string>.poll.<model=blocking>` Never report ready (block the waiter)
+
+Return a zero mask so poll()/select()/epoll parks the caller on the node's wait queue instead of spinning. Models an event-source device whose read() blocks until a hardware event that never occurs under emulation (e.g. an AVM-style /dev/watchdog). A write to the node wakes any parked waiter.
+
+###### `pseudofiles.<string>.poll.<model=blocking>.model` Poll modelling method (never report ready (block the waiter))
+
+|||
+|-|-|
+|__Type__|`"blocking"`|
+
+
+###### `pseudofiles.<string>.poll.<model=blocking>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `pseudofiles.<string>.poll.<model=periodic>` Report ready on a fixed cadence (heartbeat)
+
+Report the node readable once every 'interval_ms', parking the waiter on the node's wait queue in between. An igloo_driver kernel timer drives the cadence, so a poll()/epoll(timeout=-1) main loop advances at a fixed rate instead of spinning (always_ready) or deadlocking (blocking). Models a device that delivers a periodic hardware event (e.g. an AVM-style /dev/watchdog heartbeat). Note the interval is in guest time, which runs slower than wall-clock under emulation.
+
+###### `pseudofiles.<string>.poll.<model=periodic>.model` Poll modelling method (report ready on a fixed cadence (heartbeat))
+
+|||
+|-|-|
+|__Type__|`"periodic"`|
+
+
+###### `pseudofiles.<string>.poll.<model=periodic>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.poll.<model=periodic>.interval_ms` Heartbeat interval (guest milliseconds)
+
+|||
+|-|-|
+|__Type__|integer|
+|__Default__|`1000`|
+
+
 ##### `pseudofiles.<string>.poll.<model=from_plugin>` Poll from a custom PyPlugin
 
 Data-aware poll: the plugin returns a poll mask reflecting actual readiness.

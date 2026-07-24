@@ -245,9 +245,17 @@ def make_image(fs: str, out: str, artifacts: str | None, config: dict) -> None:
             IMAGE = Path(work_dir, "image.raw")
             # Create raw image file
             check_output(["truncate", "-s", str(FILESYSTEM_SIZE), IMAGE])
-            # Format as ext4 and populate directly from the tarball
+            # Format as ext4 and populate directly from the tarball. Use the
+            # bundled e2fsprogs explicitly: populating `-d` from a *tarball*
+            # needs the newer /opt/e2fsprogs mke2fs, and under `--pydev` penguin
+            # runs via sudo whose secure_path drops /opt/e2fsprogs/sbin, leaving
+            # only /usr/sbin/mke2fs 1.47.0 (no tarball -d support) -> the build
+            # fails with "__populate_fs: Not a directory ... .tar".
+            mke2fs_bin = "/opt/e2fsprogs/sbin/mke2fs"
+            if not Path(mke2fs_bin).exists():
+                mke2fs_bin = "mke2fs"
             check_output([
-                "mke2fs", "-t", "ext4",
+                mke2fs_bin, "-t", "ext4",
                 "-N", str(NUMBER_OF_INODES),
                 "-d", str(uncompressed_tar),
                 str(IMAGE)

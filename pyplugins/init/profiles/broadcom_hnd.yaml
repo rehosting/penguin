@@ -1,0 +1,173 @@
+# SDK profile: ASUSWRT on Broadcom HND (et/robo switch + CFE bootloader nvram).
+#
+# A profile is fingerprint + fidelity-tiered bundles. SdkFinder scores the
+# fingerprint against static analyses that already run; BroadcomHndProfile emits
+# bundles.libinject as the named patch `sdk.broadcom_hnd`, ENABLED when the
+# fingerprint corroborates (>= enable_if.min_signals) and DISABLED (a search
+# candidate) otherwise.
+name: broadcom_hnd
+description: ASUSWRT on Broadcom HND (et/robo switch + CFE nvram)
+
+# Distilled from Broadcom-HND ASUSWRT reference rehosts. (Specific source
+# targets are tracked internally, not shipped, to keep private corpus names out
+# of this public repo.)
+provenance: ASUSWRT / Broadcom HND reference rehosts
+
+# Each entry is one signal, evaluated by SdkFinder against the named analysis.
+# These are Broadcom/HND-SDK-EXCLUSIVE markers, verified by diffing a real HND
+# target (RT-AC2900) against an ASUSWRT-on-Qualcomm target (RT-AC58U): the
+# earlier fingerprint used `nvram`/`nvram_get`/`rtkswitch`, none of which are
+# Broadcom-exclusive on ASUSWRT (every ASUSWRT box has an `nvram` CLI + nvram_get,
+# and ASUSWRT reuses the `rtkswitch` command name on Qualcomm too -- it in fact
+# only appears on the QCA box here), so broadcom_hnd false-fired on QSDK targets.
+# The Broadcom Ethernet/wireless drivers (et/wl/emf/igs), the ethswctl switch tool,
+# the CFE `envram` daemon, libbcm*, and the wl_/bcm nvram symbols are genuinely
+# HND-only. Enable when at least two corroborate.
+fingerprint:
+  - {kind: executable, any: [ethswctl, wl, emf, igs, envram]}         # ClusterCollector.executables (Broadcom/HND driver+switch+CFE tools)
+  - {kind: file, any: [libbcmcrypto.so, libbcm.so, dhd.ko]}           # ClusterCollector.files (Broadcom HND libs/modules)
+  - {kind: symbol, any: [wl_probe, bcmgpio_connect, nvram_get_bitflag]} # LibrarySymbols (Broadcom-exclusive)
+enable_if:
+  min_signals: 2
+
+# Fidelity-tiered bundles for this SDK, both keyed off the single fingerprint
+# above. Tier 0 (libinject) ships now; Tier 1 (mtd) is reserved -- see below.
+bundles:
+  # Tier 0: shim the switch/nvram surface at the library/pseudofile layer and
+  # answer from config. Verified as the shared intersection of two Broadcom-HND
+  # ASUSWRT reference rehosts.
+  libinject:
+    netdevs:
+      # Broadcom LAN switch is exposed as the VLAN device vlan1 (primary br0
+      # member); vlan2/vlan3 are WAN/guest; et is the Broadcom eth/switch device.
+      - vlan1
+      - vlan2
+      - et
+    nvram:
+      # ASUSWRT derives lan_ipaddr from the CFE var IpAddr_Lan, written at the
+      # factory into CFE flash and absent under emulation. Seed the CFE source and
+      # skip restore_defaults (which otherwise blanks lan_ipaddr on first boot).
+      IpAddr_Lan: 192.168.1.1
+      lan_ipaddr: 192.168.1.1
+      lan_netmask: 255.255.255.0
+      lan_proto: static
+      lan_ifname: br0
+      restore_defaults: "0"
+      # Broadcom "et" Ethernet-driver per-port MACs.
+      et0macaddr: "00:11:22:33:44:50"
+      et1macaddr: "00:11:22:33:44:51"
+      et2macaddr: "00:11:22:33:44:52"
+      # Broadcom wl per-radio MACs (was an always-on FirmAE default; it is
+      # Broadcom-specific "unit:macaddr" nvram, so it belongs to this profile).
+      "0:macaddr": "01:23:45:67:89:ab"
+      "1:macaddr": "01:23:45:67:89:ab"
+      "2:macaddr": "01:23:45:67:89:ab"
+      "3:macaddr": "01:23:45:67:89:ab"
+    pseudofiles:
+      # Secondary Realtek RTL8365MB switch driven by /sbin/rtkswitch; satisfy its
+      # ioctls so the switch-config calls stop failing in a tight loop.
+      /dev/rtkswitch:
+        read: {model: zero}
+        write: {model: discard}
+        ioctl:
+          '*': {model: return_const, val: 1}
+      # CFE/flash partition table + boot partition, read by ASUSWRT board code to
+      # locate the CFE nvram region.
+      /proc/mtd:
+        read: {model: const_buf, val: "AAAAAAAAAAAAAA FLSH\0"}
+      /dev/mtd0:
+        read: {model: const_buf, val: "BBBBBBBBBBBBBB FLSH CCCCCCCCCC\0"}
+        ioctl:
+          '2149600513': {model: return_const, val: 0}   # MEMGETINFO
+          '*': {model: return_const, val: 0}
+
+  # Tier 1 (mtd): a data-faithful CFE-envram backing store for the vendor
+  # `envrams` daemon. Emitted as the DISABLED candidate `sdk.broadcom_hnd.mtd`
+  # (BroadcomHndMtdProfile); promote it ALONGSIDE the libinject tier for targets
+  # whose boot blocks on envrams.
+  #
+  # Why this exists / why it is separate from libinject: ASUSWRT-HND has TWO nvram
+  # stores. (1) the runtime nvram (nvram_get/set), which the libinject tier shims
+  # at the library layer; and (2) the CFE bootloader "envram" region, served to
+  # the firmware by the `envrams` daemon. envrams reads envram DIRECTLY as a
+  # packed blob file -- it does NOT call the nvram_get library API -- so lib_inject
+  # cannot serve it. On a real device that blob is a UBIFS file on the `misc1` MTD
+  # partition; envrams does `hndnvram.sh mount_ubi` then fopen(/mnt/nvram/nvram.nvm),
+  # and /sbin/rc reboots (3x "start_envrams") if either the mount or the open
+  # fails. (Established by disassembling envrams; the blob is a run of
+  # NUL-terminated key=value strings, double-NUL terminated, no header/CRC.)
+  #
+  # Fidelity note: penguin has no UBI/UBIFS emulation, so the *mount* is shimmed
+  # rather than modeled -- hndnvram.sh's mount_ubi/umount_ubi become no-op
+  # successes that stage the pre-seeded blob into /mnt/nvram. The backing-store
+  # DATA is real (envrams reads a genuine blob and serves genuine envram values);
+  # only the misc1 UBI/MTD transport is bypassed. Modeling the real MTD partition
+  # (an actual /proc/mtd `misc1` + a UBI image the guest kernel can ubiattach +
+  # mount -t ubifs) is a guest-KERNEL sub-project tracked as a follow-up.
+  mtd:
+    # CFE bootloader envram identity keys, packed into /mnt/nvram/nvram.nvm and
+    # served by envrams. et0macaddr is the known consumer (mfg_set_base_macaddr
+    # does `envram get et0macaddr`); board* are the standard CFE identity set.
+    # MACs mirror the libinject tier's et*macaddr for consistency.
+    envram:
+      et0macaddr: "00:11:22:33:44:50"
+      et1macaddr: "00:11:22:33:44:51"
+      et2macaddr: "00:11:22:33:44:52"
+      boardnum: "1234"
+      boardtype: "0x0665"
+      boardrev: "0x1101"
+    static_files:
+      # Shim the vendor hndnvram.sh so the misc1 UBI mount envrams triggers is a
+      # no-op success that stages the pre-seeded envram blob. Placed in /rom (the
+      # persistent source /tmp/etc is populated from at boot; /etc is a tmpfs
+      # symlink, so overriding /etc/init.d/... directly would not survive).
+      /rom/etc/init.d/hndnvram.sh:
+        type: inline_file
+        mode: 0755  # YAML 1.1 octal (safe_load parses 0o755 as a string)
+        contents: |
+          #!/bin/sh
+          # penguin sdk.broadcom_hnd.mtd shim -- satisfy the envrams CFE-envram
+          # backing without a real misc1 UBI/MTD partition. envrams runs
+          # `hndnvram.sh mount_ubi [-r]` then fopen(/mnt/nvram/nvram.nvm); make the
+          # mount a no-op success that stages the pre-seeded blob into place.
+          NVM_SRC=/rom/etc/nvram.nvm
+          NVM_DIR=/mnt/nvram
+          case "$1" in
+              mount_ubi)
+                  mkdir -p "$NVM_DIR"
+                  [ -f "$NVM_SRC" ] && cp "$NVM_SRC" "$NVM_DIR/nvram.nvm"
+                  exit 0
+                  ;;
+              umount_ubi)
+                  exit 0
+                  ;;
+              *)
+                  # start/stop and any other subcommand: the real script insmods
+                  # the vendor wlcsm.ko kernel nvram module (absent under penguin)
+                  # and restores mfg defaults; not needed (runtime nvram is served
+                  # by lib_inject), so no-op.
+                  exit 0
+                  ;;
+          esac
+    # The packed /mnt/nvram/nvram.nvm blob is materialized from `envram:` above
+    # into a static file at ENVRAM_BLOB_PATH (/rom/etc/nvram.nvm) by _profile_patch.
+
+  # Tier: boot-to-runtime, SILICON half only. The BCM6300 robo-switch probe is
+  # the Broadcom-specific boot blocker: swmdk drives it via CDK over the private
+  # SIOCETHSWCTLOPS ioctl, and if the chip is unmodelled cdk_dev_create fails and
+  # /sbin/rc reboots the board. The other two post-envram blockers (the ASUSWRT
+  # first-boot restore-defaults reboot and the stuck GPIO buttons) are userland-
+  # generic and live in `sdk.asuswrt.boot` -- promote that ALONGSIDE this. Emitted
+  # as the DISABLED candidate `sdk.broadcom_hnd.boot` (BroadcomHndBootProfile);
+  # additive to the Tier-0 libinject bundle.
+  boot:
+    plugins:
+      # BCM6300 robo-switch: answer bcm_get_switch_info (op 43) with the chip id
+      # so cdk_dev_create matches its device table; force every other
+      # SIOCETHSWCTLOPS op to succeed (unmanaged mode).
+      bcm6300_switch:
+        iface: eth0
+
+  # NOTE: the WAN-connected tier is silicon-independent (ASUSWRT WAN state
+  # machine + nvram_pin + VPN owned-interface) and now lives in the shared
+  # `asuswrt` profile as `sdk.asuswrt.wan`. It used to be `sdk.broadcom_hnd.wan`.

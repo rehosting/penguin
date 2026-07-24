@@ -965,6 +965,38 @@ Poll = _union(
             fields=(),
         ),
         dict(
+            discrim_val="blocking",
+            title="Never report ready (block the waiter)",
+            description=(
+                "Return a zero mask so poll()/select()/epoll parks the caller on "
+                "the node's wait queue instead of spinning. Models an "
+                "event-source device whose read() blocks until a hardware event "
+                "that never occurs under emulation (e.g. an AVM-style "
+                "/dev/watchdog). A write to the node wakes any parked waiter."
+            ),
+            fields=(),
+        ),
+        dict(
+            discrim_val="periodic",
+            title="Report ready on a fixed cadence (heartbeat)",
+            description=(
+                "Report the node readable once every 'interval_ms', parking the "
+                "waiter on the node's wait queue in between. An igloo_driver "
+                "kernel timer drives the cadence, so a poll()/epoll(timeout=-1) "
+                "main loop advances at a fixed rate instead of spinning "
+                "(always_ready) or deadlocking (blocking). Models a device that "
+                "delivers a periodic hardware event (e.g. an AVM-style "
+                "/dev/watchdog heartbeat). Note the interval is in guest time, "
+                "which runs slower than wall-clock under emulation."
+            ),
+            fields=(
+                ("interval_ms", int, Field(
+                    title="Heartbeat interval (guest milliseconds)",
+                    default=1000,
+                )),
+            ),
+        ),
+        dict(
             discrim_val="from_plugin",
             title="Poll from a custom PyPlugin",
             description="Data-aware poll: the plugin returns a poll mask reflecting actual readiness.",

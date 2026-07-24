@@ -1,0 +1,83 @@
+# SDK profile: ASUSWRT userland (silicon-independent).
+#
+# ASUSWRT runs on multiple silicon SDKs (Broadcom HND, Qualcomm QSDK, ...). The
+# *userland* behaviours a rehost must satisfy -- the /sbin/rc service manager's
+# first-boot restore-defaults reboot, the libshared GPIO-button reads, and the
+# WAN state machine -- are the SAME regardless of silicon. This profile captures
+# those, so every ASUSWRT target gets them; the per-silicon switch / nvram
+# transport lives in the silicon profile (broadcom_hnd, qualcomm_qsdk).
+#
+# Both bundles are emitted as DISABLED candidates (AsuswrtBootProfile /
+# AsuswrtWanProfile, default_tier=False): opt-in higher-fidelity modelling,
+# additive to the silicon profile's own bundle.
+name: asuswrt
+description: ASUSWRT userland (rc service manager + libshared + WAN state machine, silicon-independent)
+
+provenance: ASUSWRT reference rehosts (Broadcom HND + Qualcomm QSDK)
+
+# ASUSWRT discriminators that do not depend on silicon: the wanduck WAN monitor
+# and /sbin/rc service manager (executables), libshared.so (the ASUSWRT shared
+# library), and notify_rc / get_wan_unit (ASUSWRT-specific libshared symbols).
+# These distinguish ASUSWRT from a plain Broadcom/Netgear userland; require two.
+fingerprint:
+  - {kind: executable, any: [wanduck, rc]}           # ClusterCollector.executables
+  - {kind: file, any: [libshared.so]}                # ClusterCollector.files
+  - {kind: symbol, any: [notify_rc, get_wan_unit]}   # LibrarySymbols (ASUSWRT libshared)
+enable_if:
+  min_signals: 2
+
+bundles:
+  # Tier: boot-to-runtime (silicon-independent half). The switch probe is
+  # silicon-specific and stays in the silicon profile (e.g. sdk.broadcom_hnd.boot
+  # models the BCM6300 robo-switch); these two are ASUSWRT-userland-generic.
+  boot:
+    plugins:
+      # Neutralise the ASUSWRT first-boot "## Restoring defaults ##" reboot(2)
+      # (else -no-reboot ends the run before runtime). Bounded.
+      reboot_skip: {}
+      # Report all board GPIO buttons (libshared get_gpio) as released, so the
+      # watchdog does not see a stuck reset/WPS press.
+      gpio_buttons: {}
+
+  # Tier: WAN-connected. Drives the ASUSWRT WAN state machine to CONNECTED with a
+  # default route WITHOUT a real uplink or core.network: stand up a tap-backed
+  # WAN interface via the VPN "owned interfaces" feature and pin the WAN unit-0
+  # nvram at it so it survives ASUSWRT's per-boot default-restore (which blanks
+  # wan0_ifname). ASUSWRT then ifconfigs wan0 up at the pinned static IP,
+  # update_wan_state reaches CONNECTED, and add_multi_routes installs the default
+  # route via the host peer. The 203.0.113.0/24 block is the TEST-NET-3
+  # documentation range -- a placeholder datapath, not a real WAN.
+  #
+  # nvram: seeds the same keys so the libnvram key FILES exist (nvram_pin forces
+  # the value at the read layer, but the shim's access(F_OK) gate bails first if
+  # the file is absent).
+  wan:
+    nvram:
+      wan0_ifname: wan0
+      wan0_proto: static
+      wan0_ipaddr: 203.0.113.2
+      wan0_netmask: 255.255.255.0
+      wan0_gateway: 203.0.113.1
+      wan0_primary: "1"
+      wan0_dns: 203.0.113.1
+      wan_ifname: wan0
+      wan_proto: static
+    plugins:
+      nvram_pin:
+        pins:
+          wan0_ifname: wan0
+          wan0_proto: static
+          wan0_ipaddr: 203.0.113.2
+          wan0_netmask: 255.255.255.0
+          wan0_gateway: 203.0.113.1
+          wan0_primary: "1"
+          wan0_dns: 203.0.113.1
+          wan_ifname: wan0
+          wan_proto: static
+      vpn:
+        interfaces:
+          wan0:
+            host_ip: 203.0.113.1
+            guest_ip: 203.0.113.2
+            prefix: 24
+        default_interface: wan0

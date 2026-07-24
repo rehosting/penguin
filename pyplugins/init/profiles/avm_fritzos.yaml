@@ -1,0 +1,96 @@
+# SDK profile: AVM FRITZ!OS (Lantiq/Intel VR9-class; libboxlib + TFFS + urlader-env).
+#
+# A profile is fingerprint + fidelity-tiered bundles. SdkFinder scores the
+# fingerprint against static analyses that already run; AvmFritzosProfile emits
+# bundles.libinject as the named patch `sdk.avm_fritzos`, ENABLED when the
+# fingerprint corroborates (>= enable_if.min_signals) and DISABLED (a search
+# candidate) otherwise.
+#
+# Named for the AVM FRITZ!OS userland rather than the Lantiq SoC: the
+# discriminators here (libboxlib, libtffs, ctlmgr/multid, the avmipc bus, the
+# TFFS config store, the urlader boot environment) are AVM's stack, which AVM
+# ships on top of the Lantiq/Intel platform. A stock Lantiq UGW userland would
+# be a separate profile.
+name: avm_fritzos
+description: AVM FRITZ!OS (libboxlib/avmipc + TFFS config store + urlader boot-env)
+
+# Source/interface-derived against a shipped FRITZ!OS 7.x MIPS-BE (VR9-class)
+# rootfs: lib/libboxlib.so (avmipc_* IPC bus + boxenv_* urlader keys),
+# lib/libtffs.so (tffs_open/read_value/write_value -- the writable flash config
+# store), and the ctlmgr/multid/dsld daemons. Specific device targets are tracked
+# internally. AVM's proprietary userland is object-code only; only functional
+# identifiers (symbol/file/executable names) are used here, no AVM code.
+provenance: AVM FRITZ!OS reference (interface-derived, FRITZ!OS 7.x MIPS-BE rootfs)
+
+# libboxlib.so + libtffs.so are the AVM discriminators: the avmipc_* /
+# boxenv_* ABI (libboxlib) and the tffs_* config-store ABI (libtffs) are unique
+# to the AVM SDK -- no other SDK here exports them -- and both ship as dedicated
+# shared libraries. The ctlmgr / multid / dsld daemons corroborate. None appear on
+# Broadcom / Qualcomm / MediaTek / Realtek / Netgear-ACOS. Require two.
+fingerprint:
+  - {kind: symbol, any: [tffs_read_value, tffs_write_value, avmipc_msg_send]}  # LibrarySymbols (libtffs/libboxlib exports)
+  - {kind: file, any: [libboxlib.so, libtffs.so]}                              # ClusterCollector.files (AVM SDK core libraries)
+  - {kind: executable, any: [ctlmgr, multid, dsld]}                            # ClusterCollector.executables (AVM control/DSL daemons)
+enable_if:
+  min_signals: 2
+
+bundles:
+  # Tier 0 (auto-enabled when the fingerprint corroborates). Unlike the other SDK
+  # profiles this tier carries a PSEUDOFILE, not lib_inject aliases: FRITZ!OS
+  # userland is uClibc, whose loader ignores LD_PRELOAD, so symbol aliases onto
+  # libtffs/libboxlib would not bind on the DT_NEEDED consumers (the same
+  # constraint documented for qualcomm_qsdk / realtek_rtl819x). The
+  # LD_PRELOAD-independent, and here MANDATORY, config surface is the urlader
+  # (bootloader) environment:
+  #
+  #   /etc/boot.d/1 HARD-BLOCKS the whole boot in
+  #     `while [ ! -e /proc/sys/urlader/environment ]; do sleep 1; done`
+  #   then reads `kernel_args` from it to find the `systemd.unit=` target it hands
+  #   to AVM's `supervisor`, and greps `firmware_info` for the recover flag.
+  #
+  # PseudofileFinder auto-models this node (its path is referenced in the firmware)
+  # but only as read:zero -- enough to satisfy the `-e` existence gate, but the
+  # subsequent greps then see empty content, so supervisor gets no target. Serving
+  # it as a const_buf with the boot-gate keys (tab-separated name\tvalue, AVM
+  # urlader format) is the value this profile adds; the config-merge override of the
+  # auto-detected model is what makes it take effect. The systemd target is a
+  # best-effort default; per-box identity keys (MACs, serial, boxnumber) are not
+  # here -- those are per-device, not part of this SDK profile.
+  libinject:
+    pseudofiles:
+      /proc/sys/urlader/environment:
+        read:
+          model: const_buf
+          val: "firmware_version\tavm\nfirmware_info\t113.07.62\nkernel_args\troot=/dev/md0 init=/etc/init rw systemd.unit=multi-user.target\nProductID\tFRITZ_Box\n"
+
+  # Tier: boot-to-runtime, SILICON surface. The TFFS config store, emitted as the
+  # DISABLED candidate `sdk.avm_fritzos.boot` (additive to Tier 0). libtffs opens
+  # the TFFS char devices directly (/dev/tffs/mtdN, /proc/tffs, plus
+  # /dev/tffs_userlog and /dev/tffs_panic). PseudofileFinder auto-models these as
+  # read:zero / write:discard; this tier upgrades them to read-after-write
+  # (`read: stateful`, `write: discard` records into the same buffer per the schema)
+  # so tffs_write_value's writes read back, and answers ioctls with success so
+  # bring-up is quiet. Opt-in because read-after-write flash is higher-fidelity
+  # modeling, not needed merely to detect the SDK.
+  boot:
+    pseudofiles:
+      /proc/tffs:
+        read: {model: stateful}
+        write: {model: discard}
+        ioctl:
+          '*': {model: return_const, val: 0}
+      /dev/tffs/mtd3:
+        read: {model: stateful}
+        write: {model: discard}
+        ioctl:
+          '*': {model: return_const, val: 0}
+      /dev/tffs_userlog:
+        read: {model: stateful}
+        write: {model: discard}
+        ioctl:
+          '*': {model: return_const, val: 0}
+      /dev/tffs_panic:
+        read: {model: stateful}
+        write: {model: discard}
+        ioctl:
+          '*': {model: return_const, val: 0}

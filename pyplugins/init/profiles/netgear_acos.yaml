@@ -1,0 +1,168 @@
+# SDK profile: Netgear ACOS (Broadcom-based; acosNvramConfig userland).
+#
+# A profile is fingerprint + fidelity-tiered bundles. SdkFinder scores the
+# fingerprint against static analyses that already run; NetgearAcosProfile emits
+# bundles.libinject as the named patch `sdk.netgear_acos`, ENABLED when the
+# fingerprint corroborates (>= enable_if.min_signals) and DISABLED (a search
+# candidate) otherwise.
+#
+# This profile subsumes the former Slice-0 sdk.netgear_acos alias group: the
+# WAN_ith_CONFIG_GET shim now rides in the bundle alongside the ACOS nvram
+# defaults that used to be shipped unconditionally by nvram.04_defaults.
+name: netgear_acos
+description: Netgear ACOS (Broadcom-based; acosNvramConfig userland + ReadySHARE)
+
+# Netgear ACOS nvram keys and the acosNvramConfig ABI are source-confirmed against
+# an R7000-class ACOS GPL release. Specific device targets are tracked internally.
+provenance: Netgear ACOS reference (source-derived, R7000-class GPL)
+
+# acosNvramConfig_* is the ACOS discriminator (vs a plain Broadcom nvram userland);
+# libacos_shared.so / acos_nat.ko and the acos_service init program corroborate.
+fingerprint:
+  - {kind: symbol, any: [acosNvramConfig_get, acosNvramConfig_set, acosNvramConfig_read]}  # LibrarySymbols
+  - {kind: file, any: [libacos_shared.so, acos_nat.ko]}                                    # ClusterCollector.files
+  - {kind: executable, any: [acos_service, acos_init]}                                     # ClusterCollector.executables
+enable_if:
+  min_signals: 2
+
+bundles:
+  # Tier 0: the ACOS nvram defaults (formerly always-on FirmAE defaults) plus the
+  # ACOS config-getter shim, now gated behind the fingerprint above.
+  libinject:
+    nvram:
+      sku_name: ""
+      wla_wlanstate: ""
+      time_zone_x: "0"
+      rip_multicast: "0"
+      bs_trustedip_enable: "0"
+      filter_rule_tbl: ""
+      # ReadySHARE USB storage descriptors (FirmAE ACOS defaults, preserved verbatim).
+      usb_info_dev0: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev1: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev2: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev3: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev4: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev5: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev6: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev7: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev8: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev9: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev10: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev11: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev12: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev13: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev14: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev15: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev16: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev17: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev18: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev19: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev20: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev21: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev22: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev23: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev24: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev25: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev26: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev27: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev28: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev29: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev30: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev31: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev32: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev33: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev34: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev35: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev36: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev37: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev38: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev39: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev40: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev41: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev42: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev43: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev44: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev45: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev46: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev47: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev48: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev49: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev50: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev51: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev52: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev53: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev54: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev55: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev56: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev57: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev58: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev59: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev60: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev61: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev62: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev63: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev64: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev65: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev66: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev67: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev68: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev69: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev70: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev71: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev72: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev73: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev74: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev75: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev76: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev77: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev78: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev79: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev80: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev81: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev82: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev83: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev84: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev85: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev86: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev87: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev88: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev89: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev90: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev91: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev92: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev93: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev94: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev95: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev96: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev97: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev98: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev99: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev100: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      usb_info_dev101: "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@"
+      # Wireless-a / wireless-g AP-isolation + access defaults.
+      wla_ap_isolate_1: ""
+      wla_ap_isolate_2: ""
+      wla_ap_isolate_3: ""
+      wla_ap_isolate_4: ""
+      wla_ap_isolate_5: ""
+      wlg_ap_isolate_1: ""
+      wlg_ap_isolate_2: ""
+      wlg_ap_isolate_3: ""
+      wlg_ap_isolate_4: ""
+      wlg_ap_isolate_5: ""
+      wlg_allow_access_1: ""
+      wlg_allow_access_2: ""
+      wlg_allow_access_3: ""
+      wlg_allow_access_4: ""
+      wlg_allow_access_5: ""
+    lib_inject:
+      # Subsumed from the former Slice-0 sdk.netgear_acos alias group.
+      aliases:
+        WAN_ith_CONFIG_GET: libinject_WAN_ith_CONFIG_GET
+
+  # Tier 1 (reserved, not built): back the real ACOS nvram MTD partition via the
+  # native MTD device (hyperfile/mtd.py) with a Broadcom-family flash blob, so the
+  # firmware's own acosNvramConfig library parses it. Emitted as a separate disabled
+  # sdk.netgear_acos.mtd candidate once the flash format is authored.
+  # mtd:
+  #   devices: {...}

@@ -310,3 +310,26 @@ default_lib_aliases: dict[str, str] = {k: v for x in [
     base_names,
     base_aliases
 ] for k, v in x.items()}
+
+# SDK-keyed alias groups, kept grouped (NOT flattened) so each can be emitted
+# as its own named, disabled patch candidate instead of being baked into every
+# target's initial config. A profile bundle belongs in the config search as a
+# togglable candidate, not as an always-on default. Consumed by the per-SDK
+# LibInject alias patches in pyplugins/init/lib_inject.py.
+# NOTE: netgear_acos and realtek are intentionally absent here -- both graduated
+# from bare alias groups into full SDK *profiles*
+# (pyplugins/init/profiles/{netgear_acos,realtek_rtl819x}.yaml + their profile
+# classes), which own the sdk.netgear_acos / sdk.realtek_rtl819x patches:
+# fingerprint + defaults + aliases together (realtek also gets a silicon boot
+# tier). Both groups still live in default_lib_aliases above as part of the
+# LibInjectFixedAliases fallback.
+sdk_lib_aliases: dict[str, dict[str, str]] = {
+    "atheros_broadcom": atheros_broadcom,
+    "zyxel_or_edimax": zyxel_or_edimax,
+    "ralink": ralink,
+}
+
+# Generic (non-SDK) nvram shims. Unlike the SDK groups above, these are not
+# tied to a single silicon platform, so they stay in the always-on tailored-
+# alias patch (applied whenever the matching symbol is exported).
+generic_lib_aliases: dict[str, str] = {**base_names, **base_aliases}
