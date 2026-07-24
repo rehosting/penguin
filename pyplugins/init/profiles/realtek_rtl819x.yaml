@@ -95,25 +95,25 @@ bundles:
       # signed MIB that apmib then reads back.
       /dev/mtd:
         read: {model: stateful}
-        write: {model: default}
+        write: {model: discard}
         ioctl:
           '2149600513': {model: return_const, val: 0}   # MEMGETINFO
           '*': {model: return_const, val: 0}
       /dev/mtdblock0:
         read: {model: stateful}
-        write: {model: default}
+        write: {model: discard}
         ioctl:
           '*': {model: return_const, val: 0}
       /dev/mtd0:
         read: {model: stateful}
-        write: {model: default}
+        write: {model: discard}
         ioctl:
           '2149600513': {model: return_const, val: 0}   # MEMGETINFO
           '*': {model: return_const, val: 0}
       # hw_setting partition (NAND-style builds mount this yaffs2 at /hw_setting).
       /dev/mtdblock3:
         read: {model: stateful}
-        write: {model: default}
+        write: {model: discard}
         ioctl:
           '*': {model: return_const, val: 0}
       # RTL8367/RTL8368 external robo-switch control node (gigabit boards). The
