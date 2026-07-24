@@ -24,6 +24,51 @@ class PollAlwaysReady:
         ptregs.retval = self._POLL_READY_MASK
 
 
+class PollNeverReady:
+    """
+    Report the node permanently *not* ready: poll()/select()/epoll return a
+    zero mask, so the waiter parks on the per-device wait queue (the devfs poll
+    proxy calls poll_wait() before consulting us — issue #77) instead of
+    spinning. Use this for event-source nodes whose read() blocks until a
+    hardware event that never occurs under emulation (e.g. an AVM-style
+    /dev/watchdog whose supervisor thread does poll()->read() and busy-loops
+    forever against the always-ready default). A later write to the node wakes
+    the parked waiter via the proxy's wake_up_interruptible(), so a
+    request/response device can still make progress.
+    """
+
+    def poll(self, ptregs: PtRegsWrapper, file: FilePtr, poll_table_struct: PollTablePtr):
+        ptregs.retval = 0
+
+
+class PollPeriodic:
+    """
+    Report the node readable on a fixed cadence. An igloo_driver kernel timer
+    marks the node ready every ``interval_ms`` and wakes the per-device wait
+    queue; the devfs poll proxy then returns POLLIN once per tick and parks the
+    waiter in between (issue #77 supplies the wait queue). Models an event-source
+    device that delivers a periodic hardware heartbeat -- e.g. an AVM-style
+    /dev/watchdog whose supervisor main loop epoll_wait()s with an infinite
+    timeout and only advances its service state machine when the watchdog ticks.
+    always-ready spins that loop; never-ready (``blocking``) deadlocks it;
+    periodic readiness matches real hardware.
+
+    The cadence lives entirely in the driver timer: a host-side poll model
+    cannot re-arm an epoll(timeout=-1) waiter, since poll() is only re-invoked
+    when poll_wq is woken. This mixin therefore only carries the interval down
+    to devfs registration (via ``POLL_INTERVAL_MS``, read by devfs.py) so the
+    driver arms its timer. Its poll() is a park fallback for a driver that
+    predates the timer field.
+    """
+
+    def __init__(self, *, interval_ms: int = 1000, **kwargs):
+        self.POLL_INTERVAL_MS = int(interval_ms)
+        super().__init__(**kwargs)
+
+    def poll(self, ptregs: PtRegsWrapper, file: FilePtr, poll_table_struct: PollTablePtr):
+        ptregs.retval = 0
+
+
 class PollExternalVFS:
     """
     Modern Adapter: Calls a plugin function with the standard VFS poll
