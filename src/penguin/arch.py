@@ -5,6 +5,17 @@ from penguin import getColoredLogger
 
 logger = getColoredLogger("penguin.arch")
 
+# MIPS "machine" (SoC family) selector in e_flags. pyelftools' E_FLAGS/
+# E_FLAGS_MASKS don't expose these, so transcribe the binutils values
+# (include/elf/mips.h EF_MIPS_MACH_*). Cavium Octeon parts implement custom
+# MIPS64 ASE opcodes that fault on QEMU's generic MIPS64R2 CPU, so we have to
+# identify them here and route them to the Octeon CPU model.
+EF_MIPS_MACH = 0x00FF0000
+EF_MIPS_MACH_OCTEON = 0x008B0000   # Octeon (CN3xxx/CN5xxx)
+EF_MIPS_MACH_OCTEON2 = 0x008D0000  # Octeon II (CN6xxx/CN7xxx)
+EF_MIPS_MACH_OCTEON3 = 0x008E0000  # Octeon III
+_OCTEON_MACHS = (EF_MIPS_MACH_OCTEON, EF_MIPS_MACH_OCTEON2, EF_MIPS_MACH_OCTEON3)
+
 
 def get_dylib_subdir(arch_name: str) -> str:
     """
@@ -137,8 +148,12 @@ def _identify_mips_arch(header):
     if flags & E_FLAGS.EF_MIPS_ARCH == E_FLAGS.EF_MIPS_ARCH_64:
         mips_arch = "mips64"
 
+    is_octeon = (flags & EF_MIPS_MACH) in _OCTEON_MACHS
+
     # Some extra flags that only affect what gets printed
     description = "mips"
+    if is_octeon:
+        description += ", octeon"
     if flags & E_FLAGS.EF_MIPS_NOREORDER:
         description += ", noreorder"
     if flags & E_FLAGS.EF_MIPS_PIC:
@@ -182,6 +197,17 @@ def _identify_mips_arch(header):
         logger.error(
             "Unexpected MIPS architecture: bits %d, endianness %s", bits, endianness
         )
+    elif is_octeon and bits == 64:
+        # Octeon is a MIPS64 superset: same kernels/dylibs/ABI, but it needs
+        # QEMU's Octeon CPU model (the generic MIPS64R2 CPU faults on the
+        # Cavium-specific opcodes). Route to the dedicated arch spec, which
+        # reuses the mips64{el,eb} assets and only overrides the CPU model.
+        arch += "_octeon"
+    elif is_octeon:
+        # 32-bit ELFs (e.g. n32) can carry the Octeon MACH tag too; the 64-bit
+        # kernel is what actually needs the CPU model, so a 32-bit-only view
+        # stays generic but we note it for debugging.
+        logger.debug("Octeon MACH flag on a %d-bit MIPS ELF; keeping arch=%s", bits, arch)
 
     return ArchInfo(
         arch=arch, abi=abi, bits=bits, endianness=endianness, description=description
