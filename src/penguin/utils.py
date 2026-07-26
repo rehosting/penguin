@@ -299,13 +299,42 @@ def resolve_arch_asset(arch: str, base_dir: str, prefix: str = "", suffix: str =
     return s.canonical
 
 
+#: The project-relative filesystem path whose cache key is left BYTE-COMPATIBLE with
+#: earlier releases. ``penguin init`` writes ``base/fs.tar.gz`` and penguin_config fills
+#: ``core.fs`` with ``./base/fs.tar.gz``, so nearly every project's filesystem lives
+#: here; leaving this one path alone means the fix below does not invalidate their
+#: already-built images.
+#:
+#: This is safe precisely because a project can hold at most ONE archive at this path,
+#: so the legacy key can never be the key SHARED by two different filesystems -- which
+#: is the substitution being fixed. Any second archive in a project necessarily has some
+#: other path, and gets that path folded in.
+LEGACY_KEY_FS_PATH = "base/fs.tar.gz"
+
+
 def hash_image_inputs(proj_dir: str, conf: Dict[str, Any]) -> str:
     """
     Create a hash of all the inputs of the image creation process.
 
-    In the new build process this is just the preinit script and the
-    modification time of the base filesystem (since we don't control
-    its contents).
+    For the base filesystem this is its modification time, plus -- unless it sits at
+    the default ``base/fs.tar.gz`` -- the path it was named by and its size.
+
+    It used to be the mtime ALONE, which left the key blind to WHICH filesystem was
+    being built: two different archives that shared an mtime produced the same key, so
+    the image built from the first was silently reused for the second and the run booted
+    a filesystem the config did not ask for. Archives sharing an mtime is not exotic --
+    one extraction, copy or checkout pass stamps everything it writes with the same
+    timestamp -- and nothing downstream can notice, because the config, the logs and the
+    output directory all still name the archive that was requested.
+
+    The default path keeps its old key so that existing projects do not all rebuild;
+    see ``LEGACY_KEY_FS_PATH`` for why that cannot reintroduce the substitution. Path and
+    size come from stat data the mtime already required, so this adds no I/O.
+
+    Not covered: an archive replaced in place, under the same name, with the same size
+    and timestamp. Hashing the contents would close that, at the cost of reading an
+    archive that can be tens of gigabytes on every invocation -- a poor trade for the
+    residual risk.
 
     We specifically do NOT include the busybox binary in this hash despite
     its potential effect on the image because we expect them to be fairly
@@ -328,6 +357,17 @@ def hash_image_inputs(proj_dir: str, conf: Dict[str, Any]) -> str:
         hsh.update(get_file_hash(path).encode())
     modification_timestamp = os.path.getmtime(fs)
     hsh.update(f"{modification_timestamp}".encode())
+    # Say WHICH filesystem this is, not just when it was written. Skipped for the
+    # default path so those projects keep the key -- and the built image -- they already
+    # have; only one archive per project can be there, so it cannot be a shared key.
+    fs_rel = os.path.normpath(os.path.relpath(fs, proj_dir))
+    if fs_rel != LEGACY_KEY_FS_PATH:
+        fs_stat = os.stat(fs)
+        hsh.update(fs_rel.encode())
+        hsh.update(f"{fs_stat.st_size}".encode())
+        # Nanosecond mtime as well, since this path is being rekeyed anyway: it catches
+        # a same-size rewrite that lands inside the same whole second.
+        hsh.update(f"{fs_stat.st_mtime_ns}".encode())
     # add the fstype - if it changes we need to rebuild
     hsh.update("ext4".encode())
     # The debugging-tool closure is baked into the base image (gen_image.
