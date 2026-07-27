@@ -1525,6 +1525,15 @@ class LibInject(PartialModelMixin, BaseModel):
 
     model_config = ConfigDict(title="Injected library configuration", extra="forbid")
 
+    enabled: Annotated[
+        Optional[bool],
+        Field(
+            True,
+            title="Enables LD_PRELOAD in init script",
+            description="Whether to enable LD_PRELOAD variable in init script",
+            examples=[False, True],
+        ),
+    ]
     aliases: Annotated[
         Optional[LibInjectAliases],
         Field(
