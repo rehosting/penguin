@@ -251,7 +251,8 @@ def make_image(fs: str, out: str, artifacts: str | None, config: dict) -> None:
                 "-N", str(NUMBER_OF_INODES),
                 "-d", str(uncompressed_tar),
                 str(IMAGE)
-            ])
+            ], stderr=subprocess.STDOUT)
+
             # Convert to qcow2
             check_output(["qemu-img", "convert", "-f", "raw", "-O", "qcow2", str(IMAGE), str(qcow)])
             if delete_tar:
