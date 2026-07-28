@@ -680,8 +680,8 @@ def run_config(
     graphics = conf["core"].get("graphics", False)
     show_output_bool = conf["core"].get("show_output", False)
     root_shell_enabled = conf["core"].get("root_shell", False)
-    #remove ldpreload for libinject if libinject is disabled
-    ldpreload_enabled = conf.get("lib_inject",dict()).get("enabled", True)
+    # remove ldpreload for libinject if libinject is disabled
+    ldpreload_enabled = conf.get("lib_inject", dict()).get("enabled", True)
     if not ldpreload_enabled:
         conf["env"].pop("LD_PRELOAD", None)
 
