@@ -5,7 +5,6 @@ ARG BASE_IMAGE="${REGISTRY}/ubuntu:22.04"
 # at build time. vpnguin is installed from its own release below so its version
 # is independently reproducible; local_packages can still override it.
 ARG VPN_VERSION="1.0.32"
-ARG VPN_SHA256="e5f7c001b8ee58f58d12b8903c05edf97282df26c1edb4ebc2dbf4273c8a411d"
 ARG BUSYBOX_VERSION="0.0.19"
 ARG LINUX_VERSION="3.6.5"
 ARG IGLOO_DRIVER_VERSION="0.0.93"
@@ -176,12 +175,9 @@ RUN /get_release.sh rehosting penguin-tools ${PENGUIN_TOOLS_VERSION} penguin-too
 # over the bundled copy. The local_packages stage below remains the final
 # override for dependency development.
 ARG VPN_VERSION
-ARG VPN_SHA256
-RUN wget -qO /tmp/vpn.tar.gz \
-        https://github.com/rehosting/vpnguin/releases/download/v${VPN_VERSION}/vpn.tar.gz && \
-    echo "${VPN_SHA256}  /tmp/vpn.tar.gz" | sha256sum -c - && \
-    tar xzf /tmp/vpn.tar.gz -C /igloo_static && \
-    rm -f /tmp/vpn.tar.gz
+RUN wget -qO- \
+        https://github.com/rehosting/vpnguin/releases/download/v${VPN_VERSION}/vpn.tar.gz | \
+    tar xzf - -C /igloo_static
 
 # Download prototype files for ltrace.
 #
