@@ -392,12 +392,16 @@ class VPN(Plugin):
                 # Find all wild_ips, log this IP
                 self.seen_ips.add(ip)
 
-                # For any previously-wild_ip service, bridge it with this new IP
-                for sock_type, seen_port, seen_procname in self.wild_ips:
+                # For any previously-wild_ip service, bridge it with this new IP.
+                # These loop targets must not reuse this function's parameter
+                # names: a loop variable leaks into the enclosing scope, so
+                # binding `sock_type` here would clobber the real bind's
+                # protocol before it is used below.
+                for wild_sock_type, seen_port, seen_procname in self.wild_ips:
                     host_port = self.bridge(
-                        sock_type, ip, seen_port, seen_procname, ipvn
+                        wild_sock_type, ip, seen_port, seen_procname, ipvn
                     )  # If unsupported or guest-host ports actually match, we skip this
-                    plugins.publish(self, "on_bind", sock_type, ip, seen_port, host_port, self.exposed_ip, procname)
+                    plugins.publish(self, "on_bind", wild_sock_type, ip, seen_port, host_port, self.exposed_ip, seen_procname)
 
         host_port = self.bridge(sock_type, ip, port, procname, ipvn)
         plugins.publish(self, "on_bind", sock_type, ip, port, host_port, self.exposed_ip, procname)
