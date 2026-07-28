@@ -1,13 +1,11 @@
 # versions of the various dependencies.
 ARG REGISTRY="docker.io"
 ARG BASE_IMAGE="${REGISTRY}/ubuntu:22.04"
-# NOTE: console/busybox/vpnguin/guesthopper/libnvram are no longer downloaded
-# per-tool at build time -- penguin-tools (below) cross-builds them for every
-# guest arch and ships them in penguin-tools.tar.gz. These ARGs are retained as
-# provenance for the versions penguin-tools bundles; a developer can still
-# override any single tool by dropping its tarball in local_packages/ (the
-# local_packages stage below applies after penguin-tools, so it wins).
-ARG VPN_VERSION="1.0.28"
+# NOTE: console/busybox/guesthopper/libnvram are no longer downloaded per-tool
+# at build time. vpnguin is installed from its own release below so its version
+# is independently reproducible; local_packages can still override it.
+ARG VPN_VERSION="1.0.32"
+ARG VPN_SHA256="e5f7c001b8ee58f58d12b8903c05edf97282df26c1edb4ebc2dbf4273c8a411d"
 ARG BUSYBOX_VERSION="0.0.19"
 ARG LINUX_VERSION="3.5.33-beta"
 ARG IGLOO_DRIVER_VERSION="0.0.86"
@@ -173,6 +171,17 @@ RUN /get_release.sh rehosting igloo_driver ${IGLOO_DRIVER_VERSION} igloo_driver.
 ARG PENGUIN_TOOLS_VERSION
 RUN /get_release.sh rehosting penguin-tools ${PENGUIN_TOOLS_VERSION} penguin-tools.tar.gz | \
     tar xzf - -C /
+
+# Install vpnguin after penguin-tools so the explicitly pinned release wins
+# over the bundled copy. The local_packages stage below remains the final
+# override for dependency development.
+ARG VPN_VERSION
+ARG VPN_SHA256
+RUN wget -qO /tmp/vpn.tar.gz \
+        https://github.com/rehosting/vpnguin/releases/download/v${VPN_VERSION}/vpn.tar.gz && \
+    echo "${VPN_SHA256}  /tmp/vpn.tar.gz" | sha256sum -c - && \
+    tar xzf /tmp/vpn.tar.gz -C /igloo_static && \
+    rm -f /tmp/vpn.tar.gz
 
 # Download prototype files for ltrace.
 #
