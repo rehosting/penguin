@@ -149,6 +149,33 @@ let
     printf '%s\n%s\n' '#!/bin/sh' 'telnet localhost 4321' > "$out/usr/local/bin/rootshell"
     chmod +x "$out/usr/local/bin/rootshell"
 
+    # /usr/local/bin/{penguin,fw2tar} for downstream-image parity. Nix puts both
+    # on PATH via the merged /bin, which is enough to *run* them -- but the
+    # Dockerfile installed them at these exact paths and downstream images
+    # manipulate them there by name, e.g. public_dojo's
+    #   mv /usr/local/bin/fw2tar /usr/local/bin/fw2tar.bin
+    #   mv /usr/local/bin/penguin /usr/local/bin/penguin.orig
+    # which fails outright (not silently) if the path is absent. Anything doing
+    # `FROM rehosting/penguin` is entitled to the layout the tag has always had.
+    ln -s ${pythonEnv}/bin/penguin        "$out/usr/local/bin/penguin"
+    ln -s ${extractionBundle}/bin/fw2tar  "$out/usr/local/bin/fw2tar"
+
+    # TLS trust store. ubuntu:22.04's base image does NOT ship ca-certificates
+    # (the Dockerfile apt-installed it), and nothing in the Nix contents provided
+    # it either, so *every* HTTPS operation in the image failed with
+    # CERTIFICATE_VERIFY_FAILED: `wget -O /input_file $DOWNLOAD_URL` in every
+    # rehostings/examples Dockerfile, public_dojo's busybox fetch, and any plugin
+    # using requests/urllib. It stayed hidden because fetch_web passes
+    # --no-check-certificate and the corpus downloads firmware in its *fw2tar*
+    # stage, so the green corpus run never touched this path.
+    #
+    # pkgs.cacert (in `contents`) installs etc/ssl/certs/ca-bundle.crt; add the
+    # Debian/Ubuntu-conventional ca-certificates.crt name too, since that is the
+    # path the Docker image had and what non-Nix tooling looks for by default.
+    mkdir -p "$out/etc/ssl/certs"
+    ln -s ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt \
+          "$out/etc/ssl/certs/ca-certificates.crt"
+
     # Host-facing wrapper + install helpers (users copy these out to the host).
     cp ${wrapperSrc}                          "$out/usr/local/src/penguin_wrapper"
     cp ${resourcesSrc}/banner.sh              "$out/usr/local/bin/banner.sh"
@@ -221,6 +248,9 @@ let
     pkgs.vim
     pkgs.inetutils # telnet (rootshell helper)
     pkgs.sudo
+    # CA bundle at /etc/ssl/certs/ca-bundle.crt (+ the ca-certificates.crt alias
+    # in `overlay`). Required for any HTTPS fetch -- see the overlay comment.
+    pkgs.cacert
     # /etc/passwd + /etc/group with a root entry (tools that getpwuid()).
     pkgs.dockerTools.fakeNss
   ]
@@ -257,6 +287,13 @@ let
       "LC_ALL=C.UTF-8"
       "LANG=C.UTF-8"
       "PIP_ROOT_USER_ACTION=ignore"
+      # Point both the generic and Nix-specific vars at the bundle from
+      # pkgs.cacert. OpenSSL/curl/wget/python honour SSL_CERT_FILE; Nix-built
+      # binaries that were patched for it honour NIX_SSL_CERT_FILE. Without
+      # these, tools fall back to compiled-in store paths that aren't the
+      # image's bundle.
+      "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
+      "NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
       # qemu fork ships shared libs under /usr/local/lib.
       "LD_LIBRARY_PATH=/usr/local/lib"
       # Stable resources path baked into generated configs (see the
@@ -296,6 +333,35 @@ let
     "dot" # graph rendering
     "fakeroot" # extraction / image staging
     "telnet" # rootshell helper
+  ]
+  # Tools invoked by *downstream* images (`FROM rehosting/penguin`) rather than by
+  # penguin's own code, so no penguin test can catch their absence. Derived from
+  # the Dockerfiles in rehostings/, examples/ and public_dojo/, which run e.g.
+  # `fakeroot fw2tar /input_file`, `fakeroot sh -c 'unblob -k /input_file'` and
+  # `penguin init`. Dropping any of these silently breaks every consumer of the
+  # published tag.
+  ++ [
+    "penguin"
+    "fw2tar"
+    "unblob"
+    "binwalk"
+    "sasquatch"
+    "jefferson"
+    "tar"
+    "cpio"
+    "unsquashfs"
+    "7z"
+  ];
+
+  # Non-executable files the image must also carry. Same rationale as the tool
+  # list: absence is invisible until a real run fails confusingly.
+  requiredFiles = [
+    # TLS trust store -- without it every HTTPS fetch fails (see `overlay`).
+    "/etc/ssl/certs/ca-bundle.crt"
+    "/etc/ssl/certs/ca-certificates.crt"
+    # Path-layout parity for downstream images that manipulate these by name.
+    "/usr/local/bin/penguin"
+    "/usr/local/bin/fw2tar"
   ];
   hostToolCheck = pkgs.runCommand "penguin-host-tool-check" { } ''
     missing=""
@@ -310,8 +376,25 @@ let
       echo "       add the providing package to 'contents' in nix/mk-image.nix." >&2
       exit 1
     fi
+
+    missingFiles=""
+    for f in ${pkgs.lib.concatStringsSep " " requiredFiles}; do
+      # -e, not -f: these are symlinks into the store, and the CA bundle symlink
+      # resolves only once the image root is assembled -- so test the link's
+      # existence in rootEnv, and separately that it is not dangling *there*.
+      if [ ! -e "${rootEnv}$f" ] && [ ! -L "${rootEnv}$f" ]; then
+        missingFiles="$missingFiles $f"
+      fi
+    done
+    if [ -n "$missingFiles" ]; then
+      echo "error: penguin image is missing required file(s):$missingFiles" >&2
+      echo "       see 'overlay' / 'contents' in nix/mk-image.nix." >&2
+      exit 1
+    fi
+
     mkdir -p "$out/share/penguin"
-    echo "verified: ${pkgs.lib.concatStringsSep " " requiredHostTools}" > "$out/share/penguin/host-tools-verified"
+    echo "verified: ${pkgs.lib.concatStringsSep " " (requiredHostTools ++ requiredFiles)}" \
+      > "$out/share/penguin/host-tools-verified"
   '';
 in
 (if stream then pkgs.dockerTools.streamLayeredImage else pkgs.dockerTools.buildLayeredImage) {
