@@ -197,6 +197,19 @@ let
     pkgs.gnutar
     pkgs.gzip
     pkgs.which
+    # wget is REQUIRED, not a convenience: pyplugins/actuation/fetch_web.py
+    # shells out to `wget` to fetch each bridged guest web endpoint and write
+    # results/<n>/web_<ip>_<port>. Without it the plugin writes nothing, so any
+    # target asserting on that file (rehostings' wget_succeeds / httpd_reachable)
+    # fails while every bind/port test still passes -- a silent, confusing
+    # failure mode. The Dockerfile got wget via apt; ubuntu:22.04's base does
+    # not ship it, so the flake must add it explicitly. Found by running the
+    # real-firmware corpus against the Nix image (four targets with web UIs);
+    # penguin's own test suites never exercise fetch_web, so CI was green.
+    pkgs.wget
+    # curl: no penguin code path shells out to it, but the Docker image had it
+    # and users exec into this image expecting a normal userland. Cheap parity.
+    pkgs.curl
     pkgs.binutils # nm / readelf (symbols.py via shutil.which)
     pkgs.graphviz # dot (graph rendering)
     pkgs.fakeroot
@@ -260,13 +273,56 @@ let
     ignoreCollisions = true;
     paths = contents;
   };
+
+  # Build-time guard for host tools penguin *shells out to* at runtime.
+  #
+  # These are invoked by name via subprocess/shutil.which, so a missing one is
+  # invisible to `nix build`, invisible to import checks, and (for the analysis
+  # plugins) invisible to penguin's own test suites -- it surfaces only as a
+  # confusing behavioural failure on real firmware. That is exactly how the
+  # missing `wget` reached the rehostings corpus: fetch_web silently wrote no
+  # web_<ip>_<port> file, so wget_succeeds/httpd_reachable failed on four
+  # targets while every bind test passed and the VPN bridges came up fine.
+  #
+  # The Dockerfile got these from apt; ubuntu:22.04's base ships almost none of
+  # them, so the flake must supply each one. Assert presence here so dropping a
+  # package from `contents` fails the build instead of a firmware run.
+  requiredHostTools = [
+    "wget" # pyplugins/actuation/fetch_web.py
+    "mke2fs" # gen_image.py (ext4 build from the rootfs tarball)
+    "qemu-img" # penguinQemu; drive image conversion
+    "nm" # symbols.py
+    "readelf" # ELF inspection in symbols/arch detection
+    "dot" # graph rendering
+    "fakeroot" # extraction / image staging
+    "telnet" # rootshell helper
+  ];
+  hostToolCheck = pkgs.runCommand "penguin-host-tool-check" { } ''
+    missing=""
+    for b in ${pkgs.lib.concatStringsSep " " requiredHostTools}; do
+      # Check every place the image puts executables on PATH.
+      if [ ! -x "${rootEnv}/bin/$b" ] && [ ! -x "${rootEnv}/usr/local/bin/$b" ]; then
+        missing="$missing $b"
+      fi
+    done
+    if [ -n "$missing" ]; then
+      echo "error: penguin image is missing host tool(s) it shells out to:$missing" >&2
+      echo "       add the providing package to 'contents' in nix/mk-image.nix." >&2
+      exit 1
+    fi
+    mkdir -p "$out/share/penguin"
+    echo "verified: ${pkgs.lib.concatStringsSep " " requiredHostTools}" > "$out/share/penguin/host-tools-verified"
+  '';
 in
 (if stream then pkgs.dockerTools.streamLayeredImage else pkgs.dockerTools.buildLayeredImage) {
   name = "rehosting/penguin";
   inherit tag;
   # Layer the Nix contents on top of the ubuntu:22.04 base (FHS userland + apt).
   fromImage = ubuntuBase;
-  contents = [ rootEnv ];
+  # hostToolCheck contributes only a marker file, but including it here makes
+  # the image build *depend* on the assertion above, so a missing host tool
+  # fails `nix build` rather than a firmware run.
+  contents = [ rootEnv hostToolCheck ];
   # The default cap (100) was being hit exactly, so everything past the 99th
   # store path got lumped into one ~1.5 GB tail layer -- bad for pull/push
   # dedup between releases. Docker's hard limit is 127 layers total including
