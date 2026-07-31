@@ -51,6 +51,26 @@ let
     finalImageTag = "22.04";
   };
 
+  # Inventory of Ubuntu's usr/bin + usr/sbin, read straight out of the pinned
+  # base image at build time. Consumed by the usrmerge restoration in
+  # extraCommands below -- see that comment for why it is needed.
+  ubuntuUsrInventory =
+    pkgs.runCommand "ubuntu-usr-inventory" { nativeBuildInputs = [ pkgs.gnutar ]; }
+      ''
+        for member in $(tar -tf ${ubuntuBase} \
+                          | grep -E '(^|/)layer\.tar$|^[0-9a-f]{64}\.tar$'); do
+          tar -xOf ${ubuntuBase} "$member" | tar -tf - 2>/dev/null || true
+        done \
+          | sed -n -E -e 's|^\.?/?usr/bin/([^/]+)$|bin \1|p' \
+                      -e 's|^\.?/?usr/sbin/([^/]+)$|sbin \1|p' \
+          | sort -u > "$out"
+        if [ ! -s "$out" ]; then
+          echo "error: read no usr/bin or usr/sbin entries from the ubuntu base" >&2
+          echo "       image; its tar layout may have changed." >&2
+          exit 1
+        fi
+      '';
+
   # clang-20 / ld.lld: penguin's dropin_compile.py invokes `clang-20
   # -fuse-ld=lld` as a *cross* compiler (`--target=<arch>-linux-musl...
   # --sysroot=/igloo_static/sysroots/<arch>`) for every guest arch. It must be
@@ -138,6 +158,30 @@ let
   # absolute (the store is in the image), matching how penguin resolves them.
   overlay = pkgs.runCommand "penguin-overlay" { } ''
     mkdir -p "$out/usr/local/bin" "$out/usr/local/src" "$out/etc"
+
+    # Restore the route to Ubuntu's shared libraries.
+    #
+    # ubuntu:22.04 is usrmerged: /lib is a *symlink* to usr/lib. The Nix contents
+    # provide a real /lib directory, which shadows that symlink -- so
+    # /lib/x86_64-linux-gnu disappears, and with it the ELF interpreter every
+    # Ubuntu binary names in its INTERP header:
+    #   /lib64 -> /usr/lib64/ld-linux-x86-64.so.2
+    #          -> /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2   (dangling)
+    # The effect is drastic and completely silent at build time: 265 of the 292
+    # executables in /usr/bin -- including apt-get and dpkg -- die with
+    # "cannot execute: required file not found".
+    #
+    # That contradicts this file's own header (the Ubuntu base is here to provide
+    # "the FHS glibc userland, coreutils, and apt") and breaks every downstream
+    # image, since the Dockerfiles in rehostings/ and examples/ all begin with
+    #   RUN apt-get update && apt-get install -y wget|curl
+    #
+    # Ubuntu's libraries themselves were never lost -- they are intact at
+    # /usr/lib/x86_64-linux-gnu -- so only the /lib route needs re-pointing. Nix
+    # binaries are unaffected either way: each names its own store-path
+    # interpreter and never resolves through /lib.
+    mkdir -p "$out/lib"
+    ln -s /usr/lib/x86_64-linux-gnu "$out/lib/x86_64-linux-gnu"
 
     # clang-20: dropin_compile.py invokes it by that exact name (-fuse-ld=lld;
     # ld.lld sits next to the driver in clang20Slim, also merged onto PATH).
@@ -273,6 +317,38 @@ let
     # so recreate fresh instead.)
     rm -rf var
     mkdir -p var/empty var/tmp && chmod 1777 var/tmp
+
+    # Restore usrmerge for the Ubuntu names Nix does not provide.
+    #
+    # ubuntu:22.04 is usrmerged: /bin and /sbin are symlinks to usr/bin and
+    # usr/sbin, so on real Ubuntu every tool is reachable under BOTH spellings.
+    # The Nix contents provide real /bin and /sbin directories, which shadow
+    # those symlinks -- leaving 150 usr/bin and 93 usr/sbin names reachable only
+    # via /usr. They still resolve through PATH, so this is invisible almost
+    # everywhere; it breaks only *absolute* references. dpkg hits exactly that:
+    # Ubuntu's /usr/sbin/ldconfig is a wrapper that execs /sbin/ldconfig.real,
+    # so `apt-get install <anything>` dies in the libc-bin trigger with
+    #   /usr/sbin/ldconfig: line 16: /sbin/ldconfig.real: No such file
+    #   dpkg: error processing package libc-bin (--configure)
+    # and a non-zero exit fails the `RUN` in every downstream Dockerfile.
+    #
+    # Symlinking just ldconfig.real would be whack-a-mole (the same trap that
+    # produced the missing wget and CA bundle), so restore the whole mapping:
+    # for each Ubuntu usr/{bin,sbin} name with no counterpart already present,
+    # add /<d>/<name> -> /usr/<d>/<name>. Only *absent* names are added, so a
+    # Nix-provided tool is never shadowed by its Ubuntu namesake.
+    for d in bin sbin; do
+      # buildEnv may have collapsed the dir into a store symlink (read-only);
+      # materialise it before adding entries, as done for var above.
+      if [ -L "$d" ]; then
+        _t=$(readlink -f "$d")
+        rm "$d" && mkdir "$d" && cp -a "$_t"/. "$d"/
+      fi
+      mkdir -p "$d" && chmod u+w "$d"
+    done
+    while read -r _d _n; do
+      [ -e "$_d/$_n" ] || [ -L "$_d/$_n" ] || ln -s "/usr/$_d/$_n" "$_d/$_n"
+    done < ${ubuntuUsrInventory}
   '';
 
   config = {
@@ -362,6 +438,9 @@ let
     # Path-layout parity for downstream images that manipulate these by name.
     "/usr/local/bin/penguin"
     "/usr/local/bin/fw2tar"
+    # The route to Ubuntu's loader + libs. Without it the entire Ubuntu userland
+    # (apt, dpkg, ...) is unexecutable -- see the `overlay` comment.
+    "/lib/x86_64-linux-gnu"
   ];
   hostToolCheck = pkgs.runCommand "penguin-host-tool-check" { } ''
     missing=""
