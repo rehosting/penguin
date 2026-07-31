@@ -34,6 +34,9 @@ fi
 #   github  : inputs.<name>.url = "github:<repo>/<tag>"
 #   tarball : inputs.<name>.url = "https://github.com/<repo>/releases/download/<tag>/<asset>"
 #   gitref  : inputs.<name>.url = "git+https://github.com/<repo>?ref=refs/tags/<tag>&rev=<sha>&submodules=1"
+#             (no input uses this today -- busybox did until v0.0.22 removed its
+#             stale submodule gitlink; kept because any submodule-carrying repo
+#             can hit the same environment-dependent-narHash problem)
 # fw2tar is pinned by raw rev (tracks a branch head, not releases) and nixpkgs
 # by commit -- both intentionally excluded from bump; they still show in pins.
 declare -A REPO SHAPE
@@ -42,7 +45,7 @@ REPO[console]=rehosting/console;            SHAPE[console]=github
 REPO[guesthopper]=rehosting/guesthopper;    SHAPE[guesthopper]=github
 REPO[vpnguin]=rehosting/vpnguin;            SHAPE[vpnguin]=github
 REPO[libnvram]=rehosting/libnvram;          SHAPE[libnvram]=github
-REPO[busybox]=rehosting/busybox;            SHAPE[busybox]=gitref
+REPO[busybox]=rehosting/busybox;            SHAPE[busybox]=github
 REPO[kernels]=rehosting/linux_builder;      SHAPE[kernels]=tarball
 REPO[igloo-driver]=rehosting/igloo_driver;  SHAPE[igloo-driver]=tarball
 REPO[penguin-tools]=rehosting/penguin-tools; SHAPE[penguin-tools]=tarball
