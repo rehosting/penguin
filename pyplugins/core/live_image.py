@@ -166,11 +166,19 @@ class LiveImage(Plugin):
         utils_dir = staging_dir / "igloo" / "utils"
         utils_dir.mkdir(parents=True, exist_ok=True)
         for tool, exe in tool_manifest.items():
+            # python3 gets the guest-side `penguest` binding (staged at
+            # /igloo/pylib by penguin_config) on its path, so in-guest scripts
+            # and .py init.d drop-ins can `import penguest` (draft 16). Scoped to
+            # this wrapper -- we don't leak PYTHONPATH into the firmware's env.
+            env_prefix = ""
+            if tool == "python3":
+                env_prefix = "export PYTHONPATH=/igloo/pylib${PYTHONPATH:+:$PYTHONPATH}\n"
             # busybox unshare -m runs the inner sh in a fresh mount namespace;
             # the bind mount is private to it and torn down on exit. $0 is the
             # in-store exe, "$@" the caller's args.
             wrapper = (
                 "#!/igloo/utils/sh\n"
+                + env_prefix +
                 "exec /igloo/utils/busybox unshare -m /igloo/utils/sh -c "
                 "'/igloo/utils/busybox mount -o bind /igloo/nix /nix && exec \"$0\" \"$@\"' "
                 f"{shlex.quote(exe)} \"$@\"\n"

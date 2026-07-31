@@ -1,0 +1,76 @@
+# End-to-end test for the guest `penguest` binding (drafts 16 + 24).
+#
+# A .py driver is exec'd directly by run_tests.sh via its `#!/igloo/utils/python3`
+# shebang -- so this exercises, in one shot: the staged in-guest CPython, the
+# python3 wrapper's PYTHONPATH=/igloo/pylib, `import penguest`, penguest.portal_call
+#
+# NB: the driver is named penguest_probe.py, NOT penguest.py -- CPython puts the
+# script's own directory (/tests) first on sys.path, so a script named
+# penguest.py would shadow the staged `penguest` package and `import penguest`
+# would import the driver itself.
+# reaching a host @portalcall handler, and penguest.log/report reaching the host
+# bridge (captured to <outdir>/penguest_guest.log).
+#
+# Runs on the full arch matrix: the 32-bit guest-python3 hang/ENOSYS (penguin#876)
+# is fixed in the pinned penguin-tools (>=0.0.21, via penguin-tools#20's glibc
+# vDSO runtime-gate for mipsel/mipseb/armel), and 64-bit arches were never
+# affected. This driver avoids time.* anyway, but python3 now starts cleanly on
+# every arch regardless.
+plugins:
+  penguest_test: {}
+  penguest: {}          # host bridge: guest -> host logging (penguest.log/report)
+  penguest_vsock: {}    # host vsock endpoint (needs vpn/vsock, which base_config enables)
+  verifier:
+    conditions:
+      penguest_hypervisor_test:
+        type: file_contains
+        file: penguest_test.txt
+        string: "PENGUEST test: passed"
+      penguest_guest_retval:
+        type: file_contains
+        file: shared/tests/penguest_probe.py/stdout
+        string: "penguest portal_call retval correct"
+      penguest_guest_log:
+        type: file_contains
+        file: penguest_guest.log
+        string: "penguest finding from guest"
+      penguest_guest_vsock:
+        type: file_contains
+        file: shared/tests/penguest_probe.py/stdout
+        string: "penguest vsock roundtrip correct"
+
+static_files:
+  /tests/penguest_probe.py:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/python3
+      import penguest
+
+      TEST_MAGIC = 0x70677401
+      A1 = 0xdeadbeeff1f1f1f1
+      A2 = 0x1337c0defeedc0de
+
+      ret = penguest.portal_call(TEST_MAGIC, A1, A2)
+      print("penguest portal_call returned:", ret)
+      if ret == 13:
+          print("penguest portal_call retval correct")
+
+      # Exercise the log/report path (verified via penguest_guest.log).
+      penguest.log("penguest log line from guest", level="info")
+      penguest.report("penguest finding from guest")
+      print("penguest log sent")
+
+      # vsock round-trip to the host penguest endpoint (guest -> vhost-device-vsock
+      # -> pyplugins/apis/penguest_vsock.py). Last + guarded so a vsock hiccup
+      # can't swallow the portal/log prints above.
+      try:
+          with penguest.vsock.connect() as c:
+              c.send_json({"op": "echo", "data": "vsock-roundtrip"})
+              reply = c.recv_json()
+          if reply == {"echo": "vsock-roundtrip"}:
+              print("penguest vsock roundtrip correct")
+          else:
+              print("penguest vsock roundtrip WRONG:", reply)
+      except Exception as e:
+          print("penguest vsock error:", repr(e))
+    mode: 0o755
