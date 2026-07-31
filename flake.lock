@@ -24,21 +24,18 @@
         ]
       },
       "locked": {
-        "lastModified": 1783694409,
-        "narHash": "sha256-J/Drii/6mlpudaLTiVhm399tF1EDJGTwJUKRwkOBLpc=",
-        "ref": "refs/tags/v0.0.21",
-        "rev": "1d57627d3e53ce9f5bdf955fdb3df6df418007a6",
-        "revCount": 17653,
-        "submodules": true,
-        "type": "git",
-        "url": "https://github.com/rehosting/busybox"
+        "lastModified": 1785510465,
+        "narHash": "sha256-pHenS9/EqAXmFSPa7eMIKeiAUi6mypo8z93fq2DKgLc=",
+        "owner": "rehosting",
+        "repo": "busybox",
+        "rev": "eeba468aad49a7c69cac940a6ceffa0b560be543",
+        "type": "github"
       },
       "original": {
-        "ref": "refs/tags/v0.0.21",
-        "rev": "1d57627d3e53ce9f5bdf955fdb3df6df418007a6",
-        "submodules": true,
-        "type": "git",
-        "url": "https://github.com/rehosting/busybox"
+        "owner": "rehosting",
+        "ref": "v0.0.22",
+        "repo": "busybox",
+        "type": "github"
       }
     },
     "console": {
@@ -140,27 +137,27 @@
     "igloo-driver": {
       "flake": false,
       "locked": {
-        "lastModified": 1782396133,
-        "narHash": "sha256-RO40vtHnmnggd9l7EayzbbpqnvtM7JNOe2ptlbkEuO8=",
+        "lastModified": 1785248040,
+        "narHash": "sha256-65hJ/DUG4g2BTjUulJuqtDqvQvZ37ZfStbOIvvG9028=",
         "type": "tarball",
-        "url": "https://github.com/rehosting/igloo_driver/releases/download/v0.0.85/igloo_driver.tar.gz"
+        "url": "https://github.com/rehosting/igloo_driver/releases/download/v0.0.93/igloo_driver.tar.gz"
       },
       "original": {
         "type": "tarball",
-        "url": "https://github.com/rehosting/igloo_driver/releases/download/v0.0.85/igloo_driver.tar.gz"
+        "url": "https://github.com/rehosting/igloo_driver/releases/download/v0.0.93/igloo_driver.tar.gz"
       }
     },
     "kernels": {
       "flake": false,
       "locked": {
-        "lastModified": 1779026150,
-        "narHash": "sha256-gqcWw6bMRc8Cnqq02adRKI29T/ImTmovKimqNXeU+Fo=",
+        "lastModified": 1785247557,
+        "narHash": "sha256-b90flBGCisEptuaPEIdW9rMTwfE+6ZyklTnlDk4xSU0=",
         "type": "tarball",
-        "url": "https://github.com/rehosting/linux_builder/releases/download/v3.5.33-beta/kernels-latest.tar.gz"
+        "url": "https://github.com/rehosting/linux_builder/releases/download/v3.6.5/kernels-latest.tar.gz"
       },
       "original": {
         "type": "tarball",
-        "url": "https://github.com/rehosting/linux_builder/releases/download/v3.5.33-beta/kernels-latest.tar.gz"
+        "url": "https://github.com/rehosting/linux_builder/releases/download/v3.6.5/kernels-latest.tar.gz"
       }
     },
     "libhc": {
@@ -246,16 +243,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1782506599,
-        "narHash": "sha256-/pcIXwWCiZhw6TPGuJUrQzwPq/rCWx+y2sUWH6Ve+58=",
+        "lastModified": 1783015421,
+        "narHash": "sha256-Yeid2H11Zbl83pq2McszobFZ634gVwh8gEaSjOGyiAM=",
         "owner": "rehosting",
         "repo": "qemu",
-        "rev": "5d28a03369922b195e0d9151fc91cac19ed5288b",
+        "rev": "3795e4c1ed1600c54688853ed9609f68e5c50b64",
         "type": "github"
       },
       "original": {
         "owner": "rehosting",
-        "ref": "v0.0.12",
+        "ref": "v0.0.15",
         "repo": "qemu",
         "type": "github"
       }
@@ -354,16 +351,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1783693009,
-        "narHash": "sha256-a1Rf9/OC1+u7as8cAtI4HKPBuZahqYPAGWu6SpgafHY=",
+        "lastModified": 1785263959,
+        "narHash": "sha256-gn2GBz6GO4Yu6njFs0PwSD6Pj/hzO1GrHJfG31yQ850=",
         "owner": "rehosting",
         "repo": "vpnguin",
-        "rev": "0c0579aa110db738e2b44bfabb047de2df3851ec",
+        "rev": "4503dec72cf68082becb136e2830b46e179b5104",
         "type": "github"
       },
       "original": {
         "owner": "rehosting",
-        "ref": "v1.0.30",
+        "ref": "v1.0.32",
         "repo": "vpnguin",
         "type": "github"
       }

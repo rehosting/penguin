@@ -26,15 +26,15 @@
   # (follows), so the closure is shared, and ships CFFI env modules built
   # against this flake's CPython (3.13) so they match penguin's interpreter.
   inputs.penguin-qemu = {
-    url = "github:rehosting/qemu/v0.0.12";
+    url = "github:rehosting/qemu/v0.0.15";
     inputs.nixpkgs.follows = "nixpkgs";
   };
   inputs.kernels = {
-    url = "https://github.com/rehosting/linux_builder/releases/download/v3.5.33-beta/kernels-latest.tar.gz";
+    url = "https://github.com/rehosting/linux_builder/releases/download/v3.6.5/kernels-latest.tar.gz";
     flake = false;
   };
   inputs.igloo-driver = {
-    url = "https://github.com/rehosting/igloo_driver/releases/download/v0.0.85/igloo_driver.tar.gz";
+    url = "https://github.com/rehosting/igloo_driver/releases/download/v0.0.93/igloo_driver.tar.gz";
     flake = false;
   };
   # v0.0.25 is the slimmed penguin-tools: it no longer ships the forked guest
@@ -56,15 +56,15 @@
     url = "github:rehosting/console/v1.0.10";
     inputs.nixpkgs.follows = "nixpkgs";
   };
-  # busybox is fetched via git+https (not the github: tarball) because the repo
-  # still carries a vestigial `include/libhc` submodule gitlink (the flake gets
-  # libhc from its own input, so the submodule is unused). A codeload tarball
-  # packs that gitlink in a way our CI registry proxy repacks differently from a
-  # plain fetch, giving an environment-dependent narHash. A real git checkout
-  # with submodules=1 is content-deterministic and avoids that mismatch. The rev
-  # is v0.0.20's commit; pinned explicitly so the tag ref can't drift.
+  # Plain tag pin, like the other guest tools. This needed a
+  # `git+https…&submodules=1` workaround until busybox v0.0.22: the repo carried
+  # a vestigial `include/libhc` submodule gitlink (unused -- the flake gets libhc
+  # from its own input), and a codeload tarball packed that gitlink in a way our
+  # CI registry proxy repacked differently from a plain fetch, so the narHash was
+  # environment-dependent. busybox#14 removed the gitlink, so the tarball is
+  # deterministic again and the workaround is retired.
   inputs.busybox = {
-    url = "git+https://github.com/rehosting/busybox?ref=refs/tags/v0.0.21&rev=1d57627d3e53ce9f5bdf955fdb3df6df418007a6&submodules=1";
+    url = "github:rehosting/busybox/v0.0.22";
     inputs.nixpkgs.follows = "nixpkgs";
   };
   inputs.guesthopper = {
@@ -75,7 +75,7 @@
   # vpn.py (WAN bridge / --own-iface). This pin is what fixes the old skew where
   # penguin-tools deliberately held vpnguin at v1.0.26 (4-field) behind penguin.
   inputs.vpnguin = {
-    url = "github:rehosting/vpnguin/v1.0.30";
+    url = "github:rehosting/vpnguin/v1.0.32";
     inputs.nixpkgs.follows = "nixpkgs";
   };
   # libnvram: source only -- penguin compiles nvram.c into lib_inject per
