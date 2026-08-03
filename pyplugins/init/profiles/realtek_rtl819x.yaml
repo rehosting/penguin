@@ -17,17 +17,37 @@ description: Realtek RTL819x SDK (APMIB flash config + RTL8367 switch + boa http
 # against a shipped RTL8196x rootfs (D-Link DIR-605L rev B): lib/apmib.so exports
 # apmib_get/apmib_set/apmib_init; the config store is read directly off the flash
 # MTD device (see below). Specific device targets are tracked internally.
-provenance: Realtek RTL819x SDK reference (rtl819x-SDK-v3.4.9.3, RTL8196x rootfs)
+provenance: |
+  Realtek RTL819x SDK reference (rtl819x-SDK-v3.4.9.3, RTL8196x rootfs);
+  fingerprint re-derived against 67,315 corpus rootfs (pengrid hunt).
 
-# The Realtek APMIB config library (apmib.so) is the RTL819x discriminator: its
+# The Realtek APMIB config library is the RTL819x discriminator: its
 # apmib_get/apmib_set/apmib_init ABI is unique to the Realtek SDK (no other SDK
-# here exports apmib_*), and apmib.so ships as a dedicated shared library. The
-# iwcontrol / wscd Realtek WLAN userland corroborate. None appear on Broadcom /
-# Qualcomm / MediaTek / asuswrt. Require two.
+# here exports apmib_*). Require two signals.
+#
+# CORPUS-DERIVED. Two separate defects, in opposite directions:
+#
+#   * UNDER-firing. The `file` signal named only `apmib.so`, which is 56 rootfs.
+#     The SAME library ships as `libapmib.so` on 319 -- six times as many -- and
+#     ClusterCollector stores exact basenames, so the common spelling never
+#     matched. The apmib_* symbol signal saw all 375 either way, which is why
+#     this went unnoticed: the profile still fired, just a signal short.
+#   * OVER-firing. `iwcontrol` and `wscd` are not Realtek. iwcontrol is madwifi's
+#     (Atheros) interface daemon: 830 rootfs, only 300 of which have apmib at
+#     all. wscd is a WPS daemon reused across SDKs: 2,068 rootfs, 261 with apmib.
+#     They were the reason 289 of this profile's verdicts rested on a symbol
+#     matched outside a library penguin would parse.
+#
+# Replaced with the RTL819x SDK's own config tools, each 100% precise against the
+# apmib cohort: getmib/setmib (the apmib CLI, 352 rootfs), acltd, irf/orf (the
+# Realtek wireless helpers, 418), and wlanapp.sh (406).
 fingerprint:
-  - {kind: symbol, any: [apmib_get, apmib_set, apmib_init]}   # LibrarySymbols (apmib.so exports -- Realtek APMIB)
-  - {kind: file, any: [apmib.so]}                             # ClusterCollector.files (Realtek APMIB shared library)
-  - {kind: executable, any: [iwcontrol, wscd]}                # ClusterCollector.executables (Realtek RTL8192 WLAN userland)
+  # LibrarySymbols -- apmib.so / libapmib.so exports, the Realtek APMIB ABI.
+  - {kind: symbol, any: [apmib_get, apmib_set, apmib_init]}
+  # ClusterCollector.files -- the APMIB library under both names it ships as.
+  - {kind: file, any: [apmib.so, libapmib.so]}
+  # ClusterCollector.executables -- RTL819x SDK config/wireless userland.
+  - {kind: executable, any: [getmib, setmib, acltd, irf, orf, wlanapp.sh]}
 enable_if:
   min_signals: 2
 

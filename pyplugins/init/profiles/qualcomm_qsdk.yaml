@@ -26,6 +26,25 @@ enable_if:
   # blocks a lone nvram_xfr from false-firing on non-QCA asuswrt.
   min_signals: 2
 
+# CORPUS-DERIVED, and left unchanged: 147 of 67,315 rootfs reach ENABLED and all
+# 147 are labelled vendor=asus. 100% concordance.
+#
+# Read the narrowness correctly, though. This profile is not "QCA silicon", it is
+# "ASUSWRT ON QCA silicon" -- the bundle replaces libnvram.so and aliases the
+# ASUS nvram ABI, which only means anything on an ASUSWRT userland. The two
+# signals encode exactly that conjunction: qca-ssdk.ko is the silicon half
+# (1,293 rootfs on its own) and nvram_xfr/get_nvram_space is the ASUSWRT half
+# (3,937 on its own). Requiring both is what makes it precise, and widening
+# either signal would break it, not improve it.
+#
+# The gap this leaves is real and belongs to a different profile: 1,146 corpus
+# rootfs ship qca-ssdk.ko with a non-ASUS userland (787 netgear, 132 tplink,
+# 74 ubiquiti), have QCA switch and nvram surfaces to model, and match nothing
+# here. A `qualcomm_qsdk_generic` silicon profile keyed on qca-ssdk.ko +
+# ssdk_sh (1,362) + qca_ol.ko (810) would cover them, but it needs its own
+# bundle -- the LD_PRELOAD-blind uClibc libnvram shim below is an ASUSWRT
+# artifact and would be wrong there.
+
 # Fidelity-tiered bundles, both keyed off the fingerprint above. Only Tier 0
 # (libinject) exists for this SDK; a Tier-1 `mtd` model would back the QSDK
 # nvram partition once its flash format is reversed.

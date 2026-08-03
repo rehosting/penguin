@@ -18,10 +18,21 @@ provenance: Netgear ACOS reference (source-derived, R7000-class GPL)
 
 # acosNvramConfig_* is the ACOS discriminator (vs a plain Broadcom nvram userland);
 # libacos_shared.so / acos_nat.ko and the acos_service init program corroborate.
+#
+# CORPUS-DERIVED, and this one came out clean: 1,922 rootfs of 67,315 reach
+# ENABLED and 1,916 of them are labelled vendor=netgear -- 99% concordance, the
+# best of the seven, with no co-fire against another silicon profile. It is the
+# control that shows the mechanism works and that the asuswrt / broadcom_hnd
+# problems were bad token choices rather than a flaw in fingerprint gating.
+#
+# One change: `acos_init` matched 3 rootfs and contributed nothing, so the
+# executable signal rested entirely on acos_service. wlanconfigd (1,819) and
+# swresetd (1,747) are ACOS daemons at 100% precision against the same cohort;
+# adding them makes that signal survive a build that omits acos_service.
 fingerprint:
   - {kind: symbol, any: [acosNvramConfig_get, acosNvramConfig_set, acosNvramConfig_read]}  # LibrarySymbols
   - {kind: file, any: [libacos_shared.so, acos_nat.ko]}                                    # ClusterCollector.files
-  - {kind: executable, any: [acos_service, acos_init]}                                     # ClusterCollector.executables
+  - {kind: executable, any: [acos_service, acos_init, wlanconfigd, swresetd]}              # ClusterCollector.executables
 enable_if:
   min_signals: 2
 

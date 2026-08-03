@@ -1,8 +1,8 @@
 """
 Unit tests for SDK-aware lib_inject alias patches.
 
-The SDK-keyed alias groups in ``penguin.defaults`` (atheros_broadcom, realtek,
-netgear_acos, zyxel_or_edimax, ralink) are emitted as one *named, disabled*
+The SDK-keyed alias groups in ``penguin.defaults`` (atheros_broadcom,
+zyxel_or_edimax, ralink) are emitted as one *named, disabled*
 patch per group (``sdk.<group>``) rather than flattened into the always-on
 tailored-alias patch. A disabled patch is a candidate in the config search, not
 a fact baked into the initial config. These tests assert exactly that split:
@@ -22,7 +22,6 @@ from penguin.defaults import (
     atheros_broadcom,
     generic_lib_aliases,
     ralink,
-    realtek,
     sdk_lib_aliases,
 )
 from penguin.init_plugin import InitPlugin, cached_analysis
@@ -33,13 +32,12 @@ from test_init_runner import run_plugins  # shared InitPluginRunner harness
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BUILTIN_DIR = REPO_ROOT / "pyplugins" / "init"
 
-# A symbol export set spanning three SDK groups, the generic set, and one
+# A symbol export set spanning the SDK groups, the generic set, and one
 # genuinely-unmodeled nvram symbol. zyxel_or_edimax is deliberately absent so
-# its patch should not materialize. (netgear_acos is no longer an alias group --
-# it graduated to the netgear_acos SDK profile.)
+# its patch should not materialize. (netgear_acos and realtek are no longer
+# alias groups -- they graduated to the netgear_acos / realtek_rtl819x SDK
+# profiles, which own their aliases in a profile bundle instead.)
 EXPORTED = {
-    # realtek
-    "apmib_get", "apmib_set",
     # ralink
     "nvram_bufget", "nvram_bufset",
     # atheros_broadcom
@@ -73,7 +71,6 @@ def _run():
         for n in (
             "LibInjectTailoredAliases",
             "SdkAtherosBroadcomAliases",
-            "SdkRealtekAliases",
             "SdkZyxelOrEdimaxAliases",
             "SdkRalinkAliases",
         )
@@ -92,7 +89,6 @@ class TestSdkAliasPatches(unittest.TestCase):
 
     def test_matched_sdk_patches_named_disabled_and_scoped(self):
         cases = {
-            "sdk.realtek": realtek,
             "sdk.ralink": ralink,
             "sdk.atheros_broadcom": atheros_broadcom,
         }
@@ -103,8 +99,8 @@ class TestSdkAliasPatches(unittest.TestCase):
             self.assertEqual(data, {"lib_inject": {"aliases": self._expected(table)}})
 
     def test_unmatched_sdk_groups_emit_no_patch(self):
-        # No zyxel_or_edimax symbols were exported. (netgear_acos is no longer an
-        # alias group -- it graduated to the netgear_acos SDK profile.)
+        # No zyxel_or_edimax symbols were exported. (netgear_acos and realtek are
+        # no longer alias groups -- they graduated to SDK profiles.)
         self.assertNotIn("sdk.zyxel_or_edimax", self.patches)
 
     def test_every_sdk_group_has_a_discoverable_patch_class(self):

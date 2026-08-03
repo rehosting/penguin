@@ -11,22 +11,68 @@ description: ASUSWRT on Broadcom HND (et/robo switch + CFE nvram)
 # Distilled from Broadcom-HND ASUSWRT reference rehosts. (Specific source
 # targets are tracked internally, not shipped, to keep private corpus names out
 # of this public repo.)
-provenance: ASUSWRT / Broadcom HND reference rehosts
+provenance: |
+  ASUSWRT / Broadcom HND reference rehosts; fingerprint re-derived against
+  67,315 corpus rootfs (pengrid hunt, see comment below).
 
 # Each entry is one signal, evaluated by SdkFinder against the named analysis.
-# These are Broadcom/HND-SDK-EXCLUSIVE markers, verified by diffing a real HND
-# target (RT-AC2900) against an ASUSWRT-on-Qualcomm target (RT-AC58U): the
-# earlier fingerprint used `nvram`/`nvram_get`/`rtkswitch`, none of which are
-# Broadcom-exclusive on ASUSWRT (every ASUSWRT box has an `nvram` CLI + nvram_get,
-# and ASUSWRT reuses the `rtkswitch` command name on Qualcomm too -- it in fact
-# only appears on the QCA box here), so broadcom_hnd false-fired on QSDK targets.
-# The Broadcom Ethernet/wireless drivers (et/wl/emf/igs), the ethswctl switch tool,
-# the CFE `envram` daemon, libbcm*, and the wl_/bcm nvram symbols are genuinely
-# HND-only. Enable when at least two corroborate.
+#
+# CORPUS-DERIVED. The earlier fingerprint conflated TWO Broadcom SDK generations
+# that happen to share a wireless driver, and fired on both:
+#
+#   * the bcm963xx CPE line -- what this profile's bundles actually model. Its
+#     tools are ethswctl, envram, pwrctl, swmdk, bcm_flasher, and libraries
+#     libethswctl/libwlcsm/libbcm_boardctl. 2,596 rootfs in the corpus.
+#   * the classic "wl" Broadcom SDK -- wl, wlconf, nas, et.ko, libbcmcrypto.so --
+#     which DD-WRT, Tomato and pre-HND vendor builds all inherit. ~24,000 rootfs,
+#     55% of the corpus, and NOT what these bundles model.
+#
+# Every token in the old `executable` and `file` signals except ethswctl/envram/
+# dhd.ko was from the second group, and so was the symbol signal: `wl_probe` is
+# present in 68% of the whole corpus and 36,847 of its 46,061 hits are DD-WRT --
+# a 5% precision against the bcm963xx cohort. The result was ENABLED on 25,781
+# rootfs against a true population of ~2,600: a 10x over-fire that put the CFE
+# `IpAddr_Lan` seed, the `restore_defaults` pin and the SIOCETHSWCTLOPS switch
+# model onto 16,793 DD-WRT images that have no CFE envram and no CDK switch.
+#
+# Be precise about what was wrong, because it is not what it looks like. Checked
+# against TechInfoDepot's part numbers for the 7,920 of those rootfs whose device
+# is in that wiki, the old fingerprint was 99% BROADCOM. It was not firing on the
+# wrong silicon vendor; it was firing on the wrong SDK GENERATION of the right
+# vendor, and a bundle keyed to CFE envram and the CDK switch is just as wrong on
+# a Broadcom board that has neither. Worth remembering when reading the silicon
+# concordance report: an external hardware label can confirm the vendor and is
+# blind to which SDK the vendor shipped, so it cannot catch this class on its own.
+# (The retargeted fingerprint is 99% Broadcom over 1,408 labelled rootfs -- the
+# external check is unchanged, and the vendor mix is what moved: from 65% DD-WRT
+# to asus/netgear/tplink/zyxel/tenda, which is who ships bcm963xx CPE.)
+#
+# The tokens below are the bcm963xx/HND-exclusive ones, each measured at 100%
+# precision against that cohort. `bcmgpio_connect` was dropped for the same
+# reason as wl_probe (libbcm.so is on classic Broadcom too: 39% precision);
+# `nvram_get_bitflag` is kept at 90%. The three added symbols are real exports,
+# read with `nm -D` off corpus rootfs: wlcsm_nvram_get from libwlcsm.so,
+# bcm_get_switch_info from libethswctl.so (the very call `bcm6300_switch` below
+# answers), devCtl_getBaseMacAddress from libbcm_boardctl.so.
+#
+# NOTE for whoever profiles the classic "wl" SDK next: ~24,000 corpus rootfs are
+# in it and none of the seven profiles describes it. Much of the Tier-0 bundle
+# below (the vlan1/vlan2/et netdevs, the et*macaddr and lan_* nvram) would carry
+# over; what would NOT is IpAddr_Lan (a CFE variable, bcm963xx-only) and
+# restore_defaults (ASUSWRT-only). The larger family still is Atheros/madwifi --
+# 22,440 rootfs with no signal from any profile at all.
 fingerprint:
-  - {kind: executable, any: [ethswctl, wl, emf, igs, envram]}         # ClusterCollector.executables (Broadcom/HND driver+switch+CFE tools)
-  - {kind: file, any: [libbcmcrypto.so, libbcm.so, dhd.ko]}           # ClusterCollector.files (Broadcom HND libs/modules)
-  - {kind: symbol, any: [wl_probe, bcmgpio_connect, nvram_get_bitflag]} # LibrarySymbols (Broadcom-exclusive)
+  # ClusterCollector.executables -- bcm963xx/HND CPE tools. None ship on the
+  # classic wl SDK.
+  - {kind: executable, any: [ethswctl, envram, pwrctl, swmdk, bcm_flasher,
+                             bcmmcastctl, psictl, tmctl, wdtctl, bcm_boot_launcher]}
+  # ClusterCollector.files -- bcm963xx/HND libraries and modules.
+  - {kind: file, any: [dhd.ko, wlcsm.ko, bcm_pcie_hcd.ko, libwlcsm.so,
+                       libethswctl.so, libpwrctl.so, libbcm_boardctl.so,
+                       libtmctl.so, libbcmmcast.so, libcdkmain.so]}
+  # LibrarySymbols -- exports of those same libraries.
+  - {kind: symbol, any: [nvram_get_bitflag, wlcsm_nvram_get, bcm_get_switch_info,
+                         devCtl_getBaseMacAddress]}
 enable_if:
   min_signals: 2
 

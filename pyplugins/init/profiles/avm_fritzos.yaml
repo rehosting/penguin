@@ -20,17 +20,34 @@ description: AVM FRITZ!OS (libboxlib/avmipc + TFFS config store + urlader boot-e
 # store), and the ctlmgr/multid/dsld daemons. Specific device targets are tracked
 # internally. AVM's proprietary userland is object-code only; only functional
 # identifiers (symbol/file/executable names) are used here, no AVM code.
-provenance: AVM FRITZ!OS reference (interface-derived, FRITZ!OS 7.x MIPS-BE rootfs)
+provenance: |
+  AVM FRITZ!OS reference (interface-derived, FRITZ!OS 7.x MIPS-BE rootfs);
+  file signal corrected against 67,315 corpus rootfs (pengrid hunt).
 
-# libboxlib.so + libtffs.so are the AVM discriminators: the avmipc_* /
-# boxenv_* ABI (libboxlib) and the tffs_* config-store ABI (libtffs) are unique
-# to the AVM SDK -- no other SDK here exports them -- and both ship as dedicated
-# shared libraries. The ctlmgr / multid / dsld daemons corroborate. None appear on
+# libboxlib + libtffs are the AVM discriminators: the avmipc_* / boxenv_* ABI
+# (libboxlib) and the tffs_* config-store ABI (libtffs) are unique to the AVM SDK
+# -- no other SDK here exports them -- and both ship as dedicated shared
+# libraries. The ctlmgr / multid / dsld daemons corroborate. None appear on
 # Broadcom / Qualcomm / MediaTek / Realtek / Netgear-ACOS. Require two.
+#
+# CORPUS-DERIVED. The `file` signal was DEAD: `libboxlib.so` and `libtffs.so`
+# each matched 0 of 67,315 rootfs, because AVM ships them under their full
+# sonames -- libboxlib.so.0.0.0 and libtffs.so.1.0.0, both on all 60 AVM rootfs
+# in the corpus -- and ClusterCollector stores exact basenames, with no soname
+# stripping. A dead signal is not inert: with min_signals=2 and one of three
+# signals unreachable, the profile silently required BOTH survivors, so an AVM
+# rootfs shipping the libraries but not the daemons would never have matched.
+#
+# The same class of bug hid a signal in realtek_rtl819x (apmib.so vs
+# libapmib.so). Any `.so` token here must be the on-disk basename.
 fingerprint:
-  - {kind: symbol, any: [tffs_read_value, tffs_write_value, avmipc_msg_send]}  # LibrarySymbols (libtffs/libboxlib exports)
-  - {kind: file, any: [libboxlib.so, libtffs.so]}                              # ClusterCollector.files (AVM SDK core libraries)
-  - {kind: executable, any: [ctlmgr, multid, dsld]}                            # ClusterCollector.executables (AVM control/DSL daemons)
+  # LibrarySymbols (libtffs / libboxlib exports).
+  - {kind: symbol, any: [tffs_read_value, tffs_write_value, avmipc_msg_send]}
+  # ClusterCollector.files -- AVM SDK core libraries, versioned sonames as shipped.
+  - {kind: file, any: [libboxlib.so.0.0.0, libtffs.so.1.0.0,
+                       libar7cfg.so.1.0.0, libavm_event.so.1.0.0]}
+  # ClusterCollector.executables -- AVM control/DSL daemons and the AR7 console.
+  - {kind: executable, any: [ctlmgr, multid, dsld, ar7login]}
 enable_if:
   min_signals: 2
 
