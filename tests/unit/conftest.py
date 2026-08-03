@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 
 @pytest.fixture(scope="session")
 def igloo_ko_isf():
-    """Path to a real ``igloo.ko`` ISF for the Dockerfile-pinned driver release.
+    """Path to a real ``igloo.ko`` ISF for the flake.nix-pinned driver release.
 
     Resolves (and, if needed, downloads once to a local cache) via
     :func:`penguin.testing.resolve_igloo_ko_isf`; skips the test when offline with

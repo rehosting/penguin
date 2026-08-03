@@ -126,6 +126,69 @@ class Processes(Plugin):
 
         plugins.subscribe(plugins.Execs, "exec_event", self.on_exec_event)
 
+        # pid -> create_time, learned at exec, so a signal death (which carries
+        # only a pid) can be paired with its ProcStart by (pid, create_time).
+        self._create_time: Dict[int, int] = {}
+
+        # Authoritative exit source: the igloo_driver do_exit kprobe (via
+        # exit_monitor) fires on EVERY user-process death -- exit, exit_group,
+        # AND fatal signals -- with the real wait(2)-status-encoded code. When
+        # enabled it supersedes both the exit/exit_group syscall hooks and the
+        # signal heuristic below: no caught-signal false positives, no missed
+        # signal deaths, real exit codes, and create_time straight off the dying
+        # task (pairs exactly with ProcStart). Opt-in until the driver carrying
+        # the hook is the pinned release.
+        self._use_do_exit = self.get_arg_bool("use_do_exit", False)
+        if self._use_do_exit:
+            try:
+                plugins.exit_monitor.enable()
+                plugins.subscribe(plugins.exit_monitor, "proc_exit",
+                                  self.on_proc_exit)
+            except Exception as e:
+                self.logger.warning(
+                    f"processes: do_exit hook unavailable ({e}); falling back "
+                    "to syscall + signal exit tracking")
+                self._use_do_exit = False
+
+        # exit/exit_group syscall hooks: the cheap default exit source -- they
+        # piggyback on already-firing syscall instrumentation and append a row
+        # with no portal round-trip. Registered ONLY when the do_exit hook is not
+        # active; otherwise do_exit owns every exit, so installing these would
+        # both double-count and waste a hook firing per exit. Registered
+        # imperatively (bound methods) so it can be conditional -- a class-body
+        # decorator would always install them.
+        if not self._use_do_exit:
+            plugins.syscalls.syscall("on_sys_exit_enter")(self.on_exit)
+            plugins.syscalls.syscall("on_sys_exit_group_enter")(self.on_exit_group)
+
+        # A process killed by a fatal signal dies via the kernel's do_exit path
+        # and calls neither exit nor exit_group, so the syscall hooks above miss
+        # it -- it would look permanently alive. Close those out via the signal
+        # monitor. Restricted by default to signals whose default action is
+        # terminate and that are essentially never caught-and-survived (the
+        # synchronous faults + abort/kill family); SIGTERM/SIGINT/SIGHUP are
+        # excluded as they are commonly handled. Hooked by name for arch
+        # portability (signal numbers differ on MIPS etc.).
+        self.track_signal_exits = (self.get_arg_bool("track_signal_exits", True)
+                                   and not self._use_do_exit)
+        self._signal_exited: set = set()
+        self._fatal_signums: Dict[int, str] = {}
+        if self.track_signal_exits:
+            names = self.get_arg("fatal_signals") or [
+                "SIGILL", "SIGABRT", "SIGFPE", "SIGSEGV", "SIGBUS",
+                "SIGSYS", "SIGXCPU", "SIGXFSZ", "SIGKILL", "SIGQUIT"]
+            for name in names:
+                num = plugins.signals.signal_name_to_num(name)
+                # isinstance guard (not `is not None`) so the host test harness,
+                # where signals is an undoubled stub, degrades to no-op cleanly.
+                if isinstance(num, int):
+                    self._fatal_signums[int(num)] = name
+            if self._fatal_signums:
+                plugins.subscribe(plugins.signal_monitor, "signal_deliver",
+                                  self.on_signal_deliver)
+                for num in self._fatal_signums:
+                    plugins.signal_monitor.register_hook(sig=num)
+
         # Seed an (empty) map so downstream consumers can rely on the file.
         self._write_map_file({})
 
@@ -152,6 +215,8 @@ class Processes(Plugin):
             name = "[???]"
 
         pid = _int(proc, "pid")
+        self._create_time[pid] = _int(proc, "create_time")
+        self._signal_exited.discard(pid)  # a reused pid can die again
         self.DB.add_event(ProcStart, {
             "proc_id": pid,
             "procname": name,
@@ -191,17 +256,81 @@ class Processes(Plugin):
         })
         self.logger.info(f"processes: {reason} pid={pid} status={error_code}")
 
-    @plugins.syscalls.syscall("on_sys_exit_enter")
+    def on_signal_deliver(self, cpu: Any, event: Any) -> None:
+        """Fatal-signal death -> ProcExit row.
+
+        Covers the process kills that ``exit``/``exit_group`` never see (SIGSEGV
+        and friends). Runs in the signal_monitor's (non-portal) publish, so it
+        only appends a buffered row -- no guest read. ``event.drop`` means
+        another subscriber bypassed the delivery (e.g. SIGILL emulation), so the
+        process is not dying; skip it. Deduped per pid: the first fatal delivery
+        wins (a dying process may be hit more than once)."""
+        sig = int(getattr(event, "sig", 0))
+        name = self._fatal_signums.get(sig)
+        if name is None or getattr(event, "drop", False):
+            return
+        pid = getattr(event, "pid", None)
+        if pid is None:
+            return
+        pid = int(pid)
+        if pid in self._signal_exited:
+            return
+        self._signal_exited.add(pid)
+        self.DB.add_event(ProcExit, {
+            "proc_id": pid,
+            "procname": "",
+            "pid": pid,
+            "create_time": int(self._create_time.get(pid, 0)),
+            "code": 128 + sig,  # shell convention for signal death
+            "reason": f"signal:{name}",
+        })
+        self.logger.info(f"processes: {name} killed pid={pid} (ProcExit)")
+
+    def on_proc_exit(self, cpu: Any, event: Any) -> None:
+        """Authoritative task-exit -> ``ProcExit`` row (do_exit kprobe).
+
+        Fires once per user-process death for exit, exit_group, AND fatal
+        signals alike, carrying the real exit code (wait-status encoded) and the
+        dying task's ``create_time`` -- so it needs no ``(pid, create_time)``
+        reconstruction and cannot false-positive on a caught-and-survived
+        signal. Active only when ``use_do_exit`` is set; supersedes the syscall
+        hooks and the signal heuristic."""
+        pid = int(getattr(event, "pid", 0) or 0)
+        if not pid:
+            return
+        if getattr(event, "signaled", False):
+            sig = int(event.termsig)
+            name = None
+            try:
+                name = plugins.signals.signal_num_to_name(sig)
+            except Exception:
+                pass
+            if not isinstance(name, str):  # undoubled stub in the test harness
+                name = None
+            reason, code = f"signal:{name or sig}", 128 + sig
+        else:
+            reason, code = "exit", int(getattr(event, "exit_status", 0))
+        self.DB.add_event(ProcExit, {
+            "proc_id": pid,
+            "procname": "",  # name is carried by the paired ProcStart
+            "pid": pid,
+            "create_time": int(getattr(event, "create_time", 0) or 0),
+            "code": int(code),
+            "reason": reason,
+        })
+        self.logger.info(f"processes: {reason} pid={pid} code={code}")
+
     def on_exit(self, regs: Any, proto: Any, syscall: Any,
                 error_code: int) -> Generator[Any, None, None]:
-        """Thread exit -> ProcExit row."""
+        """Thread exit -> ProcExit row. Registered in ``__init__`` only when the
+        do_exit hook is not in use; do_exit supersedes it otherwise."""
         self._record_exit(syscall, error_code, "exit")
         yield from ()  # exit tracking needs no portal call; stay a generator
 
-    @plugins.syscalls.syscall("on_sys_exit_group_enter")
     def on_exit_group(self, regs: Any, proto: Any, syscall: Any,
                       error_code: int) -> Generator[Any, None, None]:
-        """Whole-process exit -> ProcExit row."""
+        """Whole-process exit -> ProcExit row. Registered in ``__init__`` only
+        when the do_exit hook is not in use."""
         self._record_exit(syscall, error_code, "exit_group")
         yield from ()
 

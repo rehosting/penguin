@@ -2,7 +2,7 @@
 ``real_isf=``).
 
 Instead of a checked-in fixture, the harness loads the *real* published driver
-ISF (``igloo.ko.<arch>.json.xz`` for the Dockerfile-pinned ``IGLOO_DRIVER_VERSION``)
+ISF (``igloo.ko.<arch>.json.xz`` for the flake.nix-pinned igloo_driver release)
 through ``dwarffi`` — the same artifact ``apis.kffi`` reads at runtime. This
 exercises ``dwarffi`` for real, exposes the whole driver type universe (not just
 seven enums), and can't drift: the ISF is pinned to the release, not a copy in the
