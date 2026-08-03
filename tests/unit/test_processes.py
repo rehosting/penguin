@@ -150,6 +150,97 @@ def test_exit_without_pid_is_skipped(tmp_path):
     assert db.rows(ProcExit) == []
 
 
+def _sig_evt(sig, pid, drop=False):
+    return SimpleNamespace(sig=sig, pid=pid, drop=drop)
+
+
+def _exit_evt(pid, create_time, signaled, termsig=0, exit_status=0):
+    """An exit_event-shaped holder (do_exit kprobe path)."""
+    return SimpleNamespace(pid=pid, create_time=create_time, signaled=signaled,
+                           termsig=termsig, exit_status=exit_status)
+
+
+def test_do_exit_normal_exit_emits_procexit(tmp_path):
+    # With the do_exit hook active, a normal exit is recorded from the kprobe
+    # event (real status), and the exit/exit_group syscall hooks stand down.
+    db = FakeDB()
+    lp = _load(tmp_path, db=db, use_do_exit=True)
+    lp.plugin.on_proc_exit(None, _exit_evt(412, 200, signaled=False,
+                                           exit_status=7))
+    exits = db.rows(ProcExit)
+    assert len(exits) == 1
+    assert exits[0] == {"proc_id": 412, "procname": "", "pid": 412,
+                        "create_time": 200, "code": 7, "reason": "exit"}
+
+
+def test_do_exit_signal_death_emits_procexit(tmp_path):
+    # A fatal signal death is captured by the same hook with the real code --
+    # no signal heuristic needed. (signals is stubbed, so the name falls back to
+    # the number; on silicon it resolves to e.g. SIGSEGV.)
+    db = FakeDB()
+    lp = _load(tmp_path, db=db, use_do_exit=True)
+    lp.plugin.on_proc_exit(None, _exit_evt(412, 200, signaled=True, termsig=11))
+    exits = db.rows(ProcExit)
+    assert len(exits) == 1
+    assert exits[0] == {"proc_id": 412, "procname": "", "pid": 412,
+                        "create_time": 200, "code": 128 + 11,
+                        "reason": "signal:11"}
+
+
+def test_do_exit_supersedes_syscall_hooks(tmp_path):
+    # When use_do_exit is set, the exit/exit_group syscall hooks are not even
+    # registered (do_exit owns exits) -- so dispatch finds no hook. This proves
+    # we don't pay a redundant per-exit hook firing, not merely that it no-ops.
+    import pytest
+    lp = _load(tmp_path, use_do_exit=True)
+    with pytest.raises(KeyError):
+        lp.dispatch_syscall("exit_group", None, None, _syscall_evt(412, 200), 0)
+    with pytest.raises(KeyError):
+        lp.dispatch_syscall("exit", None, None, _syscall_evt(412, 200), 0)
+
+
+def test_syscall_exit_hooks_registered_by_default(tmp_path):
+    # With the default (do_exit off) the syscall exit hooks ARE registered.
+    db = FakeDB()
+    lp = _load(tmp_path, db=db)  # use_do_exit defaults False
+    lp.dispatch_syscall("exit_group", None, None, _syscall_evt(412, 200), 0)
+    assert len(db.rows(ProcExit)) == 1
+
+
+def test_fatal_signal_emits_procexit(tmp_path):
+    # A process killed by a fatal signal never calls exit/exit_group; the signal
+    # monitor path must still close it out. (signals is stubbed in the harness,
+    # so populate the watched set directly.)
+    db = FakeDB()
+    lp = _load(tmp_path, db=db)
+    lp.plugin._fatal_signums = {11: "SIGSEGV"}
+    # create_time is learned at exec, so the ProcExit pairs by (pid, create_time)
+    lp.dispatch("exec_event", _exec_event(412, 1, 200, "/hard/faulter",
+                                          ["faulter"]))
+    lp.plugin.on_signal_deliver(None, _sig_evt(11, 412))
+    exits = db.rows(ProcExit)
+    assert len(exits) == 1
+    assert exits[0] == {"proc_id": 412, "procname": "", "pid": 412,
+                        "create_time": 200, "code": 128 + 11,
+                        "reason": "signal:SIGSEGV"}
+
+
+def test_fatal_signal_deduped_and_drop_skipped(tmp_path):
+    db = FakeDB()
+    lp = _load(tmp_path, db=db)
+    lp.plugin._fatal_signums = {11: "SIGSEGV"}
+    # a dropped delivery (another plugin bypassed it) is not a death
+    lp.plugin.on_signal_deliver(None, _sig_evt(11, 500, drop=True))
+    assert db.rows(ProcExit) == []
+    # a non-watched signal is ignored
+    lp.plugin.on_signal_deliver(None, _sig_evt(2, 500))
+    assert db.rows(ProcExit) == []
+    # first fatal delivery records; a second for the same pid is deduped
+    lp.plugin.on_signal_deliver(None, _sig_evt(11, 500))
+    lp.plugin.on_signal_deliver(None, _sig_evt(11, 500))
+    assert len(db.rows(ProcExit)) == 1
+
+
 # --------------------------------------------------------------------------- #
 # Derived artifact: uninit() materializes system_map.yaml from the DB
 # --------------------------------------------------------------------------- #
