@@ -307,10 +307,16 @@ def resolve_igloo_ko_isf(arch: str = _ISF_ARCH,
 
     Resolution order:
       1. ``PENGUIN_TEST_IGLOO_KO_ISF`` env var (explicit path).
-      2. The local cache (a prior download).
+      2. The local cache for *this exact version* (a prior download).
       3. Download ``igloo_driver.tar.gz`` for the Dockerfile-pinned
          ``IGLOO_DRIVER_VERSION`` (or ``version``) and extract the one ISF.
       4. The nix store (dev machines).
+
+    The cache is keyed by version (``.isf_cache/<version>/igloo.ko.<arch>...``),
+    not by arch alone: a stale ISF from an *earlier* pin must never satisfy a
+    lookup after ``IGLOO_DRIVER_VERSION`` is bumped, or a bump would be silently
+    masked (the test would run against the wrong ABI). A bump simply misses the
+    old cache entry and re-downloads.
 
     Returns None (rather than raising) when offline with nothing cached, so tests
     can ``skip`` cleanly.
@@ -319,12 +325,15 @@ def resolve_igloo_ko_isf(arch: str = _ISF_ARCH,
     if env and os.path.isfile(env):
         return env
 
+    version = version or _pinned_driver_version()
     member = f"kernels/{_ISF_KVER}/igloo.ko.{arch}.json.xz"
-    cache = os.path.join(_isf_cache_dir(), f"igloo.ko.{arch}.json.xz")
+    # Version-keyed cache path; "unpinned" bucket when the pin is unreadable so
+    # we still never collide with a real version's cache.
+    cache = os.path.join(_isf_cache_dir(), version or "unpinned",
+                         f"igloo.ko.{arch}.json.xz")
     if os.path.isfile(cache):
         return cache
 
-    version = version or _pinned_driver_version()
     if version:
         tag = "v" + version.lstrip("v")
         url = ("https://github.com/rehosting/igloo_driver/releases/download/"
