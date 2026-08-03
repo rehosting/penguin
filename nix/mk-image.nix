@@ -281,6 +281,13 @@ let
     # curl: no penguin code path shells out to it, but the Docker image had it
     # and users exec into this image expecting a normal userland. Cheap parity.
     pkgs.curl
+    # make: penguin's own code never invokes it, but consumers of this image
+    # compile inside it. public_dojo's constructed challenges run
+    # `make CC=arm-linux-musleabi-gcc` in their .init, and because that .init
+    # redirects stderr and has no `set -e`, a missing make exits 0 and the
+    # failure only surfaces later as a missing *.rootfs.tar.gz -- 5 of 13
+    # challenges broke this way. The Dockerfile had make via apt.
+    pkgs.gnumake
     pkgs.binutils # nm / readelf (symbols.py via shutil.which)
     pkgs.graphviz # dot (graph rendering)
     pkgs.fakeroot
@@ -427,6 +434,7 @@ let
     "cpio"
     "unsquashfs"
     "7z"
+    "make" # public_dojo's constructed challenges compile in-image
   ];
 
   # Non-executable files the image must also carry. Same rationale as the tool
