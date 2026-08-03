@@ -244,7 +244,7 @@ def drive(gen: Any, responses: Optional[List[Any]] = None,
 # and can't drift — the ISF is pinned to the driver release, not a checked-in
 # copy. See RealKffi / install_real_consts.
 #
-# The ISF is pulled for the exact IGLOO_DRIVER_VERSION pinned in the Dockerfile
+# The ISF is pulled for the exact igloo_driver release pinned in flake.nix
 # (not :latest), so host tests see the same enums the built image would.
 _ISF_ARCH = "armel"     # enums/most driver types are arch-invariant; one suffices
 _ISF_KVER = "6.13"      # kernel tree inside the driver tarball
@@ -280,18 +280,27 @@ class RealKffi:
 
 
 def _pinned_driver_version() -> Optional[str]:
-    """Read ``IGLOO_DRIVER_VERSION`` from the repo Dockerfile so the ISF pull is
-    pinned to the same release the image uses (not :latest). None if unreadable."""
+    """Read the igloo_driver release tag from ``flake.nix`` so the ISF pull is
+    pinned to the same release the image uses (not :latest). None if unreadable.
+
+    The pin used to live in a Dockerfile ``ARG IGLOO_DRIVER_VERSION``; the image
+    is now built solely from the flake, so ``inputs.igloo-driver.url`` is the one
+    place the version exists. Parsed from ``flake.nix`` rather than ``flake.lock``
+    because the lock records the resolved URL/narHash, and the tag in the URL is
+    what a human bumps.
+    """
     # harness.py -> testing/ -> penguin/ -> src/ -> repo root
-    dockerfile = os.path.join(
-        os.path.dirname(__file__), "..", "..", "..", "Dockerfile")
+    flake = os.path.join(
+        os.path.dirname(__file__), "..", "..", "..", "flake.nix")
     try:
-        with open(os.path.realpath(dockerfile)) as f:
+        with open(os.path.realpath(flake)) as f:
             text = f.read()
     except OSError:
         return None
     import re
-    m = re.search(r'^ARG\s+IGLOO_DRIVER_VERSION="?([^"\s]+)"?', text, re.M)
+    m = re.search(
+        r'github\.com/rehosting/igloo_driver/releases/download/'
+        r'v?([^/"\s]+)/igloo_driver\.tar\.gz', text)
     return m.group(1) if m else None
 
 
@@ -308,8 +317,8 @@ def resolve_igloo_ko_isf(arch: str = _ISF_ARCH,
     Resolution order:
       1. ``PENGUIN_TEST_IGLOO_KO_ISF`` env var (explicit path).
       2. The local cache for *this exact version* (a prior download).
-      3. Download ``igloo_driver.tar.gz`` for the Dockerfile-pinned
-         ``IGLOO_DRIVER_VERSION`` (or ``version``) and extract the one ISF.
+      3. Download ``igloo_driver.tar.gz`` for the flake.nix-pinned
+         igloo_driver release (or ``version``) and extract the one ISF.
       4. The nix store (dev machines).
 
     The cache is keyed by version (``.isf_cache/<version>/igloo.ko.<arch>...``),

@@ -287,8 +287,8 @@ same path `apis.kffi` uses at runtime. No checked-in fixture: the ISF is the
 source of truth, pinned to the driver release, so it can't drift. The
 `igloo_ko_isf` pytest fixture (in `conftest.py`) resolves the ISF via
 `penguin.testing.resolve_igloo_ko_isf` — env `PENGUIN_TEST_IGLOO_KO_ISF` → local
-cache → **download `igloo_driver.tar.gz` for the Dockerfile-pinned
-`IGLOO_DRIVER_VERSION`** (not `:latest`) and extract one arch → nix store — and
+cache → **download `igloo_driver.tar.gz` for the flake.nix-pinned
+igloo_driver release** (not `:latest`) and extract one arch → nix store — and
 `skip`s cleanly when offline with nothing cached. The one enum absent from the
 driver ISF (`igloo_base_hypercalls`) is supplied by `RealKffi` as a single
 ABI-fixed constant. Enums/most driver types are arch-invariant, so one arch
@@ -342,7 +342,7 @@ driver release that predates it*.
 such a test **FAILS, it does not skip**, when the pinned ISF lacks the op. A skip
 reads as green and would let host code that can't run against its own pinned
 driver merge silently. The failure is the forcing function — bump
-`IGLOO_DRIVER_VERSION` (Dockerfile) to a release carrying the op and the test
+the `igloo-driver` pin (flake.nix) to a release carrying the op and the test
 goes green with no edit. See `_assert_pinned_driver_has_bulk_op`.
 
 - **Expected state on branch `workspace/proctree-ux` / PR #897:** these 2 tests

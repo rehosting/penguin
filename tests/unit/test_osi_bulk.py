@@ -11,7 +11,7 @@ Requires a driver ISF that actually carries the OSI_PROC_ALL op + osi_proc_node
 struct. This is a hard requirement, not an optional one: if the pinned driver
 lacks the op, penguin's get_all_procs is incompatible with the driver it ships
 against, so the test FAILS (it does not skip -- see
-_assert_pinned_driver_has_bulk_op). Bumping IGLOO_DRIVER_VERSION to a release
+_assert_pinned_driver_has_bulk_op). Bumping the igloo-driver pin to a release
 carrying the op turns it green with no edit here. Only a totally unresolvable
 ISF (offline, nothing cached) skips, via the igloo_ko_isf fixture.
 """
@@ -68,7 +68,7 @@ def _assert_pinned_driver_has_bulk_op(isf):
     assert hasattr(consts.HYPER_OP, "HYPER_OP_OSI_PROC_ALL"), (
         "pinned igloo_driver ISF lacks HYPER_OP_OSI_PROC_ALL: penguin's "
         "OSI.get_all_procs cannot run against the pinned driver. Bump "
-        "IGLOO_DRIVER_VERSION (Dockerfile) to a release carrying the op -- "
+        "the igloo-driver pin (flake.nix) to a release carrying the op -- "
         "see PR #897.")
     return consts
 
