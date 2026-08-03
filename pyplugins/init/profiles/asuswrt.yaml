@@ -1,0 +1,114 @@
+# SDK profile: ASUSWRT userland (silicon-independent).
+#
+# ASUSWRT runs on multiple silicon SDKs (Broadcom HND, Qualcomm QSDK, ...). The
+# *userland* behaviours a rehost must satisfy -- the /sbin/rc service manager's
+# first-boot restore-defaults reboot, the libshared GPIO-button reads, and the
+# WAN state machine -- are the SAME regardless of silicon. This profile captures
+# those, so every ASUSWRT target gets them; the per-silicon switch / nvram
+# transport lives in the silicon profile (broadcom_hnd, qualcomm_qsdk).
+#
+# Both bundles are emitted as DISABLED candidates (AsuswrtBootProfile /
+# AsuswrtWanProfile, default_tier=False): opt-in higher-fidelity modelling,
+# additive to the silicon profile's own bundle.
+name: asuswrt
+description: ASUSWRT userland (rc service manager + libshared + WAN state machine, silicon-independent)
+
+provenance: |
+  ASUSWRT reference rehosts (Broadcom HND + Qualcomm QSDK); fingerprint
+  re-derived against 67,315 corpus rootfs (pengrid hunt, see comment below).
+
+# ASUSWRT discriminators that do not depend on silicon. The executable signal is
+# the ASUSWRT-EXCLUSIVE half and everything turns on it; the other two corroborate.
+#
+# CORPUS-DERIVED. The first version of this signal was `[wanduck, rc]`, and `rc`
+# was the mistake: /sbin/rc is the Broadcom SDK's service manager, inherited by
+# every fork of it. Measured over 67,315 rootfs, `rc` is present in 76% of the
+# whole corpus -- higher than `nvram_set` (73%), which was the control token
+# chosen precisely because it is generic. Paired with libshared.so (also
+# inherited by every Broadcom-lineage fork), it put this profile at ENABLED on
+# 21,980 rootfs of which 12,990 were DD-WRT and 2,939 Tomato: 59% of labelled
+# hits were not ASUSWRT at all, and each got the wan0_* nvram pins and the
+# restore-defaults reboot_skip below, which mean nothing on those firmware.
+#
+# The tokens now used are ASUSWRT userland daemons with no DD-WRT/Tomato
+# equivalent: networkmap (4,151 rootfs, 98% vendor=asus), infosvr (4,233, 97%),
+# asuslog, protect_srv, and wanduck. Together they select ~4,300 rootfs, 96%
+# labelled asus -- and the remainder is ASUSWRT-derived third-party firmware
+# (Merlin, Oleg, vortex), i.e. targets this profile SHOULD serve, not errors.
+#
+# libshared.so was dropped from the `file` signal for a second reason worth
+# stating separately, because it is invisible in the ENABLED counts: a profile
+# one signal short is emitted DISABLED, and a DISABLED profile is a CANDIDATE in
+# the config search. libshared.so alone put an ASUSWRT candidate on 18,496
+# rootfs, 13,093 of them DD-WRT and 2,939 Tomato -- 16,000 wrong branches for
+# the search to consider. Keying the signal on libptcsrv.so (the ASUSWRT
+# AiProtection library) instead takes that to 277. It costs ~140 rootfs their
+# ENABLED verdict, and those merely fall back to being candidates, which is what
+# a one-signal match is supposed to mean.
+fingerprint:
+  # ClusterCollector.executables -- ASUSWRT-exclusive userland daemons.
+  - {kind: executable, any: [networkmap, infosvr, wanduck, asuslog, protect_srv]}
+  # ClusterCollector.files -- ASUSWRT-exclusive libraries. NOT libshared.so:
+  # that is Broadcom-lineage and ships on 34% of the corpus (see above).
+  - {kind: file, any: [libptcsrv.so, libws.so, libbwdpi.so]}
+  # LibrarySymbols -- ASUSWRT libshared exports. notify_rc: 4,302 rootfs, 96%
+  # asus; get_wan_unit: 3,893, 98% asus. Genuinely discriminative on their own.
+  - {kind: symbol, any: [notify_rc, get_wan_unit]}
+enable_if:
+  min_signals: 2
+
+bundles:
+  # Tier: boot-to-runtime (silicon-independent half). The switch probe is
+  # silicon-specific and stays in the silicon profile (e.g. sdk.broadcom_hnd.boot
+  # models the BCM6300 robo-switch); these two are ASUSWRT-userland-generic.
+  boot:
+    plugins:
+      # Neutralise the ASUSWRT first-boot "## Restoring defaults ##" reboot(2)
+      # (else -no-reboot ends the run before runtime). Bounded.
+      reboot_skip: {}
+      # Report all board GPIO buttons (libshared get_gpio) as released, so the
+      # watchdog does not see a stuck reset/WPS press.
+      gpio_buttons: {}
+
+  # Tier: WAN-connected. Drives the ASUSWRT WAN state machine to CONNECTED with a
+  # default route WITHOUT a real uplink or core.network: stand up a tap-backed
+  # WAN interface via the VPN "owned interfaces" feature and pin the WAN unit-0
+  # nvram at it so it survives ASUSWRT's per-boot default-restore (which blanks
+  # wan0_ifname). ASUSWRT then ifconfigs wan0 up at the pinned static IP,
+  # update_wan_state reaches CONNECTED, and add_multi_routes installs the default
+  # route via the host peer. The 203.0.113.0/24 block is the TEST-NET-3
+  # documentation range -- a placeholder datapath, not a real WAN.
+  #
+  # nvram: seeds the same keys so the libnvram key FILES exist (nvram_pin forces
+  # the value at the read layer, but the shim's access(F_OK) gate bails first if
+  # the file is absent).
+  wan:
+    nvram:
+      wan0_ifname: wan0
+      wan0_proto: static
+      wan0_ipaddr: 203.0.113.2
+      wan0_netmask: 255.255.255.0
+      wan0_gateway: 203.0.113.1
+      wan0_primary: "1"
+      wan0_dns: 203.0.113.1
+      wan_ifname: wan0
+      wan_proto: static
+    plugins:
+      nvram_pin:
+        pins:
+          wan0_ifname: wan0
+          wan0_proto: static
+          wan0_ipaddr: 203.0.113.2
+          wan0_netmask: 255.255.255.0
+          wan0_gateway: 203.0.113.1
+          wan0_primary: "1"
+          wan0_dns: 203.0.113.1
+          wan_ifname: wan0
+          wan_proto: static
+      vpn:
+        interfaces:
+          wan0:
+            host_ip: 203.0.113.1
+            guest_ip: 203.0.113.2
+            prefix: 24
+        default_interface: wan0

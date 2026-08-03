@@ -203,7 +203,11 @@ class Devfs(Plugin):
                 "mode": getattr(devfs_file, "MODE", 0o666),
                 "support_mmap": 1 if support_mmap else 0,
                 "is_block": 1 if getattr(devfs_file, "IS_BLOCK", False) else 0,
-                "logical_block_size": getattr(devfs_file, "LOGICAL_BLOCK_SIZE", 512)
+                "logical_block_size": getattr(devfs_file, "LOGICAL_BLOCK_SIZE", 512),
+                # Periodic poll heartbeat cadence (PollPeriodic sets this; 0 =
+                # disabled). dwarffi drops keys the target struct lacks, so this
+                # is a no-op against a driver that predates the field.
+                "poll_interval_ms": int(getattr(devfs_file, "POLL_INTERVAL_MS", 0) or 0),
             }
             if mmap_phys_addr:
                 init_data["mmap_phys_addr"] = mmap_phys_addr

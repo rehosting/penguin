@@ -1,6 +1,7 @@
 import importlib.util
 import inspect
 import os
+import re
 from pydantic import Field
 from penguin import plugins, Plugin, PluginArgs, getColoredLogger
 from penguin.plugin_manager import find_plugin_by_name
@@ -39,7 +40,7 @@ from hyperfile.models.ioctl import (
     IoctlPluginVFS,
     IoctlPluginLegacy,
 )
-from hyperfile.models.poll import PollAlwaysReady, PollExternalVFS
+from hyperfile.models.poll import PollAlwaysReady, PollNeverReady, PollPeriodic, PollExternalVFS
 from hyperfile.models.registry import get_model
 from hyperfile.models.seek import (
     SeekDefault,
@@ -152,6 +153,8 @@ class Pseudofiles(Plugin):
 
     poll_models = {
         "always_ready": PollAlwaysReady,
+        "blocking": PollNeverReady,
+        "periodic": PollPeriodic,
     }
 
     # Per-operation models for the rest of the VFS surface. Each maps a model
@@ -669,8 +672,14 @@ class Pseudofiles(Plugin):
             return
 
         for filename, details in self.config.get("pseudofiles", {}).items():
-            # Ignore MTD devices; they are handled natively by mtd.py and portal_mtd.c
-            if filename.startswith("/dev/mtd") or filename == "/proc/mtd":
+            # Defer to the native MTD subsystem (mtd.py / portal_mtd.c) ONLY the
+            # names it actually adopts: the numbered MTD char devices /dev/mtdN
+            # (mtd.py migrates `^/dev/mtd(\d+)$`) and /proc/mtd. A bare `/dev/mtd`
+            # (opened by e.g. Realtek RTL819x apmib) and the /dev/mtdblockN block
+            # nodes do NOT match that migration, so deferring them here would drop
+            # them on the floor -- neither subsystem serves them. Let those fall
+            # through to the normal DevFile pseudofile machinery below.
+            if re.match(r"^/dev/mtd\d+$", filename) or filename == "/proc/mtd":
                 self.logger.debug(
                     f"Ignoring {filename} in pseudofiles (deferred to native MTD subsystem)")
                 plugins.mtd.ensure_init()
