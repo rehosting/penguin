@@ -99,17 +99,17 @@
         "unblob": "unblob"
       },
       "locked": {
-        "lastModified": 1782563803,
-        "narHash": "sha256-S4s9guwelgw0QRY/7GCoNVe+xqRlT6+1OkQK4GL6UuI=",
+        "lastModified": 1783017543,
+        "narHash": "sha256-AqRvTgKjjI3vJcV/l3pLNMebVHD6EdKqKzacNZiPF6E=",
         "owner": "rehosting",
         "repo": "fw2tar",
-        "rev": "b9e72b0dd8475715eb5d6cb85ac60ee0d1f2d7e5",
+        "rev": "86dd7a45deadb849c87f4a25c1476c68feafdfd3",
         "type": "github"
       },
       "original": {
         "owner": "rehosting",
+        "ref": "v2.0.24",
         "repo": "fw2tar",
-        "rev": "b9e72b0dd8475715eb5d6cb85ac60ee0d1f2d7e5",
         "type": "github"
       }
     },
@@ -314,11 +314,11 @@
         "shell-hooks": "shell-hooks"
       },
       "locked": {
-        "lastModified": 1782176382,
-        "narHash": "sha256-a9SYhKZby1PvgR+YKyDxErP3Bz2yRpfPpbx5PnTpFck=",
+        "lastModified": 1782620433,
+        "narHash": "sha256-okHkkQRIeqcv6zfIb+eaYMi3/tstK1iui3JLRe3BbAo=",
         "owner": "rehosting",
         "repo": "unblob",
-        "rev": "5c9680a57c3a105f95451da3875baa3eb962ba21",
+        "rev": "f52d9c0ce4a19608c2f41146b66a5f748a5f0bd1",
         "type": "github"
       },
       "original": {
