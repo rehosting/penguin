@@ -39,7 +39,7 @@ from hyperfile.models.ioctl import (
     IoctlPluginVFS,
     IoctlPluginLegacy,
 )
-from hyperfile.models.poll import PollAlwaysReady, PollExternalVFS
+from hyperfile.models.poll import PollAlwaysReady, PollNeverReady, PollPeriodic, PollExternalVFS
 from hyperfile.models.registry import get_model
 from hyperfile.models.seek import (
     SeekDefault,
@@ -152,6 +152,8 @@ class Pseudofiles(Plugin):
 
     poll_models = {
         "always_ready": PollAlwaysReady,
+        "blocking": PollNeverReady,
+        "periodic": PollPeriodic,
     }
 
     # Per-operation models for the rest of the VFS surface. Each maps a model
