@@ -129,6 +129,44 @@ def test_explicit_seek_model_is_composed(pf):
     assert "SeekUnsupported" in _mro_names(inst)
 
 
+def test_poll_blocking_maps_to_never_ready(pf):
+    # poll:blocking resolves to the not-ready mixin (parks the waiter on the
+    # per-device wait queue instead of spinning; see poll issue #77).
+    assert pf._resolve_mixin("poll", {"model": "blocking"}).__name__ == "PollNeverReady"
+
+
+def test_dev_node_with_blocking_poll_composes_never_ready(pf):
+    # An explicit poll:blocking overrides the /dev always-ready fallback.
+    inst = _dev(pf, {"read": {"model": "zero"}, "poll": {"model": "blocking"}})
+    names = _mro_names(inst)
+    assert "PollNeverReady" in names
+    assert "PollAlwaysReady" not in names
+
+
+def test_poll_periodic_maps_to_periodic(pf):
+    # poll:periodic resolves to the heartbeat mixin (driver timer wakes the wait
+    # queue every interval_ms; see PollPeriodic).
+    assert pf._resolve_mixin("poll", {"model": "periodic"}).__name__ == "PollPeriodic"
+
+
+def test_dev_node_with_periodic_poll_carries_interval(pf):
+    # An explicit poll:periodic composes PollPeriodic (not the /dev always-ready
+    # fallback) and carries interval_ms down as POLL_INTERVAL_MS so devfs
+    # registration can arm the driver timer.
+    inst = _dev(pf, {"read": {"model": "zero"},
+                     "poll": {"model": "periodic", "interval_ms": 250}})
+    names = _mro_names(inst)
+    assert "PollPeriodic" in names
+    assert "PollAlwaysReady" not in names
+    assert inst.POLL_INTERVAL_MS == 250
+
+
+def test_dev_node_periodic_poll_defaults_interval(pf):
+    # interval_ms is optional; PollPeriodic defaults it (matches the schema).
+    inst = _dev(pf, {"read": {"model": "zero"}, "poll": {"model": "periodic"}})
+    assert inst.POLL_INTERVAL_MS == 1000
+
+
 def test_proc_node_has_no_dev_only_fallbacks(pf):
     from importlib import import_module
     ProcFile = import_module("hyperfile.models.base").ProcFile
