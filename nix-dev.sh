@@ -37,8 +37,8 @@ fi
 #             (no input uses this today -- busybox did until v0.0.22 removed its
 #             stale submodule gitlink; kept because any submodule-carrying repo
 #             can hit the same environment-dependent-narHash problem)
-# fw2tar is pinned by raw rev (tracks a branch head, not releases) and nixpkgs
-# by commit -- both intentionally excluded from bump; they still show in pins.
+# nixpkgs is pinned by commit (deliberately, to match penguin-tools' pin so the
+# two flakes share a closure) -- excluded from bump, bump it by hand.
 declare -A REPO SHAPE
 REPO[penguin-qemu]=rehosting/qemu;          SHAPE[penguin-qemu]=github
 REPO[console]=rehosting/console;            SHAPE[console]=github
@@ -49,8 +49,9 @@ REPO[busybox]=rehosting/busybox;            SHAPE[busybox]=github
 REPO[kernels]=rehosting/linux_builder;      SHAPE[kernels]=tarball
 REPO[igloo-driver]=rehosting/igloo_driver;  SHAPE[igloo-driver]=tarball
 REPO[penguin-tools]=rehosting/penguin-tools; SHAPE[penguin-tools]=tarball
+REPO[fw2tar]=rehosting/fw2tar;              SHAPE[fw2tar]=github
 
-BUMPABLE="penguin-qemu console busybox guesthopper vpnguin libnvram kernels igloo-driver penguin-tools"
+BUMPABLE="penguin-qemu console busybox guesthopper vpnguin libnvram kernels igloo-driver penguin-tools fw2tar"
 
 current_pin() { # <input> -> the tag currently in flake.nix
   local name=$1 repo=${REPO[$1]} shape=${SHAPE[$1]}
@@ -61,9 +62,12 @@ current_pin() { # <input> -> the tag currently in flake.nix
   esac
 }
 
-latest_tag() { # <input> -> newest v* tag upstream (semver sort)
+latest_tag() { # <input> -> newest v* RELEASE tag upstream (semver sort)
+  # Skip prerelease tags (e.g. v0.0.94-pre.df8576ef7): they sort above the
+  # release they precede, so leaving them in reports a stable pin as "behind"
+  # and points a bump at an unreleased build.
   git ls-remote --tags "https://github.com/${REPO[$1]}" 'v*' 2>/dev/null \
-    | grep -v '\^{}' | sed 's|.*refs/tags/||' | sort -V | tail -n1
+    | grep -v '\^{}' | sed 's|.*refs/tags/||' | grep -v -- '-pre' | sort -V | tail -n1
 }
 
 tag_rev() { # <input> <tag> -> commit sha of that tag (peeled if annotated)
@@ -84,7 +88,7 @@ cmd_pins() {
     printf '%-14s %-28s %-14s %-14s%s\n' "$name" "${REPO[$name]}" "${cur:-?}" "${latest:-?}" "$mark"
   done
   echo
-  echo "(fw2tar and nixpkgs are pinned by commit, not tag -- bump those by hand.)"
+  echo "(nixpkgs is pinned by commit, not tag -- bump it by hand.)"
 }
 
 cmd_bump() {
