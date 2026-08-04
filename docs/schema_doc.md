@@ -211,13 +211,13 @@ lighttpd: 9999
 
 VM snapshot (savevm/loadvm) configuration.
 
-    Snapshotting is *active* whenever ``save_at`` or ``boot_from`` is set — there
-    is no separate enable flag. When active, the guest runs on a persistent
-    qcow2 overlay (rather than the throwaway immutable overlay) so an internal VM
-    snapshot can be saved and later restored. Saving a snapshot at a chosen point
-    lets a later run boot directly from that state instead of re-booting the
-    firmware.
-    
+Snapshotting is *active* whenever ``save_at`` or ``boot_from`` is set — there
+is no separate enable flag. When active, the guest runs on a persistent
+qcow2 overlay (rather than the throwaway immutable overlay) so an internal VM
+snapshot can be saved and later restored. Saving a snapshot at a chosen point
+lets a later run boot directly from that state instead of re-booting the
+firmware.
+
 
 #### `core.snapshot.backend` Snapshot backend
 
@@ -398,10 +398,10 @@ true
 
 Host<->guest shared directory (9p) configuration.
 
-    Accepted in ``core.shared_dir`` as ``true`` (enable with defaults), a string
-    (shorthand for ``path``), or this object. Core dumps ride the same single
-    mount (see ``core.core_dumps``); they do not need this feature enabled.
-    
+Accepted in ``core.shared_dir`` as ``true`` (enable with defaults), a string
+(shorthand for ``path``), or this object. Core dumps ride the same single
+mount (see ``core.core_dumps``); they do not need this feature enabled.
+
 
 ```yaml
 true
@@ -471,11 +471,11 @@ Override the 9p transport buffer size. Unset uses the default 8MB with an automa
 
 Guest core-dump capture configuration.
 
-    Accepted in ``core.core_dumps`` as ``true`` (enable with defaults), a string
-    (shorthand for ``pattern``), or this object. When enabled, penguin points
-    core_pattern at /igloo/core_dumps (a symlink into the shared mount) and
-    brings that mount up even when core.shared_dir is unset.
-    
+Accepted in ``core.core_dumps`` as ``true`` (enable with defaults), a string
+(shorthand for ``pattern``), or this object. When enabled, penguin points
+core_pattern at /igloo/core_dumps (a symlink into the shared mount) and
+brings that mount up even when core.shared_dir is unset.
+
 
 ```yaml
 true
@@ -1630,6 +1630,54 @@ Constant POLLIN|POLLRDNORM|POLLOUT|POLLWRNORM mask (legacy behavior).
 
 Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
 
+##### `pseudofiles.<string>.poll.<model=blocking>` Never report ready (block the waiter)
+
+Return a zero mask so poll()/select()/epoll parks the caller on the node's wait queue instead of spinning. Models an event-source device whose read() blocks until a hardware event that never occurs under emulation (e.g. a watchdog). A write to the node wakes any parked waiter.
+
+###### `pseudofiles.<string>.poll.<model=blocking>.model` Poll modelling method (never report ready (block the waiter))
+
+|||
+|-|-|
+|__Type__|`"blocking"`|
+
+
+###### `pseudofiles.<string>.poll.<model=blocking>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `pseudofiles.<string>.poll.<model=periodic>` Report ready on a fixed cadence (heartbeat)
+
+Report the node readable once every 'interval_ms', parking the waiter on the node's wait queue in between. An igloo_driver kernel timer drives the cadence, so a poll()/epoll(timeout=-1) main loop advances at a fixed rate instead of spinning (always_ready) or deadlocking (blocking). Models a device that delivers a periodic hardware event (e.g. a watchdog heartbeat). Note the interval is in guest time, which runs slower than wall-clock under emulation.
+
+###### `pseudofiles.<string>.poll.<model=periodic>.model` Poll modelling method (report ready on a fixed cadence (heartbeat))
+
+|||
+|-|-|
+|__Type__|`"periodic"`|
+
+
+###### `pseudofiles.<string>.poll.<model=periodic>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.poll.<model=periodic>.interval_ms` Heartbeat interval (guest milliseconds)
+
+|||
+|-|-|
+|__Type__|integer|
+|__Default__|`1000`|
+
+
 ##### `pseudofiles.<string>.poll.<model=from_plugin>` Poll from a custom PyPlugin
 
 Data-aware poll: the plugin returns a poll mask reflecting actual readiness.
@@ -2689,12 +2737,12 @@ Custom source code for library functions to intercept and model
 
 Declarative symbol stubs, grouped by library/object.
 
-    Each key is a library/object (an absolute guest path like ``/lib/libc.so``
-    or a bare basename like ``libX.so`` searched for in the rootfs). Each value
-    maps a symbol key to a stub action. A symbol key is either a symbol name, a
-    glob such as ``nvram_*`` (expanded against the library's exported symbols at
-    build time; symbol-return stubs only), or ``symbol@offset`` (assembly-body
-    stubs only, where ``offset`` is added to the symbol address).
+Each key is a library/object (an absolute guest path like ``/lib/libc.so``
+or a bare basename like ``libX.so`` searched for in the rootfs). Each value
+maps a symbol key to a stub action. A symbol key is either a symbol name, a
+glob such as ``nvram_*`` (expanded against the library's exported symbols at
+build time; symbol-return stubs only), or ``symbol@offset`` (assembly-body
+stubs only, where ``offset`` is added to the symbol address).
 
 ```yaml
 {}
@@ -2722,8 +2770,8 @@ libX.so:
 #### `lib_inject.stubs.<string>` Per-library symbol stubs
 
 Symbols (or globs) to stub within one library/object. The library key is
-    an organizational label and the glob-resolution target; aliasing itself is
-    global (``--defsym``).
+an organizational label and the glob-resolution target; aliasing itself is
+global (``--defsym``).
 
 ##### `lib_inject.stubs.<string>.<string>` Symbol stub
 
@@ -2932,10 +2980,10 @@ A list of binary edits applied to this file after it is staged into the guest, i
 ###### `static_files.<string>.<type=inline_file>.patches.<item>` Binary patch entry
 
 A single edit within a ``binary_patch`` action: bytes to write at one
-    file offset, optionally guarded by an ``expect`` check. Multiple entries can
-    target one file via the action's ``patches`` list; they are applied
-    host-side to one buffer in a single pass, and overlapping write ranges are
-    rejected.
+file offset, optionally guarded by an ``expect`` check. Multiple entries can
+target one file via the action's ``patches`` list; they are applied
+host-side to one buffer in a single pass, and overlapping write ranges are
+rejected.
 
 ###### `static_files.<string>.<type=inline_file>.patches.<item>.file_offset` File offset (integer)
 
@@ -3089,10 +3137,10 @@ A list of binary edits applied to this file after it is staged into the guest, i
 ###### `static_files.<string>.<type=host_file>.patches.<item>` Binary patch entry
 
 A single edit within a ``binary_patch`` action: bytes to write at one
-    file offset, optionally guarded by an ``expect`` check. Multiple entries can
-    target one file via the action's ``patches`` list; they are applied
-    host-side to one buffer in a single pass, and overlapping write ranges are
-    rejected.
+file offset, optionally guarded by an ``expect`` check. Multiple entries can
+target one file via the action's ``patches`` list; they are applied
+host-side to one buffer in a single pass, and overlapping write ranges are
+rejected.
 
 ###### `static_files.<string>.<type=host_file>.patches.<item>.file_offset` File offset (integer)
 
@@ -3517,10 +3565,10 @@ A list of edits applied to this one file in a single host-side pass. Use this in
 ###### `static_files.<string>.<type=binary_patch>.patches.<item>` Binary patch entry
 
 A single edit within a ``binary_patch`` action: bytes to write at one
-    file offset, optionally guarded by an ``expect`` check. Multiple entries can
-    target one file via the action's ``patches`` list; they are applied
-    host-side to one buffer in a single pass, and overlapping write ranges are
-    rejected.
+file offset, optionally guarded by an ``expect`` check. Multiple entries can
+target one file via the action's ``patches`` list; they are applied
+host-side to one buffer in a single pass, and overlapping write ranges are
+rejected.
 
 ###### `static_files.<string>.<type=binary_patch>.patches.<item>.file_offset` File offset (integer)
 
