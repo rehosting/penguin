@@ -136,14 +136,25 @@ jobs:
         run: pip install -e "src[test]" -e "pengutils[test]"
       # Cache the igloo.ko ISF the enum-boundary tests pull for the pinned
       # igloo_driver release (parsed from the flake.nix igloo-driver input).
-      # Keyed on flake.nix so bumping the pin re-pulls; otherwise conftest
-      # downloads it once.
+      #
+      # Key on the *driver version*, not hashFiles('flake.nix'): the ISF only
+      # changes when the igloo-driver pin does, but a flake.nix hash key misses
+      # on any unrelated edit (a fw2tar bump, a comment) and forces a re-pull.
+      # That matters because the pull is the slow path -- when it fails, the
+      # harness falls back to scanning the nix store.
+      - name: Resolve pinned igloo_driver version
+        id: isf_pin
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        run: |
+          v=$(sed -n 's|.*igloo_driver/releases/download/v\([^/]*\)/.*|\1|p' flake.nix | head -1)
+          [ -n "$v" ] || { echo "could not parse the igloo-driver pin from flake.nix" >&2; exit 1; }
+          echo "v=$v" >> "$GITHUB_OUTPUT"
       - name: Cache driver ISF
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         uses: actions/cache@v4
         with:
           path: tests/unit/.isf_cache
-          key: igloo-ko-isf-${{ hashFiles('flake.nix') }}
+          key: igloo-ko-isf-v${{ steps.isf_pin.outputs.v }}
       - name: Run host-side unit tests
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         env:

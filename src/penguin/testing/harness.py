@@ -345,10 +345,29 @@ def resolve_igloo_ko_isf(arch: str = _ISF_ARCH,
         except Exception:  # noqa: BLE001 - offline / missing asset -> fall through
             pass
 
+    # Bounded store scan. The ISF sits at a known depth -- an igloo-static tree
+    # has it at igloo_static/kernels/<kver>/, the raw driver tree at
+    # kernels/<kver>/ -- so match those shapes directly.
+    #
+    # Do NOT walk the store recursively (`/nix/store/**` with recursive=True):
+    # that is pathological. It ran >8 minutes without finishing on a 19k-path
+    # dev store, and CI runners share a persistent ~150k-path host store, where
+    # it wedged this "runs in seconds" job for hours on an ISF cache miss. This
+    # fallback is only reached when the download above fails, so it must be
+    # cheap: these patterns match in ~0.05s.
     import glob
-    hits = glob.glob(
-        f"/nix/store/**/igloo.ko.{arch}.json.xz", recursive=True)
-    return sorted(hits)[0] if hits else None
+    patterns = [
+        f"/nix/store/*/igloo_static/kernels/{_ISF_KVER}/igloo.ko.{arch}.json.xz",
+        f"/nix/store/*/kernels/{_ISF_KVER}/igloo.ko.{arch}.json.xz",
+        # Any kernel version, in case the pinned one is not the one on disk.
+        f"/nix/store/*/igloo_static/kernels/*/igloo.ko.{arch}.json.xz",
+        f"/nix/store/*/kernels/*/igloo.ko.{arch}.json.xz",
+    ]
+    for pattern in patterns:
+        hits = glob.glob(pattern)
+        if hits:
+            return sorted(hits)[0]
+    return None
 
 
 def _clear_hyper_consts_cache() -> None:
