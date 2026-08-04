@@ -109,8 +109,13 @@
   # re-deriving fw2tar/unblob/binwalk/extractor backends. We make fw2tar (and,
   # via fw2tar, unblob) follow our nixpkgs so the extraction stack shares the
   # same CPython/glibc as penguin instead of shipping duplicate interpreters.
+  # Pinned to a release tag like the other tool inputs. This pin also fixes
+  # penguin's unblob: fw2tar's own lock is what selects the extractor set, so
+  # v2.0.24 is how we pick up the cpio/jffs2/arpy, ext-permission and
+  # cramfs-on-opposite-endian fixes (extraction behaviour changes -- validate
+  # against the corpus when bumping, don't assume it's inert).
   inputs.fw2tar = {
-    url = "github:rehosting/fw2tar/b9e72b0dd8475715eb5d6cb85ac60ee0d1f2d7e5";
+    url = "github:rehosting/fw2tar/v2.0.24";
     inputs.nixpkgs.follows = "nixpkgs";
   };
 
