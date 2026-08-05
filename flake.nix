@@ -8,8 +8,12 @@
     ];
   };
 
-  # Pinned to the same nixpkgs commit as penguin-tools so the two flakes share a
-  # store closure (and Cachix hits).
+  # The one input pinned by hand rather than left to flake.lock, deliberately:
+  # it must be the SAME commit penguin-tools pins, or the two flakes stop sharing
+  # a store closure (and Cachix hits). Tracking a channel branch would let them
+  # drift apart on any update, so this is pinned until penguin-tools moves too.
+  # Everything else records its revision in flake.lock and is bumped with
+  # `nix flake update <input>` (see ./nix-dev.sh).
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/b6067cc0127d4db9c26c79e4de0513e58d0c40c9";
 
   # --- Prebuilt release artifacts, pinned by flake.lock ----------------------
@@ -25,8 +29,10 @@
   # a plain tarball would leave those dangling. It pins the same nixpkgs as us
   # (follows), so the closure is shared, and ships CFFI env modules built
   # against this flake's CPython (3.13) so they match penguin's interpreter.
+  # NOTE: bumping this is behaviour-changing (emulator). flake.lock holds the
+  # revision; move it deliberately, never as part of a bulk update.
   inputs.penguin-qemu = {
-    url = "github:rehosting/qemu/v0.0.15";
+    url = "github:rehosting/qemu";
     inputs.nixpkgs.follows = "nixpkgs";
   };
   inputs.kernels = {
@@ -49,40 +55,46 @@
   # Forked guest utilities that build themselves (their own flakes cross-build
   # every guest arch). penguin consumes each directly and stages its
   # /igloo_static fragment, so a tool change no longer needs a penguin-tools
-  # re-release -- just bump the pinned tag here. `follows nixpkgs` keeps the
-  # cross toolchains + rust closures shared through Cachix (no duplicate
-  # closures). Pinned to version tags (reproducible); bump on a new tool release.
+  # re-release -- just relock here. `follows nixpkgs` keeps the cross toolchains
+  # + rust closures shared through Cachix (no duplicate closures).
+  #
+  # No ref in the URL: flake.lock already records the exact revision, so writing
+  # the tag here too was a second, hand-maintained pin of the same thing. Bump
+  # with `nix flake update <input>` (or ./nix-dev.sh bump <input>), which is also
+  # what lets dependabot-style automation work. `./nix-dev.sh pins` still reports
+  # each locked revision against the newest upstream *release*, so you can see
+  # when a lock sits behind a tag or on an untagged commit.
   inputs.console = {
-    url = "github:rehosting/console/v1.0.10";
+    url = "github:rehosting/console";
     inputs.nixpkgs.follows = "nixpkgs";
   };
-  # Plain tag pin, like the other guest tools. This needed a
-  # `git+https…&submodules=1` workaround until busybox v0.0.22: the repo carried
+  # This needed a `git+https…&submodules=1` workaround until busybox v0.0.22:
+  # the repo carried
   # a vestigial `include/libhc` submodule gitlink (unused -- the flake gets libhc
   # from its own input), and a codeload tarball packed that gitlink in a way our
   # CI registry proxy repacked differently from a plain fetch, so the narHash was
   # environment-dependent. busybox#14 removed the gitlink, so the tarball is
   # deterministic again and the workaround is retired.
   inputs.busybox = {
-    url = "github:rehosting/busybox/v0.0.22";
+    url = "github:rehosting/busybox";
     inputs.nixpkgs.follows = "nixpkgs";
   };
   inputs.guesthopper = {
-    url = "github:rehosting/guesthopper/v1.0.24";
+    url = "github:rehosting/guesthopper";
     inputs.nixpkgs.follows = "nixpkgs";
   };
   # vpnguin v1.0.29 carries the owned-interface datapaths matching penguin's
   # vpn.py (WAN bridge / --own-iface). This pin is what fixes the old skew where
   # penguin-tools deliberately held vpnguin at v1.0.26 (4-field) behind penguin.
   inputs.vpnguin = {
-    url = "github:rehosting/vpnguin/v1.0.32";
+    url = "github:rehosting/vpnguin";
     inputs.nixpkgs.follows = "nixpkgs";
   };
   # libnvram: source only -- penguin compiles nvram.c into lib_inject per
   # project (clang-20), so we just need the .c/.h tree, not a build. Consumed
   # directly here rather than routed through penguin-tools.
   inputs.libnvram = {
-    url = "github:rehosting/libnvram/v0.0.26";
+    url = "github:rehosting/libnvram";
     flake = false;
   };
 
@@ -109,13 +121,13 @@
   # re-deriving fw2tar/unblob/binwalk/extractor backends. We make fw2tar (and,
   # via fw2tar, unblob) follow our nixpkgs so the extraction stack shares the
   # same CPython/glibc as penguin instead of shipping duplicate interpreters.
-  # Pinned to a release tag like the other tool inputs. This pin also fixes
-  # penguin's unblob: fw2tar's own lock is what selects the extractor set, so
-  # v2.0.24 is how we pick up the cpio/jffs2/arpy, ext-permission and
-  # cramfs-on-opposite-endian fixes (extraction behaviour changes -- validate
-  # against the corpus when bumping, don't assume it's inert).
+  # fw2tar's own lock is what selects the extractor set, so relocking this input
+  # also moves unblob: the currently locked revision (v2.0.24) is where the
+  # cpio/jffs2/arpy, ext-permission and cramfs-on-opposite-endian fixes came in.
+  # Extraction behaviour changes here -- validate against the corpus when
+  # bumping, don't assume it's inert.
   inputs.fw2tar = {
-    url = "github:rehosting/fw2tar/v2.0.24";
+    url = "github:rehosting/fw2tar";
     inputs.nixpkgs.follows = "nixpkgs";
   };
 

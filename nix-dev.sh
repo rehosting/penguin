@@ -21,6 +21,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FLAKE="$ROOT/flake.nix"
+LOCK="$ROOT/flake.lock"
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -31,35 +32,57 @@ if [ "${1:-}" != "doctor" ]; then
 fi
 
 # input name -> upstream repo (owner/name) and pin shape.
-#   github  : inputs.<name>.url = "github:<repo>/<tag>"
+#   flake   : inputs.<name>.url = "github:<repo>"  -- NO ref in the URL. The
+#             revision lives in flake.lock (the single pin), so `current_pin`
+#             reads the lock, and `bump` is `nix flake update <input>`.
 #   tarball : inputs.<name>.url = "https://github.com/<repo>/releases/download/<tag>/<asset>"
-#   gitref  : inputs.<name>.url = "git+https://github.com/<repo>?ref=refs/tags/<tag>&rev=<sha>&submodules=1"
-#             (no input uses this today -- busybox did until v0.0.22 removed its
-#             stale submodule gitlink; kept because any submodule-carrying repo
-#             can hit the same environment-dependent-narHash problem)
+#             -- here the version IS part of the URL and cannot be dropped
+#             without switching to `releases/latest/download/`, which would
+#             erase which release we are on from both flake.nix and flake.lock.
+#             So these keep an explicit version and `bump` rewrites the URL.
 # nixpkgs is pinned by commit (deliberately, to match penguin-tools' pin so the
 # two flakes share a closure) -- excluded from bump, bump it by hand.
 declare -A REPO SHAPE
-REPO[penguin-qemu]=rehosting/qemu;          SHAPE[penguin-qemu]=github
-REPO[console]=rehosting/console;            SHAPE[console]=github
-REPO[guesthopper]=rehosting/guesthopper;    SHAPE[guesthopper]=github
-REPO[vpnguin]=rehosting/vpnguin;            SHAPE[vpnguin]=github
-REPO[libnvram]=rehosting/libnvram;          SHAPE[libnvram]=github
-REPO[busybox]=rehosting/busybox;            SHAPE[busybox]=github
+REPO[penguin-qemu]=rehosting/qemu;          SHAPE[penguin-qemu]=flake
+REPO[console]=rehosting/console;            SHAPE[console]=flake
+REPO[guesthopper]=rehosting/guesthopper;    SHAPE[guesthopper]=flake
+REPO[vpnguin]=rehosting/vpnguin;            SHAPE[vpnguin]=flake
+REPO[libnvram]=rehosting/libnvram;          SHAPE[libnvram]=flake
+REPO[busybox]=rehosting/busybox;            SHAPE[busybox]=flake
 REPO[kernels]=rehosting/linux_builder;      SHAPE[kernels]=tarball
 REPO[igloo-driver]=rehosting/igloo_driver;  SHAPE[igloo-driver]=tarball
 REPO[penguin-tools]=rehosting/penguin-tools; SHAPE[penguin-tools]=tarball
-REPO[fw2tar]=rehosting/fw2tar;              SHAPE[fw2tar]=github
+REPO[fw2tar]=rehosting/fw2tar;              SHAPE[fw2tar]=flake
 
 BUMPABLE="penguin-qemu console busybox guesthopper vpnguin libnvram kernels igloo-driver penguin-tools fw2tar"
 
-current_pin() { # <input> -> the tag currently in flake.nix
+locked_rev() { # <input> -> the revision flake.lock currently pins
+  python3 - "$LOCK" "$1" <<'EOF'
+import json, sys
+nodes = json.load(open(sys.argv[1]))["nodes"]
+node = nodes.get(sys.argv[2], {})
+print(node.get("locked", {}).get("rev", ""))
+EOF
+}
+
+current_pin() { # <input> -> what we are on: a release tag if the locked rev is
+                # one, else "<short-rev> (untagged)"; tarballs read the URL.
   local name=$1 repo=${REPO[$1]} shape=${SHAPE[$1]}
   case $shape in
-    github)  sed -n "s|.*\"github:$repo/\([^\"]*\)\".*|\1|p" "$FLAKE" ;;
     tarball) sed -n "s|.*github.com/$repo/releases/download/\([^/]*\)/.*|\1|p" "$FLAKE" ;;
-    gitref)  sed -n "s|.*github.com/$repo?ref=refs/tags/\([^&]*\)&.*|\1|p" "$FLAKE" ;;
+    flake)
+      local rev tag
+      rev=$(locked_rev "$name")
+      [ -n "$rev" ] || { echo "?"; return; }
+      tag=$(tag_for_rev "$name" "$rev")
+      if [ -n "$tag" ]; then echo "$tag"; else echo "${rev:0:9} (untagged)"; fi
+      ;;
   esac
+}
+
+tag_for_rev() { # <input> <rev> -> the release tag pointing at <rev>, if any
+  git ls-remote --tags "https://github.com/${REPO[$1]}" 'v*' 2>/dev/null \
+    | sed 's|\^{}||' | awk -v r="$2" '$1 == r { sub(/.*refs\/tags\//, "", $2); print $2; exit }'
 }
 
 latest_tag() { # <input> -> newest v* RELEASE tag upstream (semver sort)
@@ -79,16 +102,22 @@ tag_rev() { # <input> <tag> -> commit sha of that tag (peeled if annotated)
 }
 
 cmd_pins() {
-  printf '%-14s %-28s %-14s %-14s %s\n' INPUT REPO PINNED LATEST ''
+  # LOCKED is what we actually build: for flake inputs it is resolved from
+  # flake.lock (shown as the release tag when the locked revision is one, else
+  # the short revision marked untagged); for tarball inputs it is the version in
+  # the URL. LATEST is the newest upstream release, so a lock sitting behind a
+  # release -- or parked on an untagged commit -- is visible either way.
+  printf '%-14s %-28s %-20s %-14s %s\n' INPUT REPO LOCKED LATEST ''
   for name in $BUMPABLE; do
     local cur latest mark=''
     cur=$(current_pin "$name")
     latest=$(latest_tag "$name" || true)
     [ -n "$latest" ] && [ "$cur" != "$latest" ] && mark='  <-- behind'
-    printf '%-14s %-28s %-14s %-14s%s\n' "$name" "${REPO[$name]}" "${cur:-?}" "${latest:-?}" "$mark"
+    printf '%-14s %-28s %-20s %-14s%s\n' "$name" "${REPO[$name]}" "${cur:-?}" "${latest:-?}" "$mark"
   done
   echo
-  echo "(nixpkgs is pinned by commit, not tag -- bump it by hand.)"
+  echo "(nixpkgs is pinned by commit in flake.nix, deliberately -- see the"
+  echo " comment there; bump it in lockstep with penguin-tools.)"
 }
 
 cmd_bump() {
@@ -97,21 +126,32 @@ cmd_bump() {
   [ -n "${REPO[$name]:-}" ] || die "unknown/unbumpable input '$name' (choose from: $BUMPABLE)"
   local repo=${REPO[$name]} shape=${SHAPE[$name]}
   local cur; cur=$(current_pin "$name")
-  [ -n "$tag" ] || tag=$(latest_tag "$name")
-  [ -n "$tag" ] || die "could not determine latest tag for $repo"
-  if [ "$cur" = "$tag" ]; then echo "$name already at $tag"; return 0; fi
 
   case $shape in
-    github)  sed -i "s|\"github:$repo/$cur\"|\"github:$repo/$tag\"|" "$FLAKE" ;;
-    tarball) sed -i "s|github.com/$repo/releases/download/$cur/|github.com/$repo/releases/download/$tag/|" "$FLAKE" ;;
-    gitref)
-      local rev; rev=$(tag_rev "$name" "$tag")
-      sed -i -e "s|\(github.com/$repo?ref=refs/tags/\)$cur&rev=[0-9a-f]*&|\1$tag\&rev=$rev\&|" "$FLAKE"
+    flake)
+      # The revision lives only in flake.lock, so bumping is a relock. With no
+      # <tag>, take whatever the default branch is at now; with a <tag>, lock
+      # that exact release.
+      if [ -n "$tag" ]; then
+        if [ "$cur" = "$tag" ]; then echo "$name already at $tag"; return 0; fi
+        echo "$name: $cur -> $tag; relocking..."
+        nix flake update "$name" --flake "$ROOT" --override-input "$name" "github:$repo/$tag"
+      else
+        echo "$name: $cur -> default-branch HEAD; relocking..."
+        nix flake update "$name" --flake "$ROOT"
+      fi
+      ;;
+    tarball)
+      # Here the version is part of the URL, so it has to be rewritten.
+      [ -n "$tag" ] || tag=$(latest_tag "$name")
+      [ -n "$tag" ] || die "could not determine latest tag for $repo"
+      if [ "$cur" = "$tag" ]; then echo "$name already at $tag"; return 0; fi
+      sed -i "s|github.com/$repo/releases/download/$cur/|github.com/$repo/releases/download/$tag/|" "$FLAKE"
+      grep -q "$tag" "$FLAKE" || die "sed failed to rewrite the $name pin -- flake.nix format changed?"
+      echo "$name: $cur -> $tag; relocking..."
+      nix flake update "$name" --flake "$ROOT"
       ;;
   esac
-  grep -q "$tag" "$FLAKE" || die "sed failed to rewrite the $name pin -- flake.nix format changed?"
-  echo "$name: $cur -> $tag; relocking..."
-  nix flake update "$name" --flake "$ROOT"
   echo "done. Review with: git -C $ROOT diff flake.nix flake.lock"
 }
 
