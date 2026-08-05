@@ -345,19 +345,26 @@ def resolve_igloo_ko_isf(arch: str = _ISF_ARCH,
         except Exception:  # noqa: BLE001 - offline / missing asset -> fall through
             pass
 
-    # Bounded store scan. The ISF sits at a known depth -- an igloo-static tree
-    # has it at igloo_static/kernels/<kver>/, the raw driver tree at
-    # kernels/<kver>/ -- so match those shapes directly.
+    # Last resort, and DEV-MACHINE ONLY: guess that a nix build already put the
+    # ISF in the store. Nothing automated should land here -- CI runs this suite
+    # as the flake's `checks.<system>.unit-tests`, which passes the exact path in
+    # via PENGUIN_TEST_IGLOO_KO_ISF (branch 1) from the igloo-driver flake input,
+    # so it never downloads and never searches.
     #
-    # Do NOT walk the store recursively (`/nix/store/**` with recursive=True):
-    # that is pathological. It ran >8 minutes without finishing on a 19k-path
-    # dev store, and CI runners share a persistent ~150k-path host store, where
-    # it wedged this "runs in seconds" job for hours on an ISF cache miss. This
-    # fallback is only reached when the download above fails, so it must be
-    # cheap: these patterns match in ~0.05s.
+    # Kept because a bare `pytest` on a dev box with no network would otherwise
+    # skip the ISF-backed tests when the answer is sitting in the store.
+    #
+    # Do NOT make this a recursive walk (`/nix/store/**`, recursive=True): that
+    # is pathological, not merely slow -- >8 minutes without finishing on a
+    # 19k-path store, and the CI runners share a ~150k-path one, where it hung
+    # this job for 4.5 hours. Every pattern below is depth-bounded (~0.05s).
     import glob
     patterns = [
+        # An igloo-static tree (what the image stages).
         f"/nix/store/*/igloo_static/kernels/{_ISF_KVER}/igloo.ko.{arch}.json.xz",
+        # The extracted igloo_driver.tar.gz flake input: the fetcher strips the
+        # single top-level dir, so the kernel version is the first component.
+        f"/nix/store/*/{_ISF_KVER}/igloo.ko.{arch}.json.xz",
         f"/nix/store/*/kernels/{_ISF_KVER}/igloo.ko.{arch}.json.xz",
         # Any kernel version, in case the pinned one is not the one on disk.
         f"/nix/store/*/igloo_static/kernels/*/igloo.ko.{arch}.json.xz",

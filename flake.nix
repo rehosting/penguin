@@ -350,6 +350,19 @@
           # API-mode env modules (_penguin_qemu_env_*.so import _cffi_backend).
           pythonEnv = py.withPackages (_ps: penguinRuntimeDeps ++ [ penguin ]);
 
+          # The same interpreter plus the test runner, for checks.unit-tests.
+          # src/pyproject.toml's [test] extra is penguinRuntimeDeps + pytest, so
+          # reuse the runtime list instead of restating it.
+          testPythonEnv = py.withPackages (
+            ps:
+            penguinRuntimeDeps
+            ++ [ penguin ]
+            ++ (with ps; [
+              pytest
+              pytest-asyncio
+            ])
+          );
+
           # The docs toolchain (pyplugins/docgen/doc_generator.py imports sphinx
           # in-process and shells out to sphinx-apidoc + pdflatex). The docs
           # image is the runtime image plus these sphinx packages in the *same*
@@ -431,7 +444,7 @@
           };
         in
         {
-          inherit pythonEnv penguinQemu iglooStatic muslHeaders nativeHelpersTree penguin pengutils vhostDeviceVsock dockerImage dockerImageStream dockerImageStreamHashed docsImage;
+          inherit pythonEnv testPythonEnv penguinQemu iglooStatic muslHeaders nativeHelpersTree penguin pengutils vhostDeviceVsock dockerImage dockerImageStream dockerImageStreamHashed docsImage;
           nativeHelper-x86_64 = nativeHelpers.x86_64;
           default = pythonEnv;
         }
@@ -447,6 +460,54 @@
       # The shellHook re-prepends the interpreter to PATH *after* rc files run,
       # so it wins against a pyenv `init` that re-prepends ~/.pyenv/shims on
       # shell startup (otherwise the shim shadows this python3).
+      # `nix flake check` -> run the host-side test suite reproducibly, in the
+      # sandbox, on the same interpreter the image ships (3.13).
+      #
+      # The enum-boundary tests need a real igloo.ko ISF. It comes from the
+      # igloo-driver *flake input* -- the exact release the image stages -- so
+      # the suite neither downloads it at test time nor searches the store for
+      # it. That is what lets this run as a pure derivation at all.
+      checks = forAllSystems (
+        system:
+        let
+          pkgs = pkgsFor system;
+          inherit (self.packages.${system}) testPythonEnv;
+          # Layout inside the extracted igloo_driver.tar.gz: <kver>/igloo.ko.<arch>.json.xz
+          # (the tarball's single top-level dir is stripped by the nix fetcher).
+          # Keep the kver/arch in sync with _ISF_KVER/_ISF_ARCH in
+          # src/penguin/testing/harness.py.
+          iglooKoIsf = "${igloo-driver}/6.13/igloo.ko.armel.json.xz";
+          # conftest.py puts the repo root on sys.path so tests can
+          # `import pyplugins.<...>`; pyplugins/ is deliberately not packaged.
+          testTree = pkgs.lib.fileset.toSource {
+            root = ./.;
+            fileset = pkgs.lib.fileset.unions [
+              ./tests/unit
+              ./pengutils
+              ./pyplugins
+            ];
+          };
+        in
+        {
+          unit-tests = pkgs.runCommand "penguin-unit-tests"
+            {
+              nativeBuildInputs = [ testPythonEnv ];
+              PENGUIN_TEST_IGLOO_KO_ISF = iglooKoIsf;
+            }
+            ''
+              cp -r ${testTree}/. .
+              chmod -R u+w .
+              # Fail loudly rather than silently skipping the ISF-backed tests:
+              # the whole point of wiring the flake input in is that they run.
+              test -f "$PENGUIN_TEST_IGLOO_KO_ISF" \
+                || { echo "ISF missing: $PENGUIN_TEST_IGLOO_KO_ISF" >&2; exit 1; }
+              mkdir -p "$out"
+              python3 -m pytest tests/unit pengutils -q \
+                --junitxml="$out/unit-test-results.xml"
+            '';
+        }
+      );
+
       # `nix run` -> build the penguin image and load it into the local
       # docker/podman daemon, tagged by the nix build (see
       # dockerImageStreamHashed). Streams the image straight into `<engine>
