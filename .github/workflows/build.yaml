@@ -122,48 +122,39 @@ jobs:
           # branch drift under the PR and skews tests vs. image: exactly the
           # netdev-contract mismatch that silently reddened this branch when
           # main changed pyplugins/apis/net.py (ac2d5735).
-      - name: Set up Python
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.10.12"
-      # Editable install of the two modules we own, with their [test] extras.
-      # The extras pull the package's runtime deps (pydantic, coloredlogs,
-      # pyelftools, ...) plus pytest. No emulator, no guest image, no Docker —
-      # the suite runs entirely host-side. See tests/unit/README.
-      - name: Install penguin + pengutils (editable, with test extras)
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: pip install -e "src[test]" -e "pengutils[test]"
-      # Cache the igloo.ko ISF the enum-boundary tests pull for the pinned
-      # igloo_driver release (parsed from the flake.nix igloo-driver input).
+      # Run the suite as the flake's `checks.<system>.unit-tests` derivation
+      # instead of pip-installing and invoking pytest here.
       #
-      # Key on the *driver version*, not hashFiles('flake.nix'): the ISF only
-      # changes when the igloo-driver pin does, but a flake.nix hash key misses
-      # on any unrelated edit (a fw2tar bump, a comment) and forces a re-pull.
-      # That matters because the pull is the slow path -- when it fails, the
-      # harness falls back to scanning the nix store.
-      - name: Resolve pinned igloo_driver version
-        id: isf_pin
+      # This is what lets the ISF the enum-boundary tests need come from the
+      # igloo-driver *flake input* -- the same release the image stages. The old
+      # lane downloaded it at test time and, when that failed, the harness fell
+      # back to scanning /nix/store, which wedged this job for 4.5 hours on the
+      # runners' ~150k-path shared store. No download, no Actions cache, no
+      # version parsing, no store search: the path is a build input.
+      #
+      # It also runs the tests on the interpreter the image actually ships
+      # (3.13) rather than 3.10, so a passing suite means more.
+      - name: Set up Nix
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: |
-          v=$(sed -n 's|.*igloo_driver/releases/download/v\([^/]*\)/.*|\1|p' flake.nix | head -1)
-          [ -n "$v" ] || { echo "could not parse the igloo-driver pin from flake.nix" >&2; exit 1; }
-          echo "v=$v" >> "$GITHUB_OUTPUT"
-      - name: Cache driver ISF
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: actions/cache@v4
+        uses: rehosting/ci/actions/nix-setup@v1
         with:
-          path: tests/unit/.isf_cache
-          key: igloo-ko-isf-v${{ steps.isf_pin.outputs.v }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache-backend: cachix
+          cachix-name: rehosting-tools
+          cachix-auth-token: ${{ secrets.CACHIX_REHOSTING }}
+          # Same Nix pin as build_container: install-nix-action's default (2.22.1)
+          # computes different tarball-input narHashes and rejects our lock.
+          install-url: https://releases.nixos.org/nix/nix-2.31.2/install
+          # Arc pods expose /dev/kvm without a working udevd; these tests need no VM.
+          enable-kvm: false
+          extra-nix-config: |
+            max-jobs = 4
+            cores = 4
       - name: Run host-side unit tests
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        env:
-          # Point the harness's ISF download at the cached path above (its default
-          # is inside the package tree, which the cache step does not save).
-          PENGUIN_TEST_ISF_CACHE: tests/unit/.isf_cache
         run: |
-          python3 -m pytest tests/unit/ pengutils/ \
-            --junitxml=unit-test-results.xml -q
+          nix build .#checks.x86_64-linux.unit-tests -L --out-link result-unit-tests
+          cp result-unit-tests/unit-test-results.xml unit-test-results.xml
       - name: Unit test report
         uses: dorny/test-reporter@v2.1.1
         if: ${{ needs.changes.outputs.run_tests == 'true' && ((success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository) }}
