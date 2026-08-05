@@ -33,7 +33,6 @@
       },
       "original": {
         "owner": "rehosting",
-        "ref": "v0.0.22",
         "repo": "busybox",
         "type": "github"
       }
@@ -54,7 +53,6 @@
       },
       "original": {
         "owner": "rehosting",
-        "ref": "v1.0.10",
         "repo": "console",
         "type": "github"
       }
@@ -108,7 +106,6 @@
       },
       "original": {
         "owner": "rehosting",
-        "ref": "v2.0.24",
         "repo": "fw2tar",
         "type": "github"
       }
@@ -129,7 +126,6 @@
       },
       "original": {
         "owner": "rehosting",
-        "ref": "v1.0.24",
         "repo": "guesthopper",
         "type": "github"
       }
@@ -189,7 +185,6 @@
       },
       "original": {
         "owner": "rehosting",
-        "ref": "v0.0.26",
         "repo": "libnvram",
         "type": "github"
       }
@@ -252,7 +247,6 @@
       },
       "original": {
         "owner": "rehosting",
-        "ref": "v0.0.15",
         "repo": "qemu",
         "type": "github"
       }
@@ -360,7 +354,6 @@
       },
       "original": {
         "owner": "rehosting",
-        "ref": "v1.0.32",
         "repo": "vpnguin",
         "type": "github"
       }
