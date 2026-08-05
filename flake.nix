@@ -179,9 +179,10 @@
           # down only if a dep refuses to build.
           py = pkgs.python3;
 
-          # The three core deps not packaged in nixpkgs.
+          # The two core deps not packaged in nixpkgs. (junit-xml IS in nixpkgs,
+          # at the same 1.9 we need, so it comes from py.pkgs below rather than
+          # a local derivation.)
           pydantic-partial = py.pkgs.callPackage ./nix/pydantic-partial.nix { };
-          junit-xml = py.pkgs.callPackage ./nix/junit-xml.nix { };
           dwarffi = py.pkgs.callPackage ./nix/dwarffi.nix { };
 
           # Penguin's own packages (Dockerfile: pip install -e /pengutils, /pkg).
@@ -244,7 +245,7 @@
           ++ py.pkgs.ratarmountcore.optional-dependencies.full
           ++ [
             pydantic-partial
-            junit-xml
+            py.pkgs.junit-xml
             dwarffi
             pengutils
           ];
