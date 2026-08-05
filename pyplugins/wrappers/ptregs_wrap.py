@@ -1530,6 +1530,11 @@ _WRAPPER_CACHE = {
     "mips64el": Mips64PtRegsWrapper,
     "ppc": PowerPCPtRegsWrapper,
     "ppc64": PowerPC64PtRegsWrapper,
+    # ppc64 pt_regs layout is endianness-independent (same GPR arg registers),
+    # so little-endian ppc64 reuses the same wrapper. Without this key the
+    # factory falls back to the base PtRegsWrapper and syscall/arg extraction
+    # returns None (breaks kffi/portal callbacks on powerpc64le).
+    "ppc64le": PowerPC64PtRegsWrapper,
     "loongarch64": LoongArch64PtRegsWrapper,
     "riscv32": Riscv32PtRegsWrapper,
     "riscv64": Riscv64PtRegsWrapper,

@@ -1,0 +1,503 @@
+# The penguin runtime image (rehosting/penguin), mirroring the Dockerfile's
+# final `penguin` stage.
+#
+# Unlike the sealed fw2tar/penguin-tools images (built from `scratch`), penguin
+# is an interactive analysis tool: it runs guest firmware, shells out
+# constantly, compiles init.d dropins at runtime, and users exec into it and
+# expect a normal userland (+ apt). So this image is layered on top of the same
+# ubuntu:22.04 base the Dockerfile used (dockerTools.buildLayeredImage with
+# `fromImage`), with all the heavy components (python env, the qemu fork,
+# /igloo_static, the extraction stack, clang) supplied by Nix on top. The
+# Ubuntu base provides the FHS glibc userland, coreutils, and apt; the Nix
+# layers provide everything the Dockerfile previously apt-installed or built.
+#
+# The firmware-extraction stack (fw2tar, unblob, binwalk, the extractor
+# backends) is kept co-located per project decision and sourced from fw2tar's
+# already-nixified `extractionBundle` (a cross-flake input) rather than
+# re-derived here.
+{
+  pkgs,
+  pythonEnv, # includes penguin + pengutils + all runtime deps
+  iglooStatic, # $out/igloo_static
+  penguinQemu, # $out/usr/local (qemu fork)
+  vhostDeviceVsock,
+  extractionBundle, # fw2tar.extractionBundle: fw2tar/unblob/binwalk + backends
+  pypluginsSrc, # the pyplugins/ tree
+  docsSrc, # the docs/ tree
+  wrapperSrc, # the host ./penguin wrapper script
+  resourcesSrc, # src/resources (banner.sh, penguin_install[.local])
+  tag ? "latest", # image tag (docsImage overrides to "docs")
+  extraContents ? [ ], # extra packages to union into the root (docsImage adds texlive)
+  # When true, build with dockerTools.streamLayeredImage instead of
+  # buildLayeredImage: the result is an executable that writes the image tarball
+  # to stdout on demand (pipe to `docker load` or a registry push) rather than
+  # realising the full .tar.gz in the Nix store. Identical layer structure; just
+  # avoids materialising the tarball -- useful for CI push. Local `docker load`
+  # keeps using the non-streaming output.
+  stream ? false,
+}:
+
+let
+  lib = pkgs.lib;
+
+  # The ubuntu:22.04 base layer (same base the Dockerfile used). Pinned by
+  # digest so the build is reproducible; refresh both fields together with
+  # `nix run nixpkgs#nix-prefetch-docker -- --image-name ubuntu --image-tag 22.04`.
+  ubuntuBase = pkgs.dockerTools.pullImage {
+    imageName = "ubuntu";
+    imageDigest = "sha256:4f838adc7181d9039ac795a7d0aba05a9bd9ecd480d294483169c5def983b64d";
+    hash = "sha256-L5hEr4S/AnNswxQc0dqDf85QZtEvQtVfes4r9n4q6mc=";
+    finalImageName = "ubuntu";
+    finalImageTag = "22.04";
+  };
+
+  # Inventory of Ubuntu's usr/bin + usr/sbin, read straight out of the pinned
+  # base image at build time. Consumed by the usrmerge restoration in
+  # extraCommands below -- see that comment for why it is needed.
+  ubuntuUsrInventory =
+    pkgs.runCommand "ubuntu-usr-inventory" { nativeBuildInputs = [ pkgs.gnutar ]; }
+      ''
+        for member in $(tar -tf ${ubuntuBase} \
+                          | grep -E '(^|/)layer\.tar$|^[0-9a-f]{64}\.tar$'); do
+          tar -xOf ${ubuntuBase} "$member" | tar -tf - 2>/dev/null || true
+        done \
+          | sed -n -E -e 's|^\.?/?usr/bin/([^/]+)$|bin \1|p' \
+                      -e 's|^\.?/?usr/sbin/([^/]+)$|sbin \1|p' \
+          | sort -u > "$out"
+        if [ ! -s "$out" ]; then
+          echo "error: read no usr/bin or usr/sbin entries from the ubuntu base" >&2
+          echo "       image; its tar layout may have changed." >&2
+          exit 1
+        fi
+      '';
+
+  # clang-20 / ld.lld: penguin's dropin_compile.py invokes `clang-20
+  # -fuse-ld=lld` as a *cross* compiler (`--target=<arch>-linux-musl...
+  # --sysroot=/igloo_static/sysroots/<arch>`) for every guest arch. It must be
+  # the UNWRAPPED clang: nixpkgs' cc-wrapper'd clang force-injects the host
+  # glibc dev include/lib paths (-idirafter .../glibc-*-dev/include), which
+  # shadow the musl sysroot headers and make `#include <fcntl.h>` pull host
+  # glibc -> `gnu/stubs-32.h not found`. clang-unwrapped honors --target/
+  # --sysroot like a plain cross clang.
+  llvm = pkgs.llvmPackages_20;
+
+  # Slim runtime toolchain. Referencing clang-unwrapped/lld directly drags
+  # ~1.7 GiB into the image closure (clang-lib + llvm-lib are mostly static
+  # .a archives; the wrapped clang additionally pulls the full host gcc), but
+  # the four clang-20 call sites (dropin_compile.py, penguin_prep.py,
+  # nvram2.py, kffi.py) only need the driver, ld.lld, the two shared libs
+  # they link, and the builtin-header resource dir (~300 MiB). Copy exactly
+  # those and patchelf the RUNPATHs -- a copy alone is not enough, since the
+  # embedded RUNPATH strings would still be scanned as closure references to
+  # the fat lib outputs. Small support libs (glibc, libstdc++, zlib, libxml2,
+  # libffi) stay as normal store references. clang resolves its resource dir
+  # relative to the driver's realpath (bin/.. -> lib/clang/<major>), so
+  # co-locating driver and lib/clang in one output keeps -print-resource-dir
+  # correct; -fuse-ld=lld likewise finds ld.lld next to the driver.
+  clang20SlimDeps = [
+    pkgs.glibc
+    pkgs.stdenv.cc.cc.lib # libstdc++ / libgcc_s
+    pkgs.zlib
+    pkgs.libxml2
+    pkgs.libffi
+  ];
+  clang20Slim =
+    pkgs.runCommand "clang-20-slim"
+      {
+        nativeBuildInputs = [
+          pkgs.patchelf
+          pkgs.nukeReferences
+        ];
+        supportRpath = lib.makeLibraryPath clang20SlimDeps;
+      }
+      ''
+        mkdir -p "$out/bin" "$out/lib"
+
+        cp ${llvm.clang-unwrapped}/bin/clang-20 "$out/bin/clang-20"
+        cp ${llvm.lld}/bin/lld "$out/bin/lld"
+        ln -s lld "$out/bin/ld.lld"
+
+        cp ${llvm.clang-unwrapped.lib}/lib/libclang-cpp.so.* "$out/lib/"
+        cp ${llvm.libllvm.lib}/lib/libLLVM.so.*.* "$out/lib/"
+        cp -r ${llvm.clang-unwrapped.lib}/lib/clang "$out/lib/clang"
+
+        chmod -R u+w "$out"
+        for f in "$out/bin/clang-20" "$out/bin/lld" "$out"/lib/*.so.*; do
+          patchelf --set-rpath "$out/lib:$supportRpath" "$f"
+        done
+
+        # patchelf handles the RUNPATHs, but libclang-cpp additionally embeds
+        # the original llvm-lib path as plain data strings (compile-time LLVM
+        # prefix constants; never consulted by our -nostdlib --sysroot call
+        # sites). The reference scanner would re-drag the 550 MiB llvm-lib
+        # into the closure over them, so nuke every store ref that isn't a
+        # real runtime dep. The sanity checks below run *after* this.
+        nuke-refs -e "$out" ${
+          # getLib, to match makeLibraryPath above: for multi-output packages
+          # (libxml2's default output is `bin`) the plain outPath is NOT the
+          # one in the RUNPATH, and nuke-refs would clobber the entry.
+          lib.concatMapStringsSep " " (p: "-e ${lib.getLib p}") clang20SlimDeps
+        } \
+          "$out/bin/clang-20" "$out/bin/lld" "$out"/lib/*.so.*
+
+        # Sanity: the driver runs against the copied libs and resolves its
+        # resource dir inside this output (i.e. no fallback to clang-lib).
+        "$out/bin/clang-20" --version > /dev/null
+        rdir=$("$out/bin/clang-20" -print-resource-dir)
+        case "$rdir" in
+          "$out"/lib/clang/*) ;;
+          *) echo "resource dir escaped the slim output: $rdir" >&2; exit 1 ;;
+        esac
+      '';
+
+  # Overlay package: everything that must live at a specific absolute path
+  # (/usr/local/..., /pyplugins, /docs, /etc). penguinQemu also populates
+  # /usr/local, so these can't be created by extraCommands on top of the
+  # read-only merged content tree -- they must be a *content* themselves, so
+  # buildEnv unions them with qemu's /usr/local. Symlink targets are store-
+  # absolute (the store is in the image), matching how penguin resolves them.
+  overlay = pkgs.runCommand "penguin-overlay" { } ''
+    mkdir -p "$out/usr/local/bin" "$out/usr/local/src" "$out/etc"
+
+    # Restore the route to Ubuntu's shared libraries.
+    #
+    # ubuntu:22.04 is usrmerged: /lib is a *symlink* to usr/lib. The Nix contents
+    # provide a real /lib directory, which shadows that symlink -- so
+    # /lib/x86_64-linux-gnu disappears, and with it the ELF interpreter every
+    # Ubuntu binary names in its INTERP header:
+    #   /lib64 -> /usr/lib64/ld-linux-x86-64.so.2
+    #          -> /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2   (dangling)
+    # The effect is drastic and completely silent at build time: 265 of the 292
+    # executables in /usr/bin -- including apt-get and dpkg -- die with
+    # "cannot execute: required file not found".
+    #
+    # That contradicts this file's own header (the Ubuntu base is here to provide
+    # "the FHS glibc userland, coreutils, and apt") and breaks every downstream
+    # image, since the Dockerfiles in rehostings/ and examples/ all begin with
+    #   RUN apt-get update && apt-get install -y wget|curl
+    #
+    # Ubuntu's libraries themselves were never lost -- they are intact at
+    # /usr/lib/x86_64-linux-gnu -- so only the /lib route needs re-pointing. Nix
+    # binaries are unaffected either way: each names its own store-path
+    # interpreter and never resolves through /lib.
+    mkdir -p "$out/lib"
+    ln -s /usr/lib/x86_64-linux-gnu "$out/lib/x86_64-linux-gnu"
+
+    # clang-20: dropin_compile.py invokes it by that exact name (-fuse-ld=lld;
+    # ld.lld sits next to the driver in clang20Slim, also merged onto PATH).
+    ln -s ${clang20Slim}/bin/clang-20 "$out/usr/local/bin/clang-20"
+    # vhost-device-vsock at the Dockerfile path (also on PATH).
+    ln -s ${vhostDeviceVsock}/bin/vhost-device-vsock "$out/usr/local/bin/vhost-device-vsock"
+
+    # rootshell helper (Dockerfile: telnet localhost 4321).
+    printf '%s\n%s\n' '#!/bin/sh' 'telnet localhost 4321' > "$out/usr/local/bin/rootshell"
+    chmod +x "$out/usr/local/bin/rootshell"
+
+    # /usr/local/bin/{penguin,fw2tar} for downstream-image parity. Nix puts both
+    # on PATH via the merged /bin, which is enough to *run* them -- but the
+    # Dockerfile installed them at these exact paths and downstream images
+    # manipulate them there by name, e.g. public_dojo's
+    #   mv /usr/local/bin/fw2tar /usr/local/bin/fw2tar.bin
+    #   mv /usr/local/bin/penguin /usr/local/bin/penguin.orig
+    # which fails outright (not silently) if the path is absent. Anything doing
+    # `FROM rehosting/penguin` is entitled to the layout the tag has always had.
+    ln -s ${pythonEnv}/bin/penguin        "$out/usr/local/bin/penguin"
+    ln -s ${extractionBundle}/bin/fw2tar  "$out/usr/local/bin/fw2tar"
+
+    # TLS trust store. ubuntu:22.04's base image does NOT ship ca-certificates
+    # (the Dockerfile apt-installed it), and nothing in the Nix contents provided
+    # it either, so *every* HTTPS operation in the image failed with
+    # CERTIFICATE_VERIFY_FAILED: `wget -O /input_file $DOWNLOAD_URL` in every
+    # rehostings/examples Dockerfile, public_dojo's busybox fetch, and any plugin
+    # using requests/urllib. It stayed hidden because fetch_web passes
+    # --no-check-certificate and the corpus downloads firmware in its *fw2tar*
+    # stage, so the green corpus run never touched this path.
+    #
+    # pkgs.cacert (in `contents`) installs etc/ssl/certs/ca-bundle.crt; add the
+    # Debian/Ubuntu-conventional ca-certificates.crt name too, since that is the
+    # path the Docker image had and what non-Nix tooling looks for by default.
+    mkdir -p "$out/etc/ssl/certs"
+    ln -s ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt \
+          "$out/etc/ssl/certs/ca-certificates.crt"
+
+    # Host-facing wrapper + install helpers (users copy these out to the host).
+    cp ${wrapperSrc}                          "$out/usr/local/src/penguin_wrapper"
+    cp ${resourcesSrc}/banner.sh              "$out/usr/local/bin/banner.sh"
+    cp ${resourcesSrc}/penguin_install        "$out/usr/local/bin/penguin_install"
+    cp ${resourcesSrc}/penguin_install.local  "$out/usr/local/bin/penguin_install.local"
+    chmod +x "$out/usr/local/bin/banner.sh" "$out/usr/local/bin/penguin_install" "$out/usr/local/bin/penguin_install.local"
+
+    # penguin source trees penguin discovers at runtime.
+    mkdir -p "$out/pyplugins" "$out/docs"
+    cp -a ${pypluginsSrc}/. "$out/pyplugins/"
+    cp -a ${docsSrc}/.      "$out/docs/"
+
+    # Banner on interactive shells (Dockerfile parity).
+    printf '%s\n' '[ ! -z "$TERM" ] && [ -z "$NOBANNER" ] && /usr/local/bin/banner.sh' > "$out/etc/bash.bashrc"
+
+    # Penguin's resources at a STABLE absolute path. config_patchers.RESOURCES
+    # bakes paths like RESOURCES/source.d/* into a project's generated config,
+    # so it must not be a content-hashed /nix/store env path (which changes per
+    # rebuild and breaks saved configs). Pin it to /pkg/resources via
+    # PENGUIN_RESOURCES (Env, below) -- matching the legacy editable-install
+    # location, so configs generated by the old Docker image keep working too.
+    mkdir -p "$out/pkg"
+    cp -a ${resourcesSrc} "$out/pkg/resources"
+  '';
+
+  contents = [
+    overlay
+    pythonEnv
+    iglooStatic
+    penguinQemu
+    vhostDeviceVsock
+    extractionBundle
+    clang20Slim
+    # gen_image.py runs `mke2fs -t ext4 -d <tarball>` to build+populate the
+    # guest ext4 image directly from the rootfs tarball. nixpkgs e2fsprogs
+    # (1.47.3) is already built --with-libarchive, so this needs no custom build
+    # (the Dockerfile's e2fsprogs_builder stage is obsolete). qemu-img comes from
+    # penguinQemu.
+    pkgs.e2fsprogs
+    pkgs.bashInteractive
+    pkgs.coreutils
+    pkgs.findutils
+    pkgs.gnugrep
+    pkgs.gnused
+    pkgs.gawk
+    pkgs.gnutar
+    pkgs.gzip
+    pkgs.which
+    # wget is REQUIRED, not a convenience: pyplugins/actuation/fetch_web.py
+    # shells out to `wget` to fetch each bridged guest web endpoint and write
+    # results/<n>/web_<ip>_<port>. Without it the plugin writes nothing, so any
+    # target asserting on that file (rehostings' wget_succeeds / httpd_reachable)
+    # fails while every bind/port test still passes -- a silent, confusing
+    # failure mode. The Dockerfile got wget via apt; ubuntu:22.04's base does
+    # not ship it, so the flake must add it explicitly. Found by running the
+    # real-firmware corpus against the Nix image (four targets with web UIs);
+    # penguin's own test suites never exercise fetch_web, so CI was green.
+    pkgs.wget
+    # curl: no penguin code path shells out to it, but the Docker image had it
+    # and users exec into this image expecting a normal userland. Cheap parity.
+    pkgs.curl
+    # make: penguin's own code never invokes it, but consumers of this image
+    # compile inside it. public_dojo's constructed challenges run
+    # `make CC=arm-linux-musleabi-gcc` in their .init, and because that .init
+    # redirects stderr and has no `set -e`, a missing make exits 0 and the
+    # failure only surfaces later as a missing *.rootfs.tar.gz -- 5 of 13
+    # challenges broke this way. The Dockerfile had make via apt.
+    pkgs.gnumake
+    pkgs.binutils # nm / readelf (symbols.py via shutil.which)
+    pkgs.graphviz # dot (graph rendering)
+    pkgs.fakeroot
+    pkgs.pigz
+    pkgs.nmap
+    pkgs.glow
+    pkgs.gum
+    pkgs.ripgrep
+    pkgs.vim
+    pkgs.inetutils # telnet (rootshell helper)
+    pkgs.sudo
+    # CA bundle at /etc/ssl/certs/ca-bundle.crt (+ the ca-certificates.crt alias
+    # in `overlay`). Required for any HTTPS fetch -- see the overlay comment.
+    pkgs.cacert
+    # /etc/passwd + /etc/group with a root entry (tools that getpwuid()).
+    pkgs.dockerTools.fakeNss
+  ]
+  ++ extraContents;
+
+  # Only genuinely-new writable dirs no content provides; everything at a fixed
+  # path lives in `overlay` above (so it merges via buildEnv, not on top of the
+  # read-only content tree).
+  extraCommands = ''
+    mkdir -p tmp && chmod 1777 tmp
+    mkdir -p root && chmod 0777 root
+    # qemu writes its `snapshot=on` drive overlay to a temp file under /var/tmp
+    # (qemu's get_tmp_filename), so the image needs a *writable* /var/tmp or the
+    # guest fails to launch: "Could not open temporary file
+    # '/var/tmp/vl.XXXXXX': No such file". fakeNss provides /var/empty, so
+    # buildEnv collapses `var` into a symlink into the read-only store --
+    # mkdir'ing into it fails ("Permission denied"). Replace the symlink with a
+    # real, writable dir; recreate var/empty (fakeNss's nobody home) alongside
+    # the writable tmp. (cp -a from the store would preserve its read-only mode,
+    # so recreate fresh instead.)
+    rm -rf var
+    mkdir -p var/empty var/tmp && chmod 1777 var/tmp
+
+    # Restore usrmerge for the Ubuntu names Nix does not provide.
+    #
+    # ubuntu:22.04 is usrmerged: /bin and /sbin are symlinks to usr/bin and
+    # usr/sbin, so on real Ubuntu every tool is reachable under BOTH spellings.
+    # The Nix contents provide real /bin and /sbin directories, which shadow
+    # those symlinks -- leaving 150 usr/bin and 93 usr/sbin names reachable only
+    # via /usr. They still resolve through PATH, so this is invisible almost
+    # everywhere; it breaks only *absolute* references. dpkg hits exactly that:
+    # Ubuntu's /usr/sbin/ldconfig is a wrapper that execs /sbin/ldconfig.real,
+    # so `apt-get install <anything>` dies in the libc-bin trigger with
+    #   /usr/sbin/ldconfig: line 16: /sbin/ldconfig.real: No such file
+    #   dpkg: error processing package libc-bin (--configure)
+    # and a non-zero exit fails the `RUN` in every downstream Dockerfile.
+    #
+    # Symlinking just ldconfig.real would be whack-a-mole (the same trap that
+    # produced the missing wget and CA bundle), so restore the whole mapping:
+    # for each Ubuntu usr/{bin,sbin} name with no counterpart already present,
+    # add /<d>/<name> -> /usr/<d>/<name>. Only *absent* names are added, so a
+    # Nix-provided tool is never shadowed by its Ubuntu namesake.
+    for d in bin sbin; do
+      # buildEnv may have collapsed the dir into a store symlink (read-only);
+      # materialise it before adding entries, as done for var above.
+      if [ -L "$d" ]; then
+        _t=$(readlink -f "$d")
+        rm "$d" && mkdir "$d" && cp -a "$_t"/. "$d"/
+      fi
+      mkdir -p "$d" && chmod u+w "$d"
+    done
+    while read -r _d _n; do
+      [ -e "$_d/$_n" ] || [ -L "$_d/$_n" ] || ln -s "/usr/$_d/$_n" "$_d/$_n"
+    done < ${ubuntuUsrInventory}
+  '';
+
+  config = {
+    Cmd = [ "/usr/local/bin/banner.sh" ];
+    Env = [
+      # Nix-provided tools live under /usr/local/bin and the merged /bin; the
+      # ubuntu base's userland (apt, dpkg, etc.) is in /usr/bin and /sbin.
+      "PATH=/usr/local/bin:/bin:/usr/bin:/sbin:/usr/sbin"
+      "HOME=/root"
+      "TMPDIR=/tmp"
+      "TZ=America/New_York"
+      "LC_ALL=C.UTF-8"
+      "LANG=C.UTF-8"
+      "PIP_ROOT_USER_ACTION=ignore"
+      # Point both the generic and Nix-specific vars at the bundle from
+      # pkgs.cacert. OpenSSL/curl/wget/python honour SSL_CERT_FILE; Nix-built
+      # binaries that were patched for it honour NIX_SSL_CERT_FILE. Without
+      # these, tools fall back to compiled-in store paths that aren't the
+      # image's bundle.
+      "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
+      "NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
+      # qemu fork ships shared libs under /usr/local/lib.
+      "LD_LIBRARY_PATH=/usr/local/lib"
+      # Stable resources path baked into generated configs (see the
+      # /pkg/resources staging in extraCommands / overlay above).
+      "PENGUIN_RESOURCES=/pkg/resources"
+    ];
+  };
+  # Pre-merge all contents into one root. With this many packages, several
+  # provide /sbin (some as a dir, some as a symlink), which buildLayeredImage's
+  # per-path merge rejects ("sbin: File exists"). buildEnv with ignoreCollisions
+  # resolves it into a single conflict-free tree.
+  rootEnv = pkgs.buildEnv {
+    name = "penguin-root";
+    ignoreCollisions = true;
+    paths = contents;
+  };
+
+  # Build-time guard for host tools penguin *shells out to* at runtime.
+  #
+  # These are invoked by name via subprocess/shutil.which, so a missing one is
+  # invisible to `nix build`, invisible to import checks, and (for the analysis
+  # plugins) invisible to penguin's own test suites -- it surfaces only as a
+  # confusing behavioural failure on real firmware. That is exactly how the
+  # missing `wget` reached the rehostings corpus: fetch_web silently wrote no
+  # web_<ip>_<port> file, so wget_succeeds/httpd_reachable failed on four
+  # targets while every bind test passed and the VPN bridges came up fine.
+  #
+  # The Dockerfile got these from apt; ubuntu:22.04's base ships almost none of
+  # them, so the flake must supply each one. Assert presence here so dropping a
+  # package from `contents` fails the build instead of a firmware run.
+  requiredHostTools = [
+    "wget" # pyplugins/actuation/fetch_web.py
+    "mke2fs" # gen_image.py (ext4 build from the rootfs tarball)
+    "qemu-img" # penguinQemu; drive image conversion
+    "nm" # symbols.py
+    "readelf" # ELF inspection in symbols/arch detection
+    "dot" # graph rendering
+    "fakeroot" # extraction / image staging
+    "telnet" # rootshell helper
+  ]
+  # Tools invoked by *downstream* images (`FROM rehosting/penguin`) rather than by
+  # penguin's own code, so no penguin test can catch their absence. Derived from
+  # the Dockerfiles in rehostings/, examples/ and public_dojo/, which run e.g.
+  # `fakeroot fw2tar /input_file`, `fakeroot sh -c 'unblob -k /input_file'` and
+  # `penguin init`. Dropping any of these silently breaks every consumer of the
+  # published tag.
+  ++ [
+    "penguin"
+    "fw2tar"
+    "unblob"
+    "binwalk"
+    "sasquatch"
+    "jefferson"
+    "tar"
+    "cpio"
+    "unsquashfs"
+    "7z"
+    "make" # public_dojo's constructed challenges compile in-image
+  ];
+
+  # Non-executable files the image must also carry. Same rationale as the tool
+  # list: absence is invisible until a real run fails confusingly.
+  requiredFiles = [
+    # TLS trust store -- without it every HTTPS fetch fails (see `overlay`).
+    "/etc/ssl/certs/ca-bundle.crt"
+    "/etc/ssl/certs/ca-certificates.crt"
+    # Path-layout parity for downstream images that manipulate these by name.
+    "/usr/local/bin/penguin"
+    "/usr/local/bin/fw2tar"
+    # The route to Ubuntu's loader + libs. Without it the entire Ubuntu userland
+    # (apt, dpkg, ...) is unexecutable -- see the `overlay` comment.
+    "/lib/x86_64-linux-gnu"
+  ];
+  hostToolCheck = pkgs.runCommand "penguin-host-tool-check" { } ''
+    missing=""
+    for b in ${pkgs.lib.concatStringsSep " " requiredHostTools}; do
+      # Check every place the image puts executables on PATH.
+      if [ ! -x "${rootEnv}/bin/$b" ] && [ ! -x "${rootEnv}/usr/local/bin/$b" ]; then
+        missing="$missing $b"
+      fi
+    done
+    if [ -n "$missing" ]; then
+      echo "error: penguin image is missing host tool(s) it shells out to:$missing" >&2
+      echo "       add the providing package to 'contents' in nix/mk-image.nix." >&2
+      exit 1
+    fi
+
+    missingFiles=""
+    for f in ${pkgs.lib.concatStringsSep " " requiredFiles}; do
+      # -e, not -f: these are symlinks into the store, and the CA bundle symlink
+      # resolves only once the image root is assembled -- so test the link's
+      # existence in rootEnv, and separately that it is not dangling *there*.
+      if [ ! -e "${rootEnv}$f" ] && [ ! -L "${rootEnv}$f" ]; then
+        missingFiles="$missingFiles $f"
+      fi
+    done
+    if [ -n "$missingFiles" ]; then
+      echo "error: penguin image is missing required file(s):$missingFiles" >&2
+      echo "       see 'overlay' / 'contents' in nix/mk-image.nix." >&2
+      exit 1
+    fi
+
+    mkdir -p "$out/share/penguin"
+    echo "verified: ${pkgs.lib.concatStringsSep " " (requiredHostTools ++ requiredFiles)}" \
+      > "$out/share/penguin/host-tools-verified"
+  '';
+in
+(if stream then pkgs.dockerTools.streamLayeredImage else pkgs.dockerTools.buildLayeredImage) {
+  name = "rehosting/penguin";
+  inherit tag;
+  # Layer the Nix contents on top of the ubuntu:22.04 base (FHS userland + apt).
+  fromImage = ubuntuBase;
+  # hostToolCheck contributes only a marker file, but including it here makes
+  # the image build *depend* on the assertion above, so a missing host tool
+  # fails `nix build` rather than a firmware run.
+  contents = [ rootEnv hostToolCheck ];
+  # The default cap (100) was being hit exactly, so everything past the 99th
+  # store path got lumped into one ~1.5 GB tail layer -- bad for pull/push
+  # dedup between releases. Docker's hard limit is 127 layers total including
+  # the base image's; 115 leaves headroom while letting the big store paths
+  # (igloo-static, qemu, clang) each keep their own layer.
+  maxLayers = 115;
+  inherit extraCommands config;
+}

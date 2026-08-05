@@ -35,39 +35,40 @@ jobs:
         with:
           use_api: true
 
-  # 2. Build + push the image to Harbor AND Docker Hub via the shared workflow.
-  #    tag-sha tags Harbor :<sha>; extra-tags add the Docker Hub :<sha>/:<version>/
-  #    :latest (dockerhub-token enables the Docker Hub push). cache-*-extra keep
-  #    refreshing the :cache_last_published ref that PR/docs/publish builds read.
-  #    NOTE: the cache refs hardcode the registry host because a reusable-workflow
-  #    `with:` block can't reference `secrets`; publish only runs on the main repo
-  #    (push to main), never forks, so this is safe. Auth still uses the secret.
+  # 2. Build the image from the Nix flake and push to Harbor AND Docker Hub via
+  #    the shared Nix workflow (counterpart of build-and-push.yml; there is no
+  #    Dockerfile). tag-sha tags Harbor :<sha>; extra-tags add the bare-repo
+  #    :<version>/:latest tags, which the dockerhub-token also pushes to Docker
+  #    Hub. The build pulls from (and, on this non-PR push, pushes to) the
+  #    rehosting-tools Cachix cache via nix-setup -- the Nix equivalent of the
+  #    old registry buildx cache.
   build:
     needs: version
-    uses: rehosting/ci/.github/workflows/build-and-push.yml@v1
+    uses: rehosting/ci/.github/workflows/nix-image-push.yml@v1
     with:
       image: rehosting/penguin
+      flake-attr: .#dockerImage
+      cachix-name: rehosting-tools
+      # Match the CI Nix to the one that generated flake.lock (modern Nix);
+      # install-nix-action's default 2.22.1 rejects the lock's tarball narHashes.
+      nix-install-url: https://releases.nixos.org/nix/nix-2.31.2/install
+      enable-kvm: false
+      dockerhub-user: rehosting
       extra-tags: |
         rehosting/penguin:${{ needs.version.outputs.v }}
         rehosting/penguin:latest
-        rehosting/penguin:${{ github.sha }}
-      # APT_MIRROR=MIT temporarily dropped: mirrors.mit.edu fell out of sync on
-      # the jammy security pocket (index advertised libnss3 ...22.04.4 while its
-      # pool only had ...04.3), 404ing apt-get and breaking image builds.
-      # Omitting it falls back to archive.ubuntu.com (Dockerfile default
-      # APT_MIRROR=ubuntu). Restore "APT_MIRROR=MIT" once the mirror is healthy.
-      build-args: |
-        OVERRIDE_VERSION=${{ needs.version.outputs.v }}
-      dockerhub-user: rehosting
-      cache-from-extra: |
-        type=registry,ref=harbor.harbor.svc.cluster.local/rehosting/penguin:cache_last_published,mode=max
-      cache-to-extra: |
-        type=registry,ref=harbor.harbor.svc.cluster.local/rehosting/penguin:cache_last_published,mode=max
+      # Bake the release version into the image (penguin --version). The flake
+      # reads PENGUIN_OVERRIDE_VERSION via builtins.getEnv, which requires
+      # --impure; without it normal builds derive a git-based version.
+      extra-build-args: --impure
+      build-env: |
+        PENGUIN_OVERRIDE_VERSION=${{ needs.version.outputs.v }}
     secrets:
       registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
       registry-user: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
       registry-password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
       dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+      cachix-auth-token: ${{ secrets.CACHIX_REHOSTING }}
 
   # 3. Config schema + GitHub release (after the image exists). Docs/PDF/Pages
   #    are built out-of-band by docs.yaml, which runs via `workflow_run` after

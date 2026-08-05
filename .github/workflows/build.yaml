@@ -116,37 +116,45 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
-      - name: Set up Python
+          # No explicit ref: on PR events the default is the MERGE commit
+          # (refs/pull/N/merge) — the same tree the image is built and tagged
+          # from (github.sha). Checking out the head sha instead lets the base
+          # branch drift under the PR and skews tests vs. image: exactly the
+          # netdev-contract mismatch that silently reddened this branch when
+          # main changed pyplugins/apis/net.py (ac2d5735).
+      # Run the suite as the flake's `checks.<system>.unit-tests` derivation
+      # instead of pip-installing and invoking pytest here.
+      #
+      # This is what lets the ISF the enum-boundary tests need come from the
+      # igloo-driver *flake input* -- the same release the image stages. The old
+      # lane downloaded it at test time and, when that failed, the harness fell
+      # back to scanning /nix/store, which wedged this job for 4.5 hours on the
+      # runners' ~150k-path shared store. No download, no Actions cache, no
+      # version parsing, no store search: the path is a build input.
+      #
+      # It also runs the tests on the interpreter the image actually ships
+      # (3.13) rather than 3.10, so a passing suite means more.
+      - name: Set up Nix
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: actions/setup-python@v6
+        uses: rehosting/ci/actions/nix-setup@v1
         with:
-          python-version: "3.10.12"
-      # Editable install of the two modules we own, with their [test] extras.
-      # The extras pull the package's runtime deps (pydantic, coloredlogs,
-      # pyelftools, ...) plus pytest. No emulator, no guest image, no Docker —
-      # the suite runs entirely host-side. See tests/unit/README.
-      - name: Install penguin + pengutils (editable, with test extras)
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: pip install -e "src[test]" -e "pengutils[test]"
-      # Cache the igloo.ko ISF the enum-boundary tests pull for the pinned
-      # IGLOO_DRIVER_VERSION (parsed from the Dockerfile). Keyed on the Dockerfile
-      # so bumping the pin re-pulls; otherwise conftest downloads it once.
-      - name: Cache driver ISF
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: actions/cache@v4
-        with:
-          path: tests/unit/.isf_cache
-          key: igloo-ko-isf-${{ hashFiles('Dockerfile') }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache-backend: cachix
+          cachix-name: rehosting-tools
+          cachix-auth-token: ${{ secrets.CACHIX_REHOSTING }}
+          # Same Nix pin as build_container: install-nix-action's default (2.22.1)
+          # computes different tarball-input narHashes and rejects our lock.
+          install-url: https://releases.nixos.org/nix/nix-2.31.2/install
+          # Arc pods expose /dev/kvm without a working udevd; these tests need no VM.
+          enable-kvm: false
+          extra-nix-config: |
+            max-jobs = 4
+            cores = 4
       - name: Run host-side unit tests
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        env:
-          # Point the harness's ISF download at the cached path above (its default
-          # is inside the package tree, which the cache step does not save).
-          PENGUIN_TEST_ISF_CACHE: tests/unit/.isf_cache
         run: |
-          python3 -m pytest tests/unit/ pengutils/ \
-            --junitxml=unit-test-results.xml -q
+          nix build .#checks.x86_64-linux.unit-tests -L --out-link result-unit-tests
+          cp result-unit-tests/unit-test-results.xml unit-test-results.xml
       - name: Unit test report
         uses: dorny/test-reporter@v2.1.1
         if: ${{ needs.changes.outputs.run_tests == 'true' && ((success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository) }}
@@ -155,58 +163,70 @@ jobs:
           path: unit-test-results.xml
           reporter: java-junit
 
-  build_container:
-    runs-on: rehosting-arc
-    needs: [changes, lint]
-    # Job-level gate: don't build/push the image on docs-only PRs. lint stays
-    # ungated (this job needs it), so skipping here never cascade-skips via lint.
-    if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
+  # Compute a setuptools_scm-style version from git tags (a pure Nix flake can't
+  # read tags -- only self.rev), injected into the image build via
+  # PENGUIN_OVERRIDE_VERSION so `penguin --version` is correct.
+  version:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    needs: changes
+    outputs:
+      v: ${{ steps.v.outputs.v }}
     steps:
-      - name: Checkout code
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      # Harbor cert trust + insecure buildx + registry login, all via the
-      # shared org action instead of three hand-rolled steps (which drifted out
-      # of sync with arc-registry-setup and, notably, missed the buildkit pin —
-      # so this job broke on the buildx-stable-1 -> v0.31.2 /proc/acpi break
-      # while the shared action could carry the fix centrally).
-      - name: Set up Arc registry (cert, buildx, login)
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: rehosting/ci/actions/arc-registry-setup@v1
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ env.USER }}
-          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
-          # Explicit pin so this is safe to merge in any order relative to
-          # rehosting/ci#14 (which flips the action's DEFAULT to this same
-          # v0.30.0). Drop this line once that default has shipped via v1.4.0
-          # and the runner kernel is bumped past 5.4 — then this job inherits
-          # the central pin with no local override.
-          buildkit-image: moby/buildkit:v0.30.0
+      - id: v
+        run: |
+          set -euo pipefail
+          describe="$(git describe --tags --long --dirty 2>/dev/null || true)"
+          if [ -z "$describe" ]; then
+            v="0.0.0.dev0"
+          else
+            dirty=""
+            case "$describe" in *-dirty) dirty=".dirty"; describe="${describe%-dirty}";; esac
+            hash="${describe##*-g}"; rest="${describe%-g*}"; dist="${rest##*-}"
+            base="${rest%-*}"; base="${base#v}"
+            if [ "$dist" = "0" ] && [ -z "$dirty" ]; then
+              v="$base"
+            else
+              maj="${base%%.*}"; r="${base#*.}"; min="${r%%.*}"; pat="${base##*.}"
+              v="${maj}.${min}.$((pat + 1)).dev${dist}+g${hash}${dirty}"
+            fi
+          fi
+          echo "Computed version: $v"
+          echo "v=$v" >> "$GITHUB_OUTPUT"
 
-      - name: Build Docker image and push to Docker Hub
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ env.TARGET }}/rehosting/penguin:${{ github.sha }}
-          # APT_MIRROR=MIT temporarily dropped: mirrors.mit.edu fell out of sync
-          # on the jammy security pocket (index advertised libnss3 ...22.04.4
-          # while its pool only had ...04.3), 404ing apt-get and breaking image
-          # builds. Omitting it falls back to archive.ubuntu.com (Dockerfile
-          # default APT_MIRROR=ubuntu). Restore "APT_MIRROR=MIT" once healthy.
-          build-args: |
-            REGISTRY=${{ env.CACHE }}
-          cache-from: |
-            type=registry,ref=${{ env.TARGET }}/rehosting/penguin:cache,mode=max
-            type=registry,ref=${{ env.TARGET }}/rehosting/penguin:cache-PR-${{github.event.number}},mode=max
-            type=registry,ref=${{ env.TARGET }}/rehosting/penguin:cache_last_published,mode=max
-          cache-to: |
-            type=registry,ref=${{ env.TARGET }}/rehosting/penguin:cache,mode=max
-            type=registry,ref=${{ env.TARGET }}/rehosting/penguin:cache-PR-${{ github.event.number }}
+  # Build the penguin image from the Nix flake (flake.nix at the repo root) and
+  # push it to Harbor as :<sha>, via the shared rehosting/ci reusable workflow
+  # (the Nix counterpart of build-and-push.yml). The flake is the sole build
+  # path -- there is no Dockerfile. PR builds pull from the rehosting-tools
+  # Cachix cache (nix-setup skips the push on pull_request).
+  build_container:
+    needs: [changes, lint, version]
+    if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
+    uses: rehosting/ci/.github/workflows/nix-image-push.yml@v1
+    with:
+      image: rehosting/penguin
+      flake-attr: .#dockerImage
+      cachix-name: rehosting-tools
+      # Our flake.lock is generated by modern Nix; install-nix-action's default
+      # (2.22.1) computes different tarball-input narHashes and rejects the lock
+      # ("NAR hash mismatch"). Pin a CI Nix whose hashing matches the lock.
+      nix-install-url: https://releases.nixos.org/nix/nix-2.31.2/install
+      # Self-hosted Arc pods expose /dev/kvm without a working udevd, which
+      # breaks install-nix-action's KVM setup; the image build needs no VM.
+      enable-kvm: false
+      # Inject the computed version (flake reads PENGUIN_OVERRIDE_VERSION via
+      # builtins.getEnv, which needs --impure).
+      extra-build-args: --impure
+      build-env: |
+        PENGUIN_OVERRIDE_VERSION=${{ needs.version.outputs.v }}
+    secrets:
+      registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
+      registry-user: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
+      registry-password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
+      cachix-auth-token: ${{ secrets.CACHIX_REHOSTING }}
 
   run_tests:
     needs: [changes, build_container]
@@ -240,10 +260,12 @@ jobs:
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         uses: actions/checkout@v5
         with:
-          # Shallow: this job only needs the tree at the PR head to run tests,
-          # not full history (×10 arch runners).
+          # Shallow: this job only needs one tree to run tests, not full
+          # history (×10 arch runners). No explicit ref: the PR default is the
+          # MERGE commit — the same tree the image is built and tagged from
+          # (github.sha), so tests and image cannot skew when the base branch
+          # drifts (see the unit_tests checkout note).
           fetch-depth: 1
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       # Acquire the prebuilt image with a plain `docker pull` via the shared
       # org action, replacing the old `buildx build --load` heredoc (~5-6 min/job
@@ -316,8 +338,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
         with:
+          # Merge-commit checkout (the default), matching the image — see the
+          # run_tests checkout note.
           fetch-depth: 1
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       # Acquire the prebuilt image with a plain `docker pull` via the shared org
       # action (same as run_tests), replacing the old `buildx build --load`
