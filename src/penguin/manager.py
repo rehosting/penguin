@@ -340,28 +340,48 @@ class PandaRunner:
             cmd.append(resolved_kernel)
 
         start = time.time()
-        popen_env = None
+        base_env = os.environ.copy()
         if extra_env:
-            popen_env = os.environ.copy()
-            popen_env.update({k: str(v) for k, v in extra_env.items()})
-        try:
-            # Without stdout argument, the output will be printed to the console - great
-            p = subprocess.Popen(cmd, preexec_fn=os.setsid, env=popen_env)
-            self.catch_and_forward_sigint(p)
-            p.wait(timeout=timeout_s + 10 if timeout_s else None)
-        except subprocess.TimeoutExpired:
-            self.logger.info(
-                f"Timeout expired for {conf_yaml} after {timeout_s} seconds"
-            )
-            self._send_sigusr1(p.pid)
-            p.wait(timeout=10)
-            if p:
-                p.kill()
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Error running {conf_yaml}: {e}")
+            base_env.update({k: str(v) for k, v in extra_env.items()})
+
+        # Process-per-boot reboot loop. penguin_run exits with REBOOT_EXIT_CODE
+        # (42) when the guest issued a reboot; we then respawn a fresh process
+        # for the next boot, preserving out_dir (penguin_run keys off
+        # PENGUIN_REBOOT_GENERATION). A normal shutdown (any other exit code)
+        # ends the series.
+        REBOOT_EXIT_CODE = 42
+        p = None
+        generation = 0
+        while True:
+            popen_env = dict(base_env)
+            popen_env["PENGUIN_REBOOT_GENERATION"] = str(generation)
+            try:
+                # Without stdout argument, the output will be printed to the console - great
+                p = subprocess.Popen(cmd, preexec_fn=os.setsid, env=popen_env)
+                self.catch_and_forward_sigint(p)
+                p.wait(timeout=timeout_s + 10 if timeout_s else None)
+            except subprocess.TimeoutExpired:
+                self.logger.info(
+                    f"Timeout expired for {conf_yaml} after {timeout_s} seconds"
+                )
+                self._send_sigusr1(p.pid)
+                p.wait(timeout=10)
+                if p:
+                    p.kill()
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"Error running {conf_yaml}: {e}")
+
+            if p is not None and p.returncode == REBOOT_EXIT_CODE:
+                generation += 1
+                self.logger.info(
+                    f"Guest reboot #{generation} for {conf_yaml}; respawning "
+                    "penguin for the next boot (process-per-boot)."
+                )
+                continue
+            break
 
         elapsed = time.time() - start
-        self.logger.info(f"Emulation finishes after {elapsed:.02f} seconds with return code {p.returncode if p else 'N/A'} for {conf_yaml}")
+        self.logger.info(f"Emulation finishes after {elapsed:.02f} seconds with return code {p.returncode if p else 'N/A'} for {conf_yaml} (after {generation} reboot(s))")
 
         ran_file = os.path.join(out_dir, ".ran")
         if not os.path.isfile(ran_file):

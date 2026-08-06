@@ -1,0 +1,9 @@
+# Test artifacts
+reboot_test_fs.tar.gz
+reboot_test_fs.tar.gz.index.sqlite
+config.yaml
+projects/
+results/
+test_log.txt
+*.pyc
+__pycache__/

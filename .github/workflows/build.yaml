@@ -305,6 +305,15 @@ jobs:
         # job (see the matrix), so this is a generous upper bound.
         run: timeout 20m python3 $GITHUB_WORKSPACE/tests/integration/test_target/test.py --arch ${{ matrix.arch }} --kernel ${{ matrix.kernel }} --image rehosting/penguin:${{ github.sha }}
 
+      - name: Reboot test for ${{ matrix.arch }}
+        # Guest-reboot handling (core.allow_reboot). Arch-generic: the fixture
+        # pulls the per-arch busybox and issues a plain `reboot -f`, so it runs
+        # across the whole arch matrix. Pinned to a single kernel (6.13, the
+        # only kernel every arch in the matrix supports) so it runs once per
+        # arch rather than twice on the arches that also test 4.10.
+        if: ${{ needs.changes.outputs.run_tests == 'true' && matrix.kernel == '6.13' }}
+        run: timeout 10m python3 $GITHUB_WORKSPACE/tests/integration/reboot_test/test_reboot.py --arch ${{ matrix.arch }} --kernel ${{ matrix.kernel }} --image rehosting/penguin:${{ github.sha }}
+
       - name: Test Report
         uses: dorny/test-reporter@v2.1.1
         if: ${{ needs.changes.outputs.run_tests == 'true'  && ((success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository)}}
@@ -326,6 +335,7 @@ jobs:
           path: |
             ${{ github.workspace }}/tests/integration/basic_target/projects/empty_fs/results/latest/
             ${{ github.workspace }}/tests/integration/test_target/results/latest/
+            ${{ github.workspace }}/tests/integration/reboot_test/projects/reboot_test_fs/results/latest/
 
   run_compose:
     # Compose's mcast plumbing is arch-independent, so this runs once outside
