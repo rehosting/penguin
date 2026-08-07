@@ -125,7 +125,7 @@ def normalize_commands(spec: Any) -> List[Dict[str, Any]]:
         spec = [spec]
 
     if not isinstance(spec, list):
-        raise ValueError( f"commands must be a string, list, or structured list, but received: {type(spec).__name__}")
+        raise ValueError(f"commands must be a string, list, or structured list, but received: {type(spec).__name__}")
 
     if not spec:
         return []
@@ -134,7 +134,7 @@ def normalize_commands(spec: Any) -> List[Dict[str, Any]]:
         return [{"mode": "guest", "cmd": [entry]} for entry in spec]
 
     if not all(isinstance(entry, dict) for entry in spec):
-        raise ValueError( "commands must be either a list of strings or a list of structured command dictionaries. Mixing formats is not supported.")
+        raise ValueError("commands must be either a list of strings or a list of structured command dictionaries. Mixing formats is not supported.")
 
     normalized: List[Dict[str, Any]] = []
     for entry in spec:
