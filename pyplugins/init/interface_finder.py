@@ -118,8 +118,6 @@ class InterfaceFinder(InitPlugin):
                 interfaces[key]["files"] = list(value.get("files", [])) + old_value.get("files", [])
 
         # Drop command keywords, placeholders, and glued/oversized captures.
-        import ipdb
-        ipdb.set_trace()
         interfaces = [iface for iface, values in interfaces.items() if self._keep_iface(iface, values["count"], values["files"])]
 
         result = {}
