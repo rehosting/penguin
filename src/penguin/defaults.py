@@ -19,11 +19,11 @@ _resources_dir: str = os.environ.get("PENGUIN_RESOURCES") or f"{dirname(dirname(
 
 vnc_password: str = "IGLOOPassw0rd!"
 
-# Packaged guest/host resources (shipped as package data; see src/pyproject.toml).
-resources_dir: str = join(dirname(dirname(__file__)), "resources")
 # The guest-side `penguest` Python binding (draft 16). Staged into the guest at
-# /igloo/pylib/penguest and put on the in-guest python3's PYTHONPATH.
-penguest_src_dir: str = join(resources_dir, "penguest")
+# /igloo/pylib/penguest and put on the in-guest python3's PYTHONPATH. Anchored on
+# _resources_dir so it follows PENGUIN_RESOURCES in the image (/pkg/resources)
+# rather than assuming an install-relative layout.
+penguest_src_dir: str = join(_resources_dir, "penguest")
 
 default_version: int = 2
 static_dir: str = "/igloo_static/"

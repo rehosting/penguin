@@ -31,10 +31,16 @@ from pathlib import Path
 
 import pytest
 
+import penguin.defaults as _defaults
 import penguin.penguin_config as pc
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PENGUEST_SRC = REPO_ROOT / "src" / "resources" / "penguest" / "__init__.py"
+# Locate the guest module the same way the config staging does, via
+# defaults.penguest_src_dir -- so this works both in a source checkout
+# (src/resources/penguest) and against an installed penguin, where the resources
+# tree lives beside the package and `src/` isn't present at all (the packaged
+# test tree ships tests/ + pyplugins/ only).
+PENGUEST_SRC = Path(_defaults.penguest_src_dir) / "__init__.py"
 PORTALCALL = str(REPO_ROOT / "pyplugins" / "apis" / "portalcall.py")
 PENGUEST_HOST = str(REPO_ROOT / "pyplugins" / "apis" / "penguest.py")
 PENGUEST_VSOCK = str(REPO_ROOT / "pyplugins" / "apis" / "penguest_vsock.py")
