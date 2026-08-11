@@ -31,6 +31,9 @@
   # cannot be silently forgotten and fall back to dockerTools' epoch. flake.nix
   # derives it from the flake's own last-modified date; see the comment there.
   created,
+  # OCI annotations for the image config (org.opencontainers.image.*), supplied
+  # by flake.nix. Same rationale as `created`: required, not defaulted.
+  labels,
   extraContents ? [ ], # extra packages to union into the root (docsImage adds texlive)
   # When true, build with dockerTools.streamLayeredImage instead of
   # buildLayeredImage: the result is an executable that writes the image tarball
@@ -364,6 +367,11 @@ let
 
   config = {
     Cmd = [ "/usr/local/bin/banner.sh" ];
+    # The Dockerfile set no LABELs, so `docker inspect` reported Labels: null
+    # and nothing tied a pulled image back to the commit that built it. These
+    # are the standard OCI annotations; they live in the config blob, so they
+    # add a few hundred bytes and don't touch any layer.
+    Labels = labels;
     Env = [
       # Nix-provided tools live under /usr/local/bin and the merged /bin; the
       # ubuntu base's userland (apt, dpkg, etc.) is in /usr/bin and /sbin.

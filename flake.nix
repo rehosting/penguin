@@ -196,6 +196,28 @@
             in
             "${at 0 4}-${at 4 2}-${at 6 2}T${at 8 2}:${at 10 2}:${at 12 2}Z";
 
+          # Standard OCI annotations. The Dockerfile set no LABELs at all, so
+          # `docker inspect rehosting/penguin` reported `Labels: null` and a
+          # pulled image carried nothing tying it back to the commit that built
+          # it -- `revision` is the one that makes a user-reported image
+          # reproducible on our side. These live in the config blob, so they add
+          # a few hundred bytes and leave every layer digest untouched.
+          imageLabels = {
+            "org.opencontainers.image.title" = "penguin";
+            "org.opencontainers.image.description" =
+              "Configuration-based firmware rehosting framework";
+            "org.opencontainers.image.source" = "https://github.com/rehosting/penguin";
+            "org.opencontainers.image.url" = "https://github.com/rehosting/penguin";
+            "org.opencontainers.image.documentation" = "https://docs.rehosti.ng/";
+            "org.opencontainers.image.licenses" = "GPL-2.0-or-later";
+            "org.opencontainers.image.vendor" = "MIT Lincoln Laboratory";
+            "org.opencontainers.image.created" = imageCreated;
+            "org.opencontainers.image.version" = penguinVersion;
+            # Full rev, not the short one used for the version string: this is
+            # what someone pastes back to us from `docker inspect`.
+            "org.opencontainers.image.revision" = self.rev or self.dirtyRev or "unknown";
+          };
+
           # ---- Penguin core Python environment ----------------------------
           # The post-prune dependency set (angr/symex and the 13 unused
           # packages are gone). Firmware-extraction Python backends (binwalk
@@ -423,6 +445,7 @@
               {
                 inherit pkgs iglooStatic penguinQemu vhostDeviceVsock;
                 created = imageCreated;
+                labels = imageLabels;
                 extractionBundle = fw2tar.packages.${system}.extractionBundle;
                 pypluginsSrc = lib.fileset.toSource {
                   root = ./pyplugins;
