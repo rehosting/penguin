@@ -167,6 +167,18 @@ def patch_config(logger, base_config, patch, patch_name="patch", origin_map=None
             return base.merge(new)
 
         if hasattr(base, "model_fields_set"):
+            # A patch that switches a discriminated-union variant -- e.g. a
+            # pseudofile read model 'zero' -> 'stateful', or a write model
+            # 'discard' -> 'return_const' -- produces a different model *type*
+            # than the base. Field-merging then rebuilds the OLD variant class
+            # with the NEW discriminator value, which fails validation (e.g.
+            # constructing the 'zero' Read variant with model='stateful'). A type
+            # change is a wholesale override: the patch's model wins, exactly as a
+            # scalar conflict below resolves to `new`.
+            if type(base) is not type(new):
+                origin_map[config_option] = patch_name
+                _record_origins(new, config_option, patch_name)
+                return new
             result = dict()
             for base_key in base.model_fields_set:
                 result[base_key] = getattr(base, base_key)
