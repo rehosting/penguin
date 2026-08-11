@@ -27,6 +27,10 @@
   wrapperSrc, # the host ./penguin wrapper script
   resourcesSrc, # src/resources (banner.sh, penguin_install[.local])
   tag ? "latest", # image tag (docsImage overrides to "docs")
+  # Image creation timestamp, ISO-8601. Required rather than defaulted, so it
+  # cannot be silently forgotten and fall back to dockerTools' epoch. flake.nix
+  # derives it from the flake's own last-modified date; see the comment there.
+  created,
   extraContents ? [ ], # extra packages to union into the root (docsImage adds texlive)
   # When true, build with dockerTools.streamLayeredImage instead of
   # buildLayeredImage: the result is an executable that writes the image tarball
@@ -487,6 +491,11 @@ in
 (if stream then pkgs.dockerTools.streamLayeredImage else pkgs.dockerTools.buildLayeredImage) {
   name = "rehosting/penguin";
   inherit tag;
+  # Only `created` (the image config's timestamp), never dockerTools' `mtime`:
+  # mtime is stamped into every file header in every layer tarball, so moving it
+  # would change all 115 layer digests on each release and destroy pull/push
+  # dedup. `created` lives in the config blob alone, which is a few KB.
+  inherit created;
   # Layer the Nix contents on top of the ubuntu:22.04 base (FHS userland + apt).
   fromImage = ubuntuBase;
   # hostToolCheck contributes only a marker file, but including it here makes
