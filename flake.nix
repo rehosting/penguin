@@ -180,6 +180,22 @@
           gitRev = self.shortRev or self.dirtyShortRev or "unknown";
           penguinVersion = if overrideVersion != "" then overrideVersion else "0.0.0.dev0+g${gitRev}";
 
+          # Creation timestamp stamped into the image config. dockerTools
+          # defaults it to the epoch, which is reproducible but reports every
+          # release as 56 years old in `docker images` / registry UIs.
+          #
+          # self.lastModifiedDate is the HEAD commit's date, so this stays a
+          # pure function of the source (same commit -> same image) while
+          # meaning something to a user. It is also the commit date for a *dirty*
+          # tree, so local rebuilds don't churn the image derivation between
+          # commits.
+          imageCreated =
+            let
+              d = self.lastModifiedDate; # "YYYYMMDDHHMMSS", UTC
+              at = start: len: builtins.substring start len d;
+            in
+            "${at 0 4}-${at 4 2}-${at 6 2}T${at 8 2}:${at 10 2}:${at 12 2}Z";
+
           # ---- Penguin core Python environment ----------------------------
           # The post-prune dependency set (angr/symex and the 13 unused
           # packages are gone). Firmware-extraction Python backends (binwalk
@@ -406,6 +422,7 @@
             import ./nix/mk-image.nix (
               {
                 inherit pkgs iglooStatic penguinQemu vhostDeviceVsock;
+                created = imageCreated;
                 extractionBundle = fw2tar.packages.${system}.extractionBundle;
                 pypluginsSrc = lib.fileset.toSource {
                   root = ./pyplugins;
