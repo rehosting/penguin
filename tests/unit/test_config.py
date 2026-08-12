@@ -1127,3 +1127,70 @@ def test_legacy_pseudofile_config_unchanged():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+# --------------------------------------------------------------------------- #
+# patch_config: switching a discriminated-union member                        #
+# --------------------------------------------------------------------------- #
+
+def _merge_pseudofiles(base, patch):
+    """Run one patch over a base through the real patch_config merge."""
+    import logging
+    import pydantic
+    from penguin.common import patch_config
+    from penguin.penguin_config.structure import Pseudofiles
+
+    adapter = pydantic.TypeAdapter(Pseudofiles)
+    out = patch_config(
+        logging.getLogger("test"),
+        adapter.validate_python(base),
+        adapter.validate_python(patch),
+        patch_name="patch_test.yaml",
+    )
+    return out.root if hasattr(out, "root") else out
+
+
+def test_patch_can_switch_pseudofile_model():
+    # A patch that changes a pseudofile's model must replace the union member,
+    # not field-merge into the old one. Field-merging rebuilt the result as the
+    # *base* class, so overriding read:zero with read:cycle raised
+    # "Input should be 'zero'" plus "Extra inputs are not permitted" for `val`.
+    #
+    # This is the normal shape of a delta-only target config: penguin's
+    # expert-knowledge defaults already model /dev/watchdog as read:zero, so any
+    # target wanting a different read model is switching a member.
+    merged = _merge_pseudofiles(
+        {"/dev/watchdog": {"read": {"model": "zero"}}},
+        {"/dev/watchdog": {"read": {"model": "cycle", "val": "0"}}},
+    )
+    read = merged["/dev/watchdog"].read
+    read = read.root if hasattr(read, "root") else read
+    assert read.model == "cycle"
+    assert read.val == "0"
+
+
+def test_patch_still_merges_same_model_fields():
+    # The replacement above must not swallow the ordinary case: when the patch
+    # keeps the same model, field-wise merging still applies.
+    merged = _merge_pseudofiles(
+        {"/dev/x": {"read": {"model": "const_buf", "val": "old"}}},
+        {"/dev/x": {"read": {"model": "const_buf", "val": "new"}}},
+    )
+    read = merged["/dev/x"].read
+    read = read.root if hasattr(read, "root") else read
+    assert read.model == "const_buf"
+    assert read.val == "new"
+
+
+def test_patch_switches_model_across_operations():
+    # Switching one operation's model must leave the other operations on the
+    # node intact rather than replacing the whole pseudofile entry.
+    merged = _merge_pseudofiles(
+        {"/dev/watchdog": {"read": {"model": "zero"}, "write": {"model": "discard"}}},
+        {"/dev/watchdog": {"read": {"model": "cycle", "val": "0"}}},
+    )
+    entry = merged["/dev/watchdog"]
+    read = entry.read.root if hasattr(entry.read, "root") else entry.read
+    write = entry.write.root if hasattr(entry.write, "root") else entry.write
+    assert read.model == "cycle"
+    assert write.model == "discard"
