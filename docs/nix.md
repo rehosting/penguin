@@ -90,6 +90,7 @@ Built for both `x86_64-linux` and `aarch64-linux`. Build any with
 | `dockerImageStream` | streaming variant of `dockerImage` (`nix run .#dockerImageStream \| docker load`); no store tarball, still `:latest` |
 | `dockerImageStreamHashed` | streaming image tagged by the nix build hash (`:` `<hash>`), backing `nix run` / `.#load` |
 | `docsImage` | `rehosting/penguin:docs` — the runtime image plus the sphinx toolchain + texlive, used by the docs release job |
+| `portableImage` | `rehosting/penguin:portable` — same image with the Nix closure relocated out of `/nix`, for hosts that own `/nix` themselves ([details](#the-portable-image-running-where-something-else-owns-nix)) |
 | `pythonEnv` *(default)* | the interpreter the image runs: penguin + all runtime deps |
 | `penguin` | the penguin Python package alone |
 | `pengutils` | the `pengutils` helper package |
@@ -159,6 +160,59 @@ or a missing `INTERP` is invisible until the guest runs.
 igloo-driver, and penguin-tools release tarballs plus the `guest-utils` source,
 reproducing the Dockerfile's per-arch symlink staging. The result is
 golden-diffed against the Docker image's tree.
+
+### The portable image: running where something else owns `/nix`
+
+Everything in the normal image is a symlink into `/nix/store` — `/bin/bash`,
+`/bin/python3`, `/usr/local/bin/penguin`, `/igloo_static`, `/pyplugins`. That is
+fine until a host mounts *its own* `/nix` over the container's, which shadows the
+store and takes all of penguin with it. The image doesn't degrade; it vanishes.
+`docker run` fails before exec with `stat /usr/local/bin/penguin: no such file or
+directory`, leaving only Ubuntu's real `/usr/bin`.
+
+The concrete case is the **pwn.college dojo platform**, which starts every
+challenge container with a read-only bind of its own workspace store at `/nix`
+because its userland lives there. You can reproduce the failure against any
+normal image in one command:
+
+```sh
+mkdir /tmp/empty
+docker run --rm -v /tmp/empty:/nix:ro rehosting/penguin:latest penguin --version
+```
+
+There is no runtime workaround. Re-mounting our store over theirs needs `mount`,
+and moby's default seccomp profile — which that platform uses — gates
+`mount`/`umount2`/`unshare`/`setns`/`pivot_root` behind `CAP_SYS_ADMIN`;
+unprivileged challenge containers get only `SYS_PTRACE`.
+
+`portableImage` solves it by moving the closure somewhere nobody else claims:
+
+```sh
+nix build .#portableImage --accept-flake-config
+docker load < result                       # rehosting/penguin:portable
+
+# It still works with /nix shadowed:
+docker run --rm -v /tmp/empty:/nix:ro rehosting/penguin:portable penguin --version
+```
+
+The closure lands at **`/opt/store`** instead of `/nix/store`, and every
+reference to it is rewritten. The prefix is deliberately the **same byte
+length** as `/nix/store`, which is what makes the rewrite safe: it happens in
+place, so ELF `PT_INTERP`/`DT_RUNPATH` strings, compiled-in path constants,
+shebangs and `.pyc` paths all stay structurally valid — no `patchelf`, no
+per-format handling. `nix/relocate-store.py` does the rewrite and fails the build
+if any reference to the old store survives. `portablePrefix` in
+`nix/mk-image.nix` can change it, but only to another 10-byte path.
+
+Two things to know before reaching for it:
+
+- **It is one large layer, not 115.** `contents` can't be used, because
+  `streamLayeredImage` assembles its customisation layer with `symlinkJoin` —
+  which would leave the image a farm of symlinks back into `/nix/store`. So the
+  relocated tree is copied in as real files with `includeStorePaths = false`,
+  which forgoes per-store-path layer dedup between releases.
+- **Prefer the normal image** wherever `/nix` is yours. This variant exists for
+  hosts that take it away.
 
 ### Writable paths
 

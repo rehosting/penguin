@@ -540,6 +540,18 @@
             tag = null;
           };
 
+          # The portable image (rehosting/penguin:portable): identical contents,
+          # but with the Nix closure relocated out of /nix so it survives on a
+          # host that bind-mounts its own /nix over the container's -- which the
+          # pwn.college dojo platform does unconditionally. See the "Portable
+          # variant" comment in nix/mk-image.nix for the mechanism and the
+          # trade-off (one large layer instead of 115).
+          portableImage = mkImage {
+            inherit pythonEnv;
+            portable = true;
+            tag = "portable";
+          };
+
           # The release docs image (rehosting/penguin:docs): the runtime image
           # plus the in-image sphinx toolchain and a LaTeX engine for the PDF
           # build. texlive scheme-medium provides pdflatex + latexmk + the
@@ -551,7 +563,7 @@
           };
         in
         {
-          inherit pythonEnv testPythonEnv penguinQemu iglooStatic muslHeaders nativeHelpersTree penguin pengutils vhostDeviceVsock dockerImage dockerImageStream dockerImageStreamHashed docsImage;
+          inherit pythonEnv testPythonEnv penguinQemu iglooStatic muslHeaders nativeHelpersTree penguin pengutils vhostDeviceVsock dockerImage dockerImageStream dockerImageStreamHashed docsImage portableImage;
           nativeHelper-x86_64 = nativeHelpers.x86_64;
           default = pythonEnv;
         }
