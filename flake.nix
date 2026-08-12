@@ -40,7 +40,7 @@
     flake = false;
   };
   inputs.igloo-driver = {
-    url = "https://github.com/rehosting/igloo_driver/releases/download/v0.0.94/igloo_driver.tar.gz";
+    url = "https://github.com/rehosting/igloo_driver/releases/download/v0.0.96/igloo_driver.tar.gz";
     flake = false;
   };
   # v0.0.25 is the slimmed penguin-tools: it no longer ships the forked guest
