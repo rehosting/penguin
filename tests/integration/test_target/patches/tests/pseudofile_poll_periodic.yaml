@@ -1,0 +1,117 @@
+# tests/integration/test_target/patches/tests/pseudofile_poll_periodic.yaml
+#
+# End-to-end cover for the two non-default poll models against the real
+# igloo_driver build: `periodic` (driver kernel timer marks the node readable
+# once per interval and wakes the per-device wait queue) and `blocking` (zero
+# mask, waiter parks). The unit suite only proves model resolution and that
+# interval_ms is carried down as POLL_INTERVAL_MS; the cadence itself lives in
+# the driver timer, so nothing but a booted guest can show it actually ticks.
+plugins:
+  verifier:
+    conditions:
+      poll_periodic+console:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_poll_periodic.sh PASS"
+      poll_periodic+stdout:
+        type: file_contains
+        file: shared/tests/pseudofile_poll_periodic.sh/stdout
+        string: "pseudofile_poll_periodic PASS"
+
+pseudofiles:
+  # Heartbeat node: readable once per interval, parked in between.
+  /dev/poll_heartbeat:
+    read:
+      model: zero
+    poll:
+      model: periodic
+      interval_ms: 1000
+
+  # Never-ready node: poll must report a zero mask rather than the /dev
+  # always-ready default.
+  /dev/poll_never:
+    read:
+      model: zero
+    poll:
+      model: blocking
+
+static_files:
+  /tests/pseudofile_poll_periodic.sh:
+    type: inline_file
+    mode: 73
+    contents: |
+      #!/igloo/utils/python3
+      # NB: every poll() below uses a *bounded* timeout, never -1. run_tests.sh
+      # executes /tests/* serially as guest PID1, so a poll that never returns
+      # would hang the remaining fixtures and fail the run as a CI timeout
+      # instead of an assertion. A generous bound turns a dead timer into a
+      # clean failure. The mechanism under test is identical either way: with
+      # any blocking timeout the kernel parks on the device wait queue and only
+      # re-invokes ->poll() after a wake, so a bounded wait still proves the
+      # driver timer is what delivers the tick.
+      import select
+
+      POLLIN = getattr(select, "POLLIN", 0x001)
+
+      # Well over 500ms of guest time, so only a dead timer trips it.
+      TICK_WAIT_MS = 30000
+
+      # Number of back-to-back non-blocking samples used to show the node is not
+      # *permanently* readable. Kept cheap: the poll object is built once per fd
+      # and reused, so each sample is close to a bare syscall.
+      SAMPLES = 40
+
+      def ready(events):
+          return any(m & POLLIN for _, m in events)
+
+      # --- periodic: the driver timer must wake the waiter, repeatedly --------
+      f = open("/dev/poll_heartbeat", "rb", buffering=0)
+      try:
+          po = select.poll()
+          po.register(f, POLLIN)
+
+          for i in range(3):
+              # Parks on the wait queue until the driver timer fires. Three
+              # iterations prove the timer re-arms itself, not just fires once.
+              if not ready(po.poll(TICK_WAIT_MS)):
+                  raise AssertionError(
+                      "poll_heartbeat: no POLLIN within %dms on tick %d "
+                      "(driver periodic timer not firing?)" % (TICK_WAIT_MS, i + 1))
+
+          # The node must not be *permanently* readable -- that is the /dev
+          # always-ready default this model exists to replace.
+          #
+          # Deliberately not phrased as "not readable immediately after
+          # consuming a tick". interval_ms is guest time, and the guest time
+          # this interpreter burns between two poll() calls can exceed it, so a
+          # fresh tick may legitimately have arrived by the very next call --
+          # that assertion failed on the fastest arch while passing on 16
+          # others. Sampling instead is timing-independent: under always_ready
+          # every sample reports POLLIN, whereas a heartbeat has to be quiet
+          # between ticks, so at least one sample must come back not-ready.
+          quiet = 0
+          for _ in range(SAMPLES):
+              if not ready(po.poll(0)):
+                  quiet += 1
+          if not quiet:
+              raise AssertionError(
+                  "poll_heartbeat: readable on all %d samples -- looks "
+                  "always-ready rather than periodic" % SAMPLES)
+      finally:
+          f.close()
+
+      # --- blocking: never ready ---------------------------------------------
+      f = open("/dev/poll_never", "rb", buffering=0)
+      try:
+          po = select.poll()
+          po.register(f, POLLIN)
+          if ready(po.poll(0)):
+              raise AssertionError("poll_never: reported POLLIN on a zero-mask node")
+          # And it stays not-ready across an actual wait rather than being
+          # woken by anything incidental.
+          if ready(po.poll(200)):
+              raise AssertionError("poll_never: reported POLLIN after waiting")
+      finally:
+          f.close()
+
+      print("pseudofile_poll_periodic PASS")
