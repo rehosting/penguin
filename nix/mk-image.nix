@@ -42,6 +42,15 @@
   # avoids materialising the tarball -- useful for CI push. Local `docker load`
   # keeps using the non-streaming output.
   stream ? false,
+  # When true, build the image with the Nix closure relocated OUT of /nix, so
+  # the image survives in an environment that owns /nix itself. See the
+  # "Portable variant" section below for the why and the mechanism. Mutually
+  # exclusive with `stream`.
+  portable ? false,
+  # Where the relocated closure lives in a portable image. MUST be the same byte
+  # length as the real store directory (10 bytes, "/nix/store") -- the rewrite is
+  # in-place; see nix/relocate-store.py.
+  portablePrefix ? "/opt/store",
 }:
 
 let
@@ -495,7 +504,97 @@ let
     echo "verified: ${pkgs.lib.concatStringsSep " " (requiredHostTools ++ requiredFiles)}" \
       > "$out/share/penguin/host-tools-verified"
   '';
+
+  # ---- Portable variant: the closure, relocated out of /nix ------------------
+  #
+  # WHY. Some hosts own /nix themselves. The pwn.college dojo platform is the
+  # concrete case: it creates every challenge container with
+  #   Mount("/nix", f"{HOST_DATA_PATH}/workspace/nix", "bind", read_only=True)
+  # and an entrypoint under /nix/var/nix/profiles/, because its own workspace
+  # userland lives in that store. That mount SHADOWS this image's /nix/store
+  # entirely -- and since `overlay` above notes "symlink targets are
+  # store-absolute (the store is in the image)", shadowing it deletes all of
+  # penguin at once: /usr/local/bin/penguin, /bin/bash, /bin/python3,
+  # /igloo_static and /pyplugins are all symlinks into the store. Verified on
+  # v3.1.3 by bind-mounting an empty directory at /nix: `docker run` fails before
+  # exec with "stat /usr/local/bin/penguin: no such file or directory". Only
+  # Ubuntu's real /usr/bin survives (thanks to the usrmerge restoration above).
+  #
+  # There is no runtime fix. Re-mounting our store over theirs needs `mount`, and
+  # the platform runs containers under moby's default seccomp profile, which
+  # gates mount/umount2/unshare/setns/pivot_root behind CAP_SYS_ADMIN; challenge
+  # containers get only SYS_PTRACE. A user namespace is blocked the same way.
+  #
+  # HOW. Move the closure to a prefix nobody else claims, and rewrite every
+  # reference to it. The replacement prefix is the SAME BYTE LENGTH as
+  # "/nix/store", which is what makes this tractable: the rewrite happens in
+  # place, so ELF interpreters, DT_RUNPATHs, compiled-in string constants,
+  # shebangs and .pyc paths all stay valid with no patchelf and no per-format
+  # knowledge. See nix/relocate-store.py.
+  #
+  # This is the same class of surgery `clang20Slim` above already does (copy out
+  # of the store, then fix up the references), just applied to the whole closure.
+  #
+  # COST. One big layer instead of 115. `contents` cannot be used for it --
+  # streamLayeredImage builds its customisation layer with symlinkJoin, so the
+  # image would be a farm of symlinks back into /nix/store, i.e. exactly the
+  # thing being avoided -- so the tree is copied in as real files via
+  # extraCommands with includeStorePaths = false. That forgoes per-store-path
+  # layer dedup between releases. Acceptable for a consumer that pins a tag and
+  # rebuilds rarely; if it starts to hurt, the fix is to relocate each store path
+  # in its own derivation and hand dockerTools a pre-relocated layer set.
+  portableRoot = pkgs.runCommand "penguin-portable-root" {
+    nativeBuildInputs = [ pkgs.python3 ];
+    closure = pkgs.closureInfo { rootPaths = [ rootEnv hostToolCheck ]; };
+  } ''
+    # `cp -a` out of the store preserves its read-only directory modes, so each
+    # copy has to be made writable before the next one can merge into it (and
+    # before symlinks can be retargeted in place).
+    writable() { find "$out" -type d -exec chmod u+w {} + ; }
+
+    mkdir -p "$out${portablePrefix}"
+
+    # 1. The closure, wholesale. Every path, not just the roots: the references
+    #    being rewritten point at all of them.
+    while read -r p; do
+      cp -a --no-preserve=ownership "$p" "$out${portablePrefix}/"
+    done < "$closure/store-paths"
+    writable
+
+    # 2. The merged root tree (a farm of symlinks into the store, retargeted in
+    #    step 4) and the host-tool assertion marker.
+    cp -a ${rootEnv}/. "$out/"
+    writable
+    cp -a ${hostToolCheck}/. "$out/"
+    writable
+
+    # 3. The same writable dirs + usrmerge restoration the layered image applies,
+    #    verbatim -- it is the identical image, only relocated.
+    ( cd "$out" && ${extraCommands} )
+    writable
+
+    # 4. Rewrite every reference, and fail the build if any survives.
+    python3 ${./relocate-store.py} "$out" "${builtins.storeDir}" "${portablePrefix}"
+  '';
+
+  portableImage = pkgs.dockerTools.buildLayeredImage {
+    name = "rehosting/penguin";
+    inherit tag created config;
+    fromImage = ubuntuBase;
+    contents = [ ];
+    # Nothing may be pulled in by reference: the point is that /nix is empty at
+    # runtime. Without this, dockerTools would helpfully add portableRoot itself
+    # as a store layer -- a second, shadowed copy of the whole image.
+    includeStorePaths = false;
+    extraCommands = ''
+      cp -a ${portableRoot}/. ./
+    '';
+  };
 in
+if portable then
+  assert !stream;
+  portableImage
+else
 (if stream then pkgs.dockerTools.streamLayeredImage else pkgs.dockerTools.buildLayeredImage) {
   name = "rehosting/penguin";
   inherit tag;
