@@ -81,6 +81,11 @@ int penguin_write_guest_reg(CPUState *cs, int regnum, const uint8_t *buf,
                             int len);
 void *penguin_cpu_env(CPUState *cs);
 void penguin_sync_cpu_state(CPUState *cs);
+typedef bool (*penguin_qmp_cb_t)(const char *command, const char *args,
+                                 char **result, void *opaque);
+void set_penguin_qmp_callback(penguin_qmp_cb_t cb, void *opaque);
+bool penguin_handle_qmp(const char *command, const char *args, char **result);
+char *strdup(const char *s);
 """
 
 # Alternate spellings under which a QEMU build may have published its
@@ -594,6 +599,18 @@ class QemuCompat:
                 "penguin_mmio_read_cb_t read_cb, "
                 "penguin_mmio_write_cb_t write_cb, void *opaque);\n"
             )
+        if "penguin_qmp_cb_t" not in cdef_source:
+            cdef_source += (
+                "\ntypedef bool (*penguin_qmp_cb_t)(const char *command, "
+                "const char *args, char **result, void *opaque);\n"
+            )
+        if "set_penguin_qmp_callback" not in cdef_source:
+            cdef_source += (
+                "\nvoid set_penguin_qmp_callback("
+                "penguin_qmp_cb_t cb, void *opaque);\n"
+            )
+        if "char *strdup" not in cdef_source:
+            cdef_source += "\nchar *strdup(const char *s);\n"
         self.ffi.cdef(cdef_source)
 
         flags = getattr(os, "RTLD_GLOBAL", 0) | getattr(os, "RTLD_NOW", 0)
@@ -617,6 +634,8 @@ class QemuCompat:
         self.arch = QemuArch(self)
         self._thread_state = threading.local()
         self._pre_shutdown_cb = None
+        self._qmp_callback = None
+        self._bound_qmp_plugin = None
         self.panda_args = []
 
         self._active_instances.append(self)
@@ -624,6 +643,16 @@ class QemuCompat:
         plugin = self.hypercall_plugin
         if plugin is not None:
             self.bind_hypercall_plugin(plugin)
+        qmp_plugin = self.qmp_plugin
+        if qmp_plugin is not None:
+            # Let the plugin decide whether to install now: it binds this
+            # instance and installs the C trampoline lazily, only if it already
+            # has commands registered.
+            bind = getattr(qmp_plugin, "bind_qemu_compat", None)
+            if bind is not None:
+                bind(self)
+            else:
+                self.install_qmp_dispatch(qmp_plugin)
 
     def _callback_state(self):
         state = self._thread_state
@@ -845,6 +874,83 @@ class QemuCompat:
     def cb_pre_shutdown(self, f):
         self._pre_shutdown_cb = f
         return f
+
+    @property
+    def qmp_plugin(self):
+        if self._bound_qmp_plugin is not None:
+            return self._bound_qmp_plugin
+
+        try:
+            from penguin import plugins
+        except ImportError:
+            return None
+
+        plugin = plugins.__dict__.get("qmp")
+        if plugin is not None:
+            return plugin
+
+        try:
+            return plugins.qmp
+        except Exception:
+            return None
+
+    def install_qmp_dispatch(self, plugin):
+        """Bind the Qmp pyplugin and install the single C-level QMP trampoline.
+
+        The plugin owns the command name -> handler registry; the compat layer
+        only forwards unrecognized QMP commands to it (mirroring how the
+        hypercall trampoline forwards to the Hypercall plugin). Idempotent: the
+        C callback is installed once and re-binding just updates the plugin.
+        """
+        self._bound_qmp_plugin = plugin
+
+        setter = self._lib_symbol("set_penguin_qmp_callback")
+        if setter is None:
+            logger.warning(
+                "QEMU library does not expose set_penguin_qmp_callback; "
+                "custom QMP commands require a rebuilt penguin-qemu")
+            return
+        if self._qmp_callback is None:
+            ctype = "bool(const char *, const char *, char **, void *)"
+            self._qmp_callback = self.ffi.callback(ctype)(self._dispatch_qmp)
+            setter(self._qmp_callback, self.ffi.NULL)
+
+    def _dispatch_qmp(self, command_ptr, args_ptr, result_ptr, opaque=None):
+        # command_ptr/args_ptr are C strings; decode up front so log lines show
+        # the command name (not "<cdata 'char *'>").
+        command = self.ffi.string(command_ptr).decode("utf-8", "replace")
+        plugin = self.qmp_plugin
+        if plugin is None:
+            return False
+        try:
+            raw_args = self.ffi.string(args_ptr).decode("utf-8", "replace")
+            try:
+                args = json.loads(raw_args) if raw_args else {}
+            except json.JSONDecodeError:
+                args = {}
+            outcome = plugin.dispatch(command, args)
+        except Exception:
+            # The current QMP ABI (bool + result string) can't carry a
+            # structured error, so a failing handler is reported to the client
+            # as CommandNotFound. Log the real cause host-side.
+            logger.exception("QMP handler for %r raised", command)
+            return False
+        if outcome is None or outcome is False:
+            return False
+        if outcome is not True:
+            try:
+                payload = json.dumps(outcome).encode("utf-8")
+            except (TypeError, ValueError):
+                logger.exception(
+                    "QMP handler for %r returned non-serializable result",
+                    command)
+                return False
+            # Ownership of the returned buffer transfers to QEMU, which
+            # g_free()s it after decoding. glib's g_free is compatible with
+            # the system allocator, so a libc strdup() buffer is correct; a
+            # cffi-managed ffi.new() buffer would be GC-freed underneath QEMU.
+            result_ptr[0] = self.lib.strdup(payload)
+        return True
 
     def _guest_addr(self, addr):
         mask = (1 << self.bits) - 1
