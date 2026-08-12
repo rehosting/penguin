@@ -1,0 +1,31 @@
+core:
+  # Bound the run: the host-side probe drives QMP and writes the marker;
+  # verifier.continuous_eval ends the run on success, this is the backstop.
+  timeout: 180
+
+env:
+  # Empty busybox rootfs has no init: idle so the guest stays up long enough
+  # for the host-side probe to connect over QMP. The probe is entirely
+  # host-side, so the guest need not do anything else.
+  igloo_init: /init.sh
+
+static_files:
+  /init.sh:
+    type: inline_file
+    mode: 73  # 0o111 (as in basic_target's init.sh)
+    contents: |
+      #!/igloo/utils/sh
+      /busybox sleep 120
+
+plugins:
+  # Loading the qmp plugin opens the QMP socket itself (appends -qmp to the
+  # QEMU argv) and installs the command trampoline -- no core knob needed.
+  qmp: {}
+  qmp_probe: {}
+  verifier:
+    continuous_eval: true
+    conditions:
+      qmp_probe_ok:
+        type: file_contains
+        file: qmp_probe_result
+        string: "qmp-probe-ok"

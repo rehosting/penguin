@@ -376,6 +376,37 @@ jobs:
           name: compose-artifacts
           path: ${{ github.workspace }}/tests/integration/compose/compose_projects/
 
+  run_qmp_hook:
+    # The QMP command hook (custom penguin_handle_qmp weak symbol wired into
+    # qemu's qmp_dispatch) is guest- and arch-independent: it boots
+    # libqemu-system-intel64 with -machine none -S and drives a custom QMP
+    # command through the real dispatcher. So it runs once, outside the
+    # per-arch matrix, like run_compose.
+    needs: [changes, build_container]
+    runs-on: rehosting-arc
+    if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Set up penguin image
+        uses: rehosting/ci/actions/pull-image@v1
+        with:
+          registry: ${{ env.REGISTRY }}
+          target: ${{ env.TARGET }}
+          image: rehosting/penguin
+          tag: ${{ github.sha }}
+          local-tag: rehosting/penguin:${{ github.sha }}
+          username: ${{ env.USER }}
+          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
+          install-python: "true"
+          install-cert: "false"
+
+      - name: QMP hook test
+        run: timeout 10m python3 $GITHUB_WORKSPACE/tests/integration/qmp_hook/test.py --image rehosting/penguin:${{ github.sha }}
+
   # Single required status check for branch protection + the merge queue.
   #
   # The per-arch run_tests matrix and build_container are conditionally skipped
@@ -389,7 +420,7 @@ jobs:
   ci_gate:
     if: ${{ always() }}
     runs-on: ubuntu-latest
-    needs: [changes, lint, unit_tests, build_container, run_tests, run_compose]
+    needs: [changes, lint, unit_tests, build_container, run_tests, run_compose, run_qmp_hook]
     steps:
       - name: Require no gated job to have failed
         run: |
@@ -400,6 +431,7 @@ jobs:
             [build_container]='${{ needs.build_container.result }}'
             [run_tests]='${{ needs.run_tests.result }}'
             [run_compose]='${{ needs.run_compose.result }}'
+            [run_qmp_hook]='${{ needs.run_qmp_hook.result }}'
           )
           ok=true
           for job in "${!r[@]}"; do
