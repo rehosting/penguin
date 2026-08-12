@@ -167,6 +167,24 @@ def patch_config(logger, base_config, patch, patch_name="patch", origin_map=None
             return base.merge(new)
 
         if hasattr(base, "model_fields_set"):
+            # Two models of different types cannot be field-merged. The merged
+            # result is rebuilt below as type(base), so field-merging a patch
+            # that switches a discriminated-union member -- e.g. a pseudofile
+            # read model from `zero` to `cycle` -- would hand base's class the
+            # new member's fields and fail validation ("Input should be 'zero'",
+            # plus "Extra inputs are not permitted" for fields only the new
+            # member declares). Switching a member is a replacement, not a
+            # merge, so take the new value wholesale.
+            #
+            # This is what a target patch does whenever it overrides a model
+            # that a generated static patch already set (penguin's
+            # expert-knowledge defaults model /dev/watchdog, /dev/wdt,
+            # /dev/gpio, /dev/nvram and friends as read:zero), which is the
+            # normal shape of a delta-only config.
+            if type(base) is not type(new):
+                _record_origins(new, config_option, patch_name)
+                return new
+
             result = dict()
             for base_key in base.model_fields_set:
                 result[base_key] = getattr(base, base_key)
