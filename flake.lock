@@ -222,16 +222,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1786668152,
-        "narHash": "sha256-fA0gyL3VJNbR0jKtCUSj7sxAVy8kqhXXZwb7hdrTOsw=",
+        "lastModified": 1786671278,
+        "narHash": "sha256-rSvxoJrhVBUz20atIwjVNOXDQFzwghxnBzPAvlY3qkI=",
         "owner": "rehosting",
         "repo": "linux_builder",
-        "rev": "8ff5c95c90321deca40fad58329af6909e9d2332",
+        "rev": "2efd7d97f5797a269c05872e77f28c76cbd4b4db",
         "type": "github"
       },
       "original": {
         "owner": "rehosting",
-        "ref": "nix-patchset",
+        "ref": "nixdev_0.1.0",
         "repo": "linux_builder",
         "type": "github"
       }
