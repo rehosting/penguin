@@ -57,16 +57,28 @@
   # its lockfile was tested with, and lose the Cachix hits. These artifacts link
   # against nothing of ours, so a shared closure buys us nothing here -- the
   # opposite of the penguin-qemu case.
-  # Pinned to the `nixdev_0.1.0` TAG, not the branch: an immutable ref, so this
-  # PR's CI tests a fixed tree rather than a moving target. That tag also cut a
-  # prerelease and, being a push event, populated rehosting-tools with all 19
-  # cells -- so CI here substitutes the kernels instead of cross-building them.
+  # Pinned to a TAG, not a branch: an immutable ref, so this PR's CI tests a
+  # fixed tree rather than a moving target. The tag build also cut a prerelease
+  # and, being a push event, populated rehosting-tools with all 19 cells -- so
+  # CI here substitutes the kernels instead of cross-building them.
   # Repin to a release tag (or `main`) once linux_builder#59 lands.
+  #
+  # nixdev_0.1.1, not _0.1.0: that release's 4.10/x86_64 kernel built, linked
+  # and packaged, had the right ELF shape, and did not boot -- binutils >= 2.31
+  # emits R_X86_64_PLT32, which Linux only learned in 4.16. It is why
+  # `run_tests (x86_64, 4.10)` failed here. _0.1.1 also adds linux_builder's
+  # boot gate, which is what would have caught it before this repo ever saw it.
   inputs.linux-builder = {
-    url = "github:rehosting/linux_builder/nixdev_0.1.0";
+    url = "github:rehosting/linux_builder/nixdev_0.1.1";
   };
+  # The nix-built driver, and it MUST move in lockstep with linux-builder above.
+  # v0.0.96 was Docker-built against different kernels: 129 of 221 modversion
+  # CRCs disagreed with these kernels' Module.symvers, which the guest reported
+  # as "igloo: disagrees about version of symbol module_layout" and is why every
+  # 6.13 target failed here. nixdev_0.0.1 is built against the derivations of
+  # the very kernels this flake stages, so that pairing is not expressible.
   inputs.igloo-driver = {
-    url = "https://github.com/rehosting/igloo_driver/releases/download/v0.0.96/igloo_driver.tar.gz";
+    url = "https://github.com/rehosting/igloo_driver/releases/download/nixdev_0.0.1/igloo_driver.tar.gz";
     flake = false;
   };
   # v0.0.25 is the slimmed penguin-tools: it no longer ships the forked guest
