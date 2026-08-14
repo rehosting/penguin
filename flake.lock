@@ -133,14 +133,13 @@
     "igloo-driver": {
       "flake": false,
       "locked": {
-        "lastModified": 1786551473,
-        "narHash": "sha256-K9Jncy3ANJhYZ0GA9nNC0jDdnzPJNKc42elABCQ3DhY=",
+        "narHash": "sha256-+5ycMvtb7rwpyio+5SLEL4uK5JhYdkIZIqsONcktVHw=",
         "type": "tarball",
-        "url": "https://github.com/rehosting/igloo_driver/releases/download/v0.0.96/igloo_driver.tar.gz"
+        "url": "https://github.com/rehosting/igloo_driver/releases/download/nixdev_0.0.1/igloo_driver.tar.gz"
       },
       "original": {
         "type": "tarball",
-        "url": "https://github.com/rehosting/igloo_driver/releases/download/v0.0.96/igloo_driver.tar.gz"
+        "url": "https://github.com/rehosting/igloo_driver/releases/download/nixdev_0.0.1/igloo_driver.tar.gz"
       }
     },
     "igloo_driver": {
@@ -165,11 +164,11 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1786663087,
-        "narHash": "sha256-uynOJDkUTq7V3gZxNre3CmeMwBSYYoToi1kYea52OPU=",
+        "lastModified": 1786744385,
+        "narHash": "sha256-linrkYJ63mdakHdQStEPgUeII3Tn/NGKFBQVCs3QB0w=",
         "owner": "rehosting",
         "repo": "kernelsmith",
-        "rev": "f3220b9a1919076317659310d75b28f0c36fab62",
+        "rev": "03d99e438ecab7a6ffb4d2a3072ef78269b2573c",
         "type": "github"
       },
       "original": {
@@ -219,19 +218,20 @@
           "linux-builder",
           "kernelsmith",
           "nixpkgs"
-        ]
+        ],
+        "nixpkgs-qemu": "nixpkgs-qemu"
       },
       "locked": {
-        "lastModified": 1786671278,
-        "narHash": "sha256-rSvxoJrhVBUz20atIwjVNOXDQFzwghxnBzPAvlY3qkI=",
+        "lastModified": 1786744488,
+        "narHash": "sha256-lvq2IUnrIbxEO0zTvDKlyXjQHZWT1eXT8B1zICk9L+4=",
         "owner": "rehosting",
         "repo": "linux_builder",
-        "rev": "2efd7d97f5797a269c05872e77f28c76cbd4b4db",
+        "rev": "48b318301cafe50adbbca079a3943c7ab8dd9a39",
         "type": "github"
       },
       "original": {
         "owner": "rehosting",
-        "ref": "nixdev_0.1.0",
+        "ref": "nixdev_0.1.1",
         "repo": "linux_builder",
         "type": "github"
       }
@@ -290,6 +290,22 @@
       "original": {
         "owner": "NixOS",
         "ref": "nixos-24.05",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs-qemu": {
+      "locked": {
+        "lastModified": 1767313136,
+        "narHash": "sha256-16KkgfdYqjaeRGBaYsNrhPRRENs0qzkQVUooNHtoy2w=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "ac62194c3917d5f474c1a844b6fd6da2db95077d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-25.05",
         "repo": "nixpkgs",
         "type": "github"
       }
