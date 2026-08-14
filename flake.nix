@@ -35,9 +35,30 @@
     url = "github:rehosting/qemu";
     inputs.nixpkgs.follows = "nixpkgs";
   };
-  inputs.kernels = {
-    url = "https://github.com/rehosting/linux_builder/releases/download/v3.6.5/kernels-latest.tar.gz";
-    flake = false;
+  # The IGLOO kernels. THIS IS THE kernel SEAM, and unlike the other prebuilt
+  # artifacts above it is a FLAKE, not a release tarball -- linux_builder now
+  # builds from a pristine upstream tarball plus an explicit patch series, with
+  # its cross toolchains resolved by kernelsmith and recorded in its flake.lock
+  # (rehosting/linux_builder#59). We take `packages.<system>.kernels`, the
+  # assembled `<version>/...` tree, rather than `kernels-latest` (the same
+  # payload as a .tar.gz) so we do not pack ~335 MB of archive only to unpack it.
+  #
+  # Why a flake here when `penguin-tools` and `igloo-driver` stay tarballs: the
+  # reason is NOT penguin-qemu's (no /nix/store rpaths to keep alive -- kernel
+  # images are raw and `perf.<target>` is statically linked). It is that the
+  # tarball pin cannot express *which compiler built these kernels*. The Docker
+  # builder fetched its toolchains with unversioned `wget musl.cc/*-cross.tgz`,
+  # so every kernel penguin has ever shipped has no recorded compiler identity.
+  # Consuming the flake puts that identity in our flake.lock.
+  #
+  # Deliberately NO `inputs.nixpkgs.follows`: linux_builder's nixpkgs comes from
+  # kernelsmith, which is what pins the cross toolchains. Forcing it onto ours
+  # would silently rebuild every kernel against a different compiler than the one
+  # its lockfile was tested with, and lose the Cachix hits. These artifacts link
+  # against nothing of ours, so a shared closure buys us nothing here -- the
+  # opposite of the penguin-qemu case.
+  inputs.linux-builder = {
+    url = "github:rehosting/linux_builder/nix-patchset";
   };
   inputs.igloo-driver = {
     url = "https://github.com/rehosting/igloo_driver/releases/download/v0.0.96/igloo_driver.tar.gz";
@@ -136,7 +157,7 @@
       self,
       nixpkgs,
       penguin-qemu,
-      kernels,
+      linux-builder,
       igloo-driver,
       penguin-tools,
       console,
@@ -163,6 +184,11 @@
         let
           pkgs = pkgsFor system;
           lib = pkgs.lib;
+
+          # linux_builder only evaluates its cells for x86_64-linux (the cross
+          # builds are all hosted there); take that set regardless of `system`,
+          # matching how the other prebuilt inputs are consumed below.
+          kernels = linux-builder.packages.x86_64-linux.kernels;
 
           # Package version (penguin reads penguin/version.txt at runtime for
           # `penguin --version`). The version is tag-derived (setuptools_scm
