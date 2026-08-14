@@ -143,17 +143,39 @@
         "url": "https://github.com/rehosting/igloo_driver/releases/download/v0.0.96/igloo_driver.tar.gz"
       }
     },
-    "kernels": {
+    "igloo_driver": {
       "flake": false,
       "locked": {
-        "lastModified": 1785247557,
-        "narHash": "sha256-b90flBGCisEptuaPEIdW9rMTwfE+6ZyklTnlDk4xSU0=",
-        "type": "tarball",
-        "url": "https://github.com/rehosting/linux_builder/releases/download/v3.6.5/kernels-latest.tar.gz"
+        "lastModified": 1786551192,
+        "narHash": "sha256-zeOP0nQEb/uns46MizbcX3DpS4or4EM8XuOmRRIPbo4=",
+        "owner": "rehosting",
+        "repo": "igloo_driver",
+        "rev": "243c889e2b3360b16e5b12d6a20b0c5c0766dd07",
+        "type": "github"
       },
       "original": {
-        "type": "tarball",
-        "url": "https://github.com/rehosting/linux_builder/releases/download/v3.6.5/kernels-latest.tar.gz"
+        "owner": "rehosting",
+        "repo": "igloo_driver",
+        "type": "github"
+      }
+    },
+    "kernelsmith": {
+      "inputs": {
+        "musl-cross-make": "musl-cross-make",
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "lastModified": 1786663087,
+        "narHash": "sha256-uynOJDkUTq7V3gZxNre3CmeMwBSYYoToi1kYea52OPU=",
+        "owner": "rehosting",
+        "repo": "kernelsmith",
+        "rev": "f3220b9a1919076317659310d75b28f0c36fab62",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rehosting",
+        "repo": "kernelsmith",
+        "type": "github"
       }
     },
     "libhc": {
@@ -189,6 +211,31 @@
         "type": "github"
       }
     },
+    "linux-builder": {
+      "inputs": {
+        "igloo_driver": "igloo_driver",
+        "kernelsmith": "kernelsmith",
+        "nixpkgs": [
+          "linux-builder",
+          "kernelsmith",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1786668152,
+        "narHash": "sha256-fA0gyL3VJNbR0jKtCUSj7sxAVy8kqhXXZwb7hdrTOsw=",
+        "owner": "rehosting",
+        "repo": "linux_builder",
+        "rev": "8ff5c95c90321deca40fad58329af6909e9d2332",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rehosting",
+        "ref": "nix-patchset",
+        "repo": "linux_builder",
+        "type": "github"
+      }
+    },
     "ltrace-src": {
       "flake": false,
       "locked": {
@@ -200,6 +247,22 @@
       "original": {
         "type": "tarball",
         "url": "https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-0.7.91.tar.bz2/9db3bdee7cf3e11c87d8cc7673d4d25b/ltrace-0.7.91.tar.bz2"
+      }
+    },
+    "musl-cross-make": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1781646546,
+        "narHash": "sha256-ZGkLvkred/sDa2Mw2/1N+Nh8bvUyujxxOLTZDfd2qN4=",
+        "owner": "richfelker",
+        "repo": "musl-cross-make",
+        "rev": "227df8b99103f9c59f6570babf892978e293082f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "richfelker",
+        "repo": "musl-cross-make",
+        "type": "github"
       }
     },
     "musl-src": {
@@ -216,6 +279,22 @@
       }
     },
     "nixpkgs": {
+      "locked": {
+        "lastModified": 1735563628,
+        "narHash": "sha256-OnSAY7XDSx7CtDoqNh8jwVwh4xNL/2HaJxGjryLWzX8=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "b134951a4c9f3c995fd7be05f3243f8ecd65d798",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-24.05",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
       "locked": {
         "lastModified": 1773201692,
         "narHash": "sha256-NXrKzNMniu4Oam2kAFvqJ3GB2kAvlAFIriTAheaY8hw=",
@@ -271,11 +350,11 @@
         "fw2tar": "fw2tar",
         "guesthopper": "guesthopper",
         "igloo-driver": "igloo-driver",
-        "kernels": "kernels",
         "libnvram": "libnvram",
+        "linux-builder": "linux-builder",
         "ltrace-src": "ltrace-src",
         "musl-src": "musl-src",
-        "nixpkgs": "nixpkgs",
+        "nixpkgs": "nixpkgs_2",
         "penguin-qemu": "penguin-qemu",
         "penguin-tools": "penguin-tools",
         "vhost-device": "vhost-device",
