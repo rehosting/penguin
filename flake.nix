@@ -57,8 +57,13 @@
   # its lockfile was tested with, and lose the Cachix hits. These artifacts link
   # against nothing of ours, so a shared closure buys us nothing here -- the
   # opposite of the penguin-qemu case.
+  # Pinned to the `nixdev_0.1.0` TAG, not the branch: an immutable ref, so this
+  # PR's CI tests a fixed tree rather than a moving target. That tag also cut a
+  # prerelease and, being a push event, populated rehosting-tools with all 19
+  # cells -- so CI here substitutes the kernels instead of cross-building them.
+  # Repin to a release tag (or `main`) once linux_builder#59 lands.
   inputs.linux-builder = {
-    url = "github:rehosting/linux_builder/nix-patchset";
+    url = "github:rehosting/linux_builder/nixdev_0.1.0";
   };
   inputs.igloo-driver = {
     url = "https://github.com/rehosting/igloo_driver/releases/download/v0.0.96/igloo_driver.tar.gz";
