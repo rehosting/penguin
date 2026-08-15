@@ -133,13 +133,13 @@
     "igloo-driver": {
       "flake": false,
       "locked": {
-        "narHash": "sha256-+5ycMvtb7rwpyio+5SLEL4uK5JhYdkIZIqsONcktVHw=",
+        "narHash": "sha256-BIqNrEbjrUFsa7ZUmPzhjznjXsSfW4e2DiVqvP8Lw+I=",
         "type": "tarball",
-        "url": "https://github.com/rehosting/igloo_driver/releases/download/nixdev_0.0.1/igloo_driver.tar.gz"
+        "url": "https://github.com/rehosting/igloo_driver/releases/download/v0.0.97/igloo_driver.tar.gz"
       },
       "original": {
         "type": "tarball",
-        "url": "https://github.com/rehosting/igloo_driver/releases/download/nixdev_0.0.1/igloo_driver.tar.gz"
+        "url": "https://github.com/rehosting/igloo_driver/releases/download/v0.0.97/igloo_driver.tar.gz"
       }
     },
     "igloo_driver": {
@@ -222,16 +222,16 @@
         "nixpkgs-qemu": "nixpkgs-qemu"
       },
       "locked": {
-        "lastModified": 1786744488,
-        "narHash": "sha256-lvq2IUnrIbxEO0zTvDKlyXjQHZWT1eXT8B1zICk9L+4=",
+        "lastModified": 1786767380,
+        "narHash": "sha256-oLZVUeaYA6mO1aCZeE24LM1qUVY13NPHS54wrIA45So=",
         "owner": "rehosting",
         "repo": "linux_builder",
-        "rev": "48b318301cafe50adbbca079a3943c7ab8dd9a39",
+        "rev": "b87fad4abe85c6f6cdee0ab9e892f9bee5d21798",
         "type": "github"
       },
       "original": {
         "owner": "rehosting",
-        "ref": "nixdev_0.1.1",
+        "ref": "v4.0.1",
         "repo": "linux_builder",
         "type": "github"
       }

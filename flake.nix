@@ -57,28 +57,40 @@
   # its lockfile was tested with, and lose the Cachix hits. These artifacts link
   # against nothing of ours, so a shared closure buys us nothing here -- the
   # opposite of the penguin-qemu case.
-  # Pinned to a TAG, not a branch: an immutable ref, so this PR's CI tests a
-  # fixed tree rather than a moving target. The tag build also cut a prerelease
-  # and, being a push event, populated rehosting-tools with all 19 cells -- so
-  # CI here substitutes the kernels instead of cross-building them.
-  # Repin to a release tag (or `main`) once linux_builder#59 lands.
+  # A REAL release tag, not a prerelease: v4.0.1 is the first linux_builder
+  # release cut by its nix path, and the first whose kernels are every one of
+  # them boot-tested. An immutable ref either way, so CI tests a fixed tree.
+  # Being a push event, its build populated rehosting-tools with all 19 cells,
+  # so CI here SUBSTITUTES the kernels instead of cross-building them.
   #
-  # nixdev_0.1.1, not _0.1.0: that release's 4.10/x86_64 kernel built, linked
-  # and packaged, had the right ELF shape, and did not boot -- binutils >= 2.31
-  # emits R_X86_64_PLT32, which Linux only learned in 4.16. It is why
-  # `run_tests (x86_64, 4.10)` failed here. _0.1.1 also adds linux_builder's
-  # boot gate, which is what would have caught it before this repo ever saw it.
+  # The version line jumped 3.6.x -> 4.0.x for this: the kernels are now built
+  # from pristine upstream tarballs plus an explicit patch series, cross-
+  # compiled by kernelsmith with a recorded compiler identity.
+  #
+  # Why that matters here specifically: nixdev_0.1.0's 4.10/x86_64 kernel built,
+  # linked and packaged, had the right ELF shape, and did not boot -- binutils
+  # >= 2.31 emits R_X86_64_PLT32, which Linux only learned in 4.16. That was
+  # `run_tests (x86_64, 4.10)` failing in this repo, found three repos and one
+  # release downstream of the cause. linux_builder now boot-tests every kernel
+  # before it can be released.
   inputs.linux-builder = {
-    url = "github:rehosting/linux_builder/nixdev_0.1.1";
+    url = "github:rehosting/linux_builder/v4.0.1";
   };
   # The nix-built driver, and it MUST move in lockstep with linux-builder above.
-  # v0.0.96 was Docker-built against different kernels: 129 of 221 modversion
+  #
+  # v0.0.96 was Docker-built against DIFFERENT kernels: 129 of 221 modversion
   # CRCs disagreed with these kernels' Module.symvers, which the guest reported
-  # as "igloo: disagrees about version of symbol module_layout" and is why every
-  # 6.13 target failed here. nixdev_0.0.1 is built against the derivations of
-  # the very kernels this flake stages, so that pairing is not expressible.
+  # as "igloo: disagrees about version of symbol module_layout" -- and is why
+  # every 6.13 target failed here.
+  #
+  # v0.0.97 is the first release built by igloo_driver's nix path, compiled
+  # against the kernel DERIVATIONS this flake stages rather than an unpacked
+  # kernel-devel tarball, so a mismatched pair is not expressible. Its
+  # `kernels/BUILT_AGAINST.txt` records linux_builder b87fad4 -- the v4.0.1
+  # commit pinned above -- and the same kernel store paths this flake resolves,
+  # so the pairing is verifiable by content rather than by version number.
   inputs.igloo-driver = {
-    url = "https://github.com/rehosting/igloo_driver/releases/download/nixdev_0.0.1/igloo_driver.tar.gz";
+    url = "https://github.com/rehosting/igloo_driver/releases/download/v0.0.97/igloo_driver.tar.gz";
     flake = false;
   };
   # v0.0.25 is the slimmed penguin-tools: it no longer ships the forked guest
