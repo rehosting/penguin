@@ -11,8 +11,14 @@
 #   ./nix-dev.sh bump <input> [<tag>]     rewrite a pin (default: latest tag) + relock
 #   ./nix-dev.sh build                    nix build .#dockerImage
 #   ./nix-dev.sh load                     build + stream into docker/podman (nix run .#load)
-#   ./nix-dev.sh override <input> <path>  build+load the image with a LOCAL checkout of a
-#                                         guest-tool flake (e.g. ../vpnguin) substituted in
+#   ./nix-dev.sh override <input> <path> [<input> <path> ...]
+#                                         build+load the image with LOCAL sources substituted
+#                                         in. For a flake input that is a checkout with a
+#                                         flake.nix (e.g. ../vpnguin); for a `flake = false`
+#                                         input (igloo-driver, penguin-tools, libnvram,
+#                                         musl-src...) a directory, a nix store path, or a
+#                                         release tarball, matching the layout the fetcher
+#                                         would have produced.
 #   ./nix-dev.sh size                     closure-size breakdown of the image's big pieces
 #
 # Run from anywhere inside the repo; it cds to the flake root itself.
@@ -158,21 +164,106 @@ cmd_bump() {
 cmd_build() { exec nix build "$ROOT#dockerImage" "$@"; }
 cmd_load()  { exec nix run "$ROOT#load" "$@"; }
 
+# Inputs declared `flake = false` are fetched as opaque SOURCE TREES, not
+# flakes, so they have no flake.nix and the "does it have a flake.nix" check
+# below must not apply to them. Read the declaration out of flake.nix rather
+# than keeping a second hand-maintained list here: a new `flake = false` input
+# then works with no change to this script.
+input_is_flake() { # <input> -> 0 if the flake.nix declaration is a real flake input
+  # Matches the block `inputs.<name> = { ... };` and looks for `flake = false`
+  # inside it. Both the one-line and multi-line forms are used in flake.nix.
+  ! awk -v want="$1" '
+    $0 ~ "^[[:space:]]*inputs\\." want "[[:space:]]*=" { inblock = 1 }
+    inblock && /flake[[:space:]]*=[[:space:]]*false/  { found = 1 }
+    inblock && /};/                                   { inblock = 0 }
+    END { exit(found ? 0 : 1) }
+  ' "$FLAKE"
+}
+
+input_declared() { # <input> -> 0 if flake.nix declares it at all
+  grep -qE "^[[:space:]]*inputs\.$1[[:space:]]*=" "$FLAKE"
+}
+
+# Turn one <input> <path> pair into a `path:` flake reference nix can consume,
+# extracting first if the user handed us a release tarball. Tarballs are
+# unpacked to a temp dir recorded in OVERRIDE_TMPDIRS so the caller can clean
+# up only AFTER the build has read them.
+OVERRIDE_TMPDIRS=()
+resolve_override_path() { # <input> <path> -> prints an absolute path
+  local name=$1 path=$2
+
+  if [ -d "$path" ]; then
+    path=$(cd "$path" && pwd)
+    if input_is_flake "$name"; then
+      [ -e "$path/flake.nix" ] || die "$path has no flake.nix, but '$name' is a flake input.
+  Point it at a checkout of the repo (e.g. ../vpnguin), or -- if you meant to
+  substitute a built artifact -- note that '$name' is not a \`flake = false\` input."
+    else
+      # A `flake = false` input is consumed as a tree. An empty dir builds
+      # "successfully" and silently produces an image missing that component,
+      # which is the worst possible failure here, so refuse it.
+      [ -n "$(ls -A "$path" 2>/dev/null)" ] || die "$path is empty; '$name' is consumed as a source tree and an empty tree would build a silently broken image"
+    fi
+    printf '%s\n' "$path"
+    return
+  fi
+
+  if [ -f "$path" ]; then
+    input_is_flake "$name" && die "'$name' is a flake input, so it needs a checkout directory, not the file $path"
+    case "$path" in
+      *.tar.gz|*.tgz|*.tar.xz|*.tar.bz2|*.tar) ;;
+      *) die "don't know how to use $path for '$name' (expected a directory, a nix store path, or a release tarball)" ;;
+    esac
+    local tmp; tmp=$(mktemp -d)
+    OVERRIDE_TMPDIRS+=("$tmp")
+    tar -xf "$path" -C "$tmp" || die "failed to extract $path"
+    # nix's tarball fetcher strips a single leading directory component, so an
+    # extracted tree must be stripped the same way or every path inside the
+    # input gains a level and the build fails deep in mk-igloo-static with a
+    # confusing "no such file" instead of here.
+    #
+    # This rule cannot distinguish a wrapper directory from a tree that
+    # genuinely has one top-level directory -- nix has the same ambiguity -- so
+    # say which component was dropped rather than resolving it silently.
+    local entries; entries=$(ls -A "$tmp")
+    if [ "$(printf '%s\n' "$entries" | wc -l)" = 1 ] && [ -d "$tmp/$entries" ]; then
+      echo "  (stripped the leading '$entries/' component, as nix's tarball fetcher would)" >&2
+      printf '%s\n' "$tmp/$entries"
+    else
+      printf '%s\n' "$tmp"
+    fi
+    return
+  fi
+
+  die "no such file or directory: $path"
+}
+
 cmd_override() {
-  local name=${1:-} path=${2:-}
-  [ -n "$name" ] && [ -n "$path" ] || die "usage: nix-dev.sh override <input> <path-to-local-checkout>"
-  [ -d "$path" ] || die "no such directory: $path"
-  path=$(cd "$path" && pwd)
-  [ -e "$path/flake.nix" ] || die "$path has no flake.nix (override needs a flake input, e.g. vpnguin/console/busybox/guesthopper/penguin-qemu)"
-  echo "Building the penguin image with $name taken from $path ..." >&2
+  [ $# -ge 2 ] && [ $(($# % 2)) -eq 0 ] \
+    || die "usage: nix-dev.sh override <input> <path> [<input> <path> ...]"
+
+  local -a args=() names=()
+  while [ $# -gt 0 ]; do
+    local name=$1 path=$2; shift 2
+    input_declared "$name" || die "flake.nix declares no input named '$name'"
+    local resolved; resolved=$(resolve_override_path "$name" "$path")
+    echo "  $name <- $resolved" >&2
+    args+=(--override-input "$name" "path:$resolved")
+    names+=("$name")
+  done
+
+  echo "Building the penguin image with the above substituted in ..." >&2
   # Same stream-into-daemon path as `load`, hash-tagged so it can't shadow a
-  # release image; the override applies to the whole build.
+  # release image; the overrides apply to the whole build.
   local engine=docker
   command -v docker >/dev/null 2>&1 || { command -v podman >/dev/null 2>&1 && engine=podman || die "need docker or podman"; }
-  nix build "$ROOT#dockerImageStreamHashed" --override-input "$name" "path:$path" -o "$ROOT/result-override"
+  # Clean up extracted tarballs however we exit, but not before the build has
+  # read them.
+  trap '[ ${#OVERRIDE_TMPDIRS[@]} -eq 0 ] || rm -rf "${OVERRIDE_TMPDIRS[@]}"' EXIT
+  nix build "$ROOT#dockerImageStreamHashed" "${args[@]}" -o "$ROOT/result-override"
   "$ROOT/result-override" | "$engine" load
   rm -f "$ROOT/result-override"
-  echo "note: this image contains your LOCAL $name -- rebuild without override before comparing against CI." >&2
+  echo "note: this image contains your LOCAL ${names[*]} -- rebuild without override before comparing against CI." >&2
 }
 
 cmd_size() {
