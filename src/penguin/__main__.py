@@ -372,17 +372,19 @@ def _do_package(project_dir, output_path, with_snapshots=()):
     # Include auto-patching files exactly as PENGUIN computes them
     raw_core = raw_config.get("core", {})
     if raw_core.get("auto_patching", True):
-        patch_files = list(Path(project_dir_abs).glob("patch_*.yaml"))
+        # Sort so auto-discovered patches match penguin_config ordering and are
+        # applied deterministically regardless of filesystem enumeration order.
+        patch_files = sorted(Path(project_dir_abs).glob("patch_*.yaml"))
         patches_dir = Path(project_dir_abs, "patches")
 
         if patches_dir.exists():
-            patch_files += list(patches_dir.glob("*.yaml"))
+            patch_files += sorted(patches_dir.glob("*.yaml"))
 
         for pf in patch_files:
             _add_file(pf)
 
         # Catch loose .patch or .diff files too just in case
-        for root_file in os.listdir(project_dir_abs):
+        for root_file in sorted(os.listdir(project_dir_abs)):
             if root_file.endswith(".patch") or root_file.endswith(".diff"):
                 _add_file(root_file)
 
