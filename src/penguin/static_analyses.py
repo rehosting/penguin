@@ -101,7 +101,9 @@ class FileSystemHelper:
 
         # iterate through each file in the extracted root directory
         for root, dirs, files in os.walk(extract_root):
-            for filename in files:
+            # Deterministic traversal independent of filesystem ordering.
+            dirs.sort()
+            for filename in sorted(files):
                 filepath = os.path.join(root, filename)
 
                 # skip our files in the "./igloo" path

@@ -319,10 +319,12 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
 
     # look for files called patch_*.yaml in the same directory as the config file
     if config.core.auto_patching:
-        patch_files = list(Path(proj_dir).glob("patch_*.yaml"))
+        # glob() returns entries in filesystem order; sort so auto-discovered
+        # patches are always applied in a stable, reproducible order.
+        patch_files = sorted(Path(proj_dir).glob("patch_*.yaml"))
         patches_dir = Path(proj_dir, "patches")
         if patches_dir.exists():
-            patch_files += list(patches_dir.glob("*.yaml"))
+            patch_files += sorted(patches_dir.glob("*.yaml"))
         if patch_files:
             if config.patches is None:
                 config.patches = structure.Patches(root=[])

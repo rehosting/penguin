@@ -120,12 +120,14 @@ class FileHelper:
                 if e.is_file and e.executable:
                     yield Path(e.path)
             return
-        for root, _, files in os.walk(tmp_dir):
+        for root, dirs, files in os.walk(tmp_dir):
+            # Deterministic traversal: os.walk order is filesystem-dependent.
+            dirs.sort()
             # Exclude the '/igloo' path
             if "/igloo" in root:
                 continue
 
-            for file in files:
+            for file in sorted(files):
                 file_path = Path(root) / file
                 if file_path.is_file() and os.access(file_path, os.X_OK):
                     yield file_path
@@ -335,7 +337,7 @@ class NvramHelper:
                 candidates = (
                     (os.path.join(root, file), file)
                     for root, _, files in os.walk(fs_path)
-                    for file in files
+                    for file in sorted(files)
                 )
             for abs_path, file in candidates:
                 rel_path = "./" + os.path.relpath(abs_path, fs_path)

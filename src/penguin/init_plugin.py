@@ -186,6 +186,10 @@ class FileIndex:
                     is_symlink=os.path.islink(p),
                     executable=os.access(p, os.X_OK),
                 ))
+        # os.walk order depends on the underlying filesystem and is not
+        # reproducible across machines/extractions. Sort by relative path so
+        # every init plugin that iterates self.entries sees a stable order.
+        entries.sort(key=lambda e: e.rel)
         self.entries = entries
 
     def files(self):

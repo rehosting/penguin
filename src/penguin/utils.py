@@ -637,7 +637,7 @@ def get_available_kernel_versions() -> List[Tuple[int, ...]]:
         return []
 
     versions = []
-    for entry in os.listdir(kernels_dir):
+    for entry in sorted(os.listdir(kernels_dir)):
         entry_path = os.path.join(kernels_dir, entry)
         if os.path.isdir(entry_path):
             try:
