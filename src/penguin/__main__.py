@@ -176,6 +176,19 @@ def get_file_hash(filename):
     return sha256.hexdigest()
 
 
+def _ensure_parent_dir(path):
+    """Create the parent directory of `path`, if it has one.
+
+    `os.path.dirname("ap")` is `""`, and `os.makedirs("")` raises
+    `FileNotFoundError` regardless of `exist_ok` -- so a relative --output with
+    no directory component (`penguin init fw.rootfs.tar.gz --output ap`) used to
+    crash before the project was created.
+    """
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+
 def _startup_checks(verbose):
     """Performs hash checks and logging that should only run during execution, not help."""
     if verbose:
@@ -611,7 +624,7 @@ def init(ctx, rootfs, output, force, output_base, jobs, init_plugin_path, enable
                 f"Project directory already exists: {output}. Use --force to delete."
             )
 
-    os.makedirs(os.path.dirname(output), exist_ok=True)
+    _ensure_parent_dir(output)
 
     out_config_path = Path(output, "config.yaml")
     config = fakeroot_gen_config(
