@@ -2,100 +2,22 @@
 HookLogger Plugin
 =================
 
-The HookLogger plugin provides a high-level, "easy mode" interface for dynamic binary instrumentation in Penguin.
-It allows users to register uprobes and syscall hooks using simple, format-string-style "actions" without writing custom callback code.
-
-It handles the complexities of:
-- Architecture-specific argument retrieval (calling conventions).
-- Memory dereferencing (reading strings, pointers, buffers).
-- Endianness conversion (automatically detected).
-- Context management (pairing entry/exit probes to capture return values).
-
-Action String Format
---------------------
-
-The core of HookLogger is the **Action String**, which defines what data to capture and how to format it.
-
-**Basic Syntax:**
-
-.. code-block:: text
-
-    [bp|break] [print] func_name(arg_fmt1, arg_fmt2, ...) [= ret_fmt1, ...]
-
-- **`func_name`**: The name of the function or syscall (e.g., `malloc`, `sys_read`).
-- **`(...)`**: A comma-separated list of formats for the function arguments (captured at Entry).
-- **`= ...`**: (Optional) A comma-separated list of formats for the return value(s) (captured at Exit).
-- **`bp` or `break`**: If present, triggers a Python breakpoint (PDB) when hit.
-
-**Format Specifiers:**
-
-| Specifier | Description | Data Source |
-| :--- | :--- | :--- |
-| ``%d`` / ``%i`` | Signed Integer | Register/Stack Value |
-| ``%u`` | Unsigned Integer | Register/Stack Value |
-| ``%x`` / ``%X`` | Hexadecimal | Register/Stack Value |
-| ``%p`` | Pointer (0x...) | Register/Stack Value |
-| ``%s`` | String (char*) | Dereferences pointer at **Entry** (reads null-term string) |
-| ``%c`` | Character | Lower 8 bits of value |
-| ``%b`` | Boolean | True/False |
-| ``%fd`` | File Descriptor | Resolves FD to filename (via OSI) |
-| ``%proc`` | Process Name | Current process name (via OSI) |
-| ``%x64``, ``%u32``... | Memory Dump | Reads specific bit-width from pointer (8, 16, 32, 64) |
-
-**Deferred Resolution (:out):**
-
-By default, pointer types like ``%s`` are dereferenced immediately at function entry. However, for output parameters (buffers filled by the function), you need to capture the pointer at entry but read the memory at exit.
-
-Append ``:out`` to any format specifier to defer resolution:
-
-- ``%s:out``: Capture char* at entry, read string at exit.
-- ``%x64:out``: Capture void* at entry, read 64 bits at exit.
-
-**Example:** Hooking `read(fd, buf, len)` to see the data read:
-
-.. code-block:: text
+"Easy mode" for dynamic binary instrumentation: register uprobes and syscall
+hooks from printf-style *action strings* instead of writing callbacks.
 
     sys_read(%fd, %s:out, %d) = %d
 
-Arguments & Filters
--------------------
+It handles per-arch argument retrieval, memory dereferencing, endianness, and
+pairing entry/exit probes to capture return values.
 
-When registering a hook (via Python or RemoteCtrl), the following arguments control scope and output:
+The action-string grammar, the format specifiers, deferred (``:out``)
+resolution, the filters, and both drivers (the ``breakpoint`` CLI and the
+Python API) are documented in ``docs/hooklogger.md``:
 
-- **`pid_filter`** *(int)*: Only trigger if the current PID matches this value.
-- **`process_filter`** *(str)*: Only trigger if the current process name matches this string.
-- **`logfile`** *(str)*: If provided, appends output to this file in the results directory. If omitted, output goes to the standard Penguin logger.
+    penguin docs --filename hooklogger.md
 
-Example Usage
--------------
-
-**Via CLI (using cli_breakpoint.py):**
-
-.. code-block:: bash
-
-    # Basic input tracing
-    cli_breakpoint.py uprobe --path /lib/libc.so.6 --symbol strlen --action "print %s"
-
-    # Capture output buffer (Deferred)
-    cli_breakpoint.py syscall --name sys_read --action "print %fd, %s:out, %d = %d"
-
-    # Filter by PID and log to file
-    cli_breakpoint.py uprobe --path /bin/mybin --symbol do_work --action "print %x, %d" --pid 1234 --output work.log
-
-**Via Python API:**
-
-.. code-block:: python
-
-    plugins.load_plugin('hooklogger')
-
-    # Register a hook
-    plugins.hooklogger.register_uprobe(
-        path="/usr/bin/wget",
-        symbol="connect",
-        action_str="print(%fd, %p) = %d",
-        process_filter="wget",
-        logfile="connections.log"
-    )
+Keep that page as the reference; this docstring is deliberately a summary so
+the two cannot drift.
 """
 
 from penguin import Plugin, plugins
