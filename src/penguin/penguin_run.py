@@ -12,7 +12,7 @@ from pathlib import Path
 from time import sleep
 from penguin import getColoredLogger, plugins
 
-from .common import yaml, style_config_for_dump
+from .common import yaml, style_config_for_dump, get_inits_from_proj
 from yamlcore import CoreDumper, CoreLoader
 from .defaults import default_plugin_path, vnc_password
 from penguin.penguin_config import load_config
@@ -383,21 +383,17 @@ def run_config(
         if init:
             conf["env"]["igloo_init"] = init
         else:
-            try:
-                with open(
-                    os.path.join(*[os.path.dirname(conf_yaml), "base", "env.yaml"]), "r"
-                ) as f:
-                    # Read yaml file, get 'igloo_init' key
-                    inits = yaml.safe_load(f)["igloo_init"]
-            except FileNotFoundError:
-                inits = []
+            # Init candidates live in static/InitFinder.yaml; base/ has held
+            # only fs.tar.gz for some time, so this list was always empty and
+            # the error below always said "identified the following: []".
+            inits = get_inits_from_proj(os.path.dirname(conf_yaml))
             raise RuntimeError(
                 f"No init binary is specified in configuration, set one in config's env section as igloo_init. Static analysis identified the following: {inits}"
             )
     if conf["env"]["igloo_init"] == "UNKNOWN_FIX_ME":
         logger.error("No init binary specified in config, and static analysis did not identify any candidates")
         raise RuntimeError(
-            "env.igloo_init in configuration is set to UNKNOWN_FIX_ME. This indicates that we could not find the correct init binary. Please determine the correct init binary and update the config value in static_files/base.yaml"
+            "env.igloo_init in configuration is set to UNKNOWN_FIX_ME. This indicates that we could not find the correct init binary. Please determine the correct init binary and update the config value in static_patches/base.yaml"
         )
 
     archend = conf["core"]["arch"]

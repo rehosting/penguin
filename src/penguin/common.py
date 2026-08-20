@@ -348,17 +348,18 @@ def getColoredLogger(name):
 
 def get_inits_from_proj(proj_dir):
     '''
-    Given a project directory, find a default init from
-    static/InitFinder.yaml
+    Given a project directory, return the statically-identified init
+    candidates from static/InitFinder.yaml (a list, shortest path first).
 
-    Raises RuntimeError if no init can be found.
+    Returns an empty list when the file is absent or empty -- callers do
+    `len(options)` / `options[0]`, so never None.
     '''
 
     inits_path = join(*[proj_dir, "static", "InitFinder.yaml"])
     if isfile(join(inits_path)):
         with open(inits_path, "r") as f:
-            options = yaml.safe_load(f)
-            return options
+            return yaml.safe_load(f) or []
+    return []
 
 
 def dict_to_frozenset(d):
