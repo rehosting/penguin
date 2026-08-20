@@ -232,8 +232,14 @@ through the container's localhost
 on the container's per-run IP address:
 
 - `./connect.sh` — attach to the serial console.
-- `./connect.sh <cmd...>` — run a command on the serial console and print its
-  output.
+- `./connect.sh <cmd...>` — run a command on the serial console, print its
+  output, and exit with the command's own status. Waits up to
+  `PENGUIN_CONNECT_TIMEOUT` seconds (default 15) for the guest to answer, and
+  exits 1 with a diagnostic if it does not — so it is safe in a script:
+
+  ```sh
+  if ./connect.sh "test -f /var/run/httpd.pid"; then echo "httpd is up"; fi
+  ```
 
 It requires `core.root_shell: true` (there is no serial console otherwise) and
 prints how to enable it when it is off.
