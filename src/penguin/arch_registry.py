@@ -159,6 +159,41 @@ _SPECS = (
         serial=(4, 65),
         endianness="big",
     ),
+    # Cavium Octeon is a MIPS64 superset. It runs the stock mips64{eb,el}
+    # kernel, dylibs, kmod and ABI, so every asset/subdir points back at the
+    # base arch; the ONLY difference is the QEMU CPU model, which must expose
+    # the Cavium ASE opcodes. arch.py emits these names when it sees the Octeon
+    # EF_MIPS_MACH tag in a 64-bit ELF.
+    ArchSpec(
+        canonical="mips64eb_octeon",
+        aliases=("octeon", "mips64be_octeon"),
+        arch_subdir="mips64eb",
+        dylib_subdir="mips64eb",
+        _kmod_subdir="mips64eb",
+        qemu_arch="mips64",
+        qemu_machine="malta",
+        cpu="Octeon68XX",
+        _kconf_group="mips64eb",
+        _kernel_whole="vmlinux.mips64eb",
+        _abi_key="mips64eb",
+        serial=(4, 65),
+        endianness="big",
+    ),
+    ArchSpec(
+        canonical="mips64el_octeon",
+        aliases=("octeonel",),
+        arch_subdir="mips64el",
+        dylib_subdir="mips64el",
+        _kmod_subdir="mips64el",
+        qemu_arch="mips64el",
+        qemu_machine="malta",
+        cpu="Octeon68XX",
+        _kconf_group="mips64el",
+        _kernel_whole="vmlinux.mips64el",
+        _abi_key="mips64el",
+        serial=(4, 65),
+        endianness="little",
+    ),
     ArchSpec(
         canonical="powerpc",
         aliases=("ppc",),
