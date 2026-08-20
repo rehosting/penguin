@@ -297,6 +297,46 @@ def check_precedence(stubs, existing_aliases, resolver=None):
             )
 
 
+# Linker-reported providers that are not a source file: lld names the
+# --defsym-created symbol and its own synthetic table, GNU ld reports neither.
+_SYNTHETIC_PROVIDERS = ("<internal>", "--defsym")
+
+# `<file>: definition of <symbol>`, as emitted by --trace-symbol. GNU ld
+# prefixes the line with its own name ("/usr/bin/ld: dropin.o: definition of
+# x"), so match the rightmost such pair.
+_TRACE_DEFINITION = re.compile(
+    r"([^\s:]+): definition of ([^\s]+)\s*$"
+)
+
+
+def trace_symbol_flags(symbols):
+    """Linker flags asking for a --trace-symbol report on each of `symbols`."""
+    return [f"-Wl,--trace-symbol={sym}" for sym in sorted(symbols)]
+
+
+def parse_symbol_trace(stderr, symbols):
+    """Find non-synthetic definitions of `symbols` in --trace-symbol output.
+
+    Returns ``{symbol: [provider, ...]}`` for symbols that something other than
+    the generated ``--defsym`` alias also defines -- i.e. a stub and a
+    hand-written ``lib_inject.d/`` drop-in both claiming one symbol. Nothing to
+    report is an empty dict.
+    """
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode(errors="replace")
+    wanted = set(symbols)
+    found = {}
+    for line in stderr.splitlines():
+        m = _TRACE_DEFINITION.search(line.strip())
+        if not m:
+            continue
+        provider, sym = m.group(1), m.group(2)
+        if sym not in wanted or provider in _SYNTHETIC_PROVIDERS:
+            continue
+        found.setdefault(sym, []).append(provider)
+    return found
+
+
 def _shim_name(sym):
     return f"__igloo_stub_{_c_ident(sym)}"
 
