@@ -325,3 +325,79 @@ def test_merge_patches_into_static_files():
             {"/c": {"type": "inline_file", "contents": "x"}},
             {"/c": [{"file_offset": 0, "asm": "nop"}]},
         )
+
+
+# ---------------------------------------------------------------------------
+# Stub-vs-drop-in symbol ownership (--trace-symbol reporting)
+#
+# A generated stub aliases its symbol with the linker's --defsym, which
+# silently outranks a hand-written definition of the same symbol in
+# lib_inject.d/: the drop-in's code stays in the .so with no symbol pointing at
+# it. Two *real* definitions would be a hard "duplicate symbol" error, so the
+# stub machinery suppresses a diagnostic the toolchain already gives. We restore
+# it by asking the linker to name every definition of each stubbed symbol.
+#
+# The sample outputs below are real, captured from ld.lld and GNU ld.
+# ---------------------------------------------------------------------------
+
+LLD_TRACE_CONFLICT = """\
+dropin.o: definition of nvram_get
+<internal>: definition of nvram_get
+<internal>: definition of get_flag
+--defsym: definition of nvram_get
+--defsym: definition of get_flag
+"""
+
+LLD_TRACE_CLEAN = """\
+<internal>: definition of nvram_get
+<internal>: definition of get_flag
+--defsym: definition of nvram_get
+--defsym: definition of get_flag
+"""
+
+GNU_LD_TRACE_CONFLICT = "/usr/bin/ld: dropin.o: definition of nvram_get\n"
+
+
+def test_trace_symbol_flags_are_one_per_symbol():
+    assert stubs.trace_symbol_flags({"b_sym", "a_sym"}) == [
+        "-Wl,--trace-symbol=a_sym",
+        "-Wl,--trace-symbol=b_sym",
+    ]
+
+
+def test_trace_symbol_flags_empty():
+    assert stubs.trace_symbol_flags(set()) == []
+
+
+def test_parse_trace_finds_the_dropin_definition():
+    conflicts = stubs.parse_symbol_trace(
+        LLD_TRACE_CONFLICT, {"nvram_get", "get_flag"}
+    )
+    assert conflicts == {"nvram_get": ["dropin.o"]}
+
+
+def test_parse_trace_ignores_synthetic_providers():
+    """--defsym and lld's <internal> table always report a definition."""
+    assert stubs.parse_symbol_trace(LLD_TRACE_CLEAN, {"nvram_get", "get_flag"}) == {}
+
+
+def test_parse_trace_handles_gnu_ld_line_prefix():
+    """GNU ld prefixes its own name, so the file is the rightmost pair."""
+    assert stubs.parse_symbol_trace(GNU_LD_TRACE_CONFLICT, {"nvram_get"}) == {
+        "nvram_get": ["dropin.o"]
+    }
+
+
+def test_parse_trace_accepts_bytes():
+    assert stubs.parse_symbol_trace(
+        LLD_TRACE_CONFLICT.encode(), {"nvram_get"}
+    ) == {"nvram_get": ["dropin.o"]}
+
+
+def test_parse_trace_only_reports_requested_symbols():
+    assert stubs.parse_symbol_trace(LLD_TRACE_CONFLICT, {"get_flag"}) == {}
+
+
+def test_parse_trace_ignores_unrelated_output():
+    noisy = "clang-20: warning: argument unused\nld.lld: error: undefined symbol: x\n"
+    assert stubs.parse_symbol_trace(noisy, {"nvram_get"}) == {}

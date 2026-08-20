@@ -75,6 +75,59 @@ def _append_build_log(build_log_path, message):
         f.write(message.rstrip() + "\n")
 
 
+def _discard_link_output(args):
+    """Copy `args` with the `-o -` output target redirected to /dev/null."""
+    out = list(args)
+    for i in range(len(out) - 1):
+        if out[i] == "-o" and out[i + 1] == "-":
+            out[i + 1] = os.devnull
+            break
+    return out
+
+
+def _warn_stub_dropin_conflicts(args, extra, stub_symbols, arch, abi, build_log_path):
+    """Warn when a lib_inject.d/ drop-in also defines a stubbed symbol.
+
+    A generated stub aliases its symbol with the linker's ``--defsym``, which
+    silently outranks a hand-written definition: the drop-in's function is left
+    in the .so with nothing pointing at it, where *two* real definitions would
+    be a hard "duplicate symbol" error. ``--trace-symbol`` names every provider
+    of a symbol, so it can tell us exactly when that has happened.
+
+    This runs as its own throwaway link rather than riding along on the real
+    one. The artifact link writes the .so to **stdout** (``-o -``), and lld
+    writes its --trace-symbol report to stdout as well, so those flags on that
+    link would corrupt the library. Only reached when a project has both stubs
+    and drop-ins, which is the only way to collide.
+    """
+    from penguin import stubs as stubs_mod
+
+    trace_args = (_discard_link_output(args)
+                  + stubs_mod.trace_symbol_flags(stub_symbols))
+    try:
+        t = subprocess.run(
+            trace_args, input=extra.encode(),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+    except OSError as e:  # pragma: no cover - toolchain absent
+        _append_build_log(build_log_path, f"[{arch}/{abi}] symbol trace failed: {e}")
+        return
+
+    # lld reports on stdout, GNU ld on stderr; read both.
+    for sym, providers in sorted(
+        stubs_mod.parse_symbol_trace(t.stdout + t.stderr, stub_symbols).items()
+    ):
+        msg = (
+            f"[{arch}/{abi}] WARNING: symbol {sym!r} is stubbed via "
+            f"lib_inject.stubs and also defined by {', '.join(providers)} "
+            f"(a lib_inject.d/ drop-in). The generated stub wins and the "
+            f"hand-written definition is dead code -- define it in only one "
+            f"place."
+        )
+        print(msg)
+        _append_build_log(build_log_path, msg)
+
+
 def _summarize_compiler_stderr(stderr):
     text = stderr.decode(errors="replace") if isinstance(stderr, bytes) else str(stderr)
     patterns = re.compile(r"(error:|fatal error:|undefined reference|ld\.lld: error|clang-\d+: error)", re.IGNORECASE)
@@ -113,6 +166,7 @@ def add_lib_inject_for_abi(config, abi, cache_dir, proj_dir=None, build_log_path
     stub_c_paths = []
     stub_include = []
     stub_signature = []
+    stub_symbols = set()
     stubs_cfg = lib_inject.get("stubs", dict())
     if stubs_cfg and proj_dir:
         from penguin import stubs as stubs_mod
@@ -131,6 +185,7 @@ def add_lib_inject_for_abi(config, abi, cache_dir, proj_dir=None, build_log_path
         stub_c_paths = stubs_mod.write_files(gen_dir, files)
         stub_include = ["-I", str(gen_dir)]
         aliases.update(stub_aliases)
+        stub_symbols = set(stub_aliases)
         for p in stub_c_paths:
             try:
                 stub_signature.append((Path(p).name, Path(p).read_bytes()))
@@ -248,6 +303,11 @@ def add_lib_inject_for_abi(config, abi, cache_dir, proj_dir=None, build_log_path
             print(_summarize_compiler_stderr(p.stderr))
             raise Exception("Failed to build lib_inject")
         so_data = p.stdout
+        if stub_symbols and dropin_c:
+            _warn_stub_dropin_conflicts(
+                args, lib_inject.get("extra", ""), stub_symbols,
+                arch, abi, build_log_path,
+            )
         cache_path.write_bytes(so_data)
         _append_build_log(build_log_path, f"[{arch}/{abi}] wrote cache")
 
