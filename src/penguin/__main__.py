@@ -22,7 +22,6 @@ from .manager import PandaRunner, calculate_score
 from .run_summary import write_run_summary
 from penguin.penguin_config import load_config
 
-from .plugin_manager import find_local_plugins
 from .utils import hash_image_inputs
 from .compose import run_compose, scaffold_compose
 from .utils_cli import utils as _utils_group
@@ -272,18 +271,33 @@ def _do_package(project_dir, output_path, with_snapshots=()):
 
     logger.info(f"Packaging project {project_dir_abs} into {output_path}...")
 
-    # Discover local plugins using the shared logic
-    plugins_dict = config.get("plugins", {})
-    local_plugins = find_local_plugins(list(plugins_dict.keys()), project_dir_abs)
+    # Include the entire project directory except generated outputs, so
+    # user-added files (binaries, keys, helper scripts) always travel with
+    # the archive. qcows/ is bundled separately via --with-snapshot.
+    excluded_dirs = {"results", "compose_results", "qcows"}
 
-    for lp in local_plugins:
-        logger.info(f"Ensuring local plugin is included: {os.path.relpath(lp, project_dir_abs)}")
+    output_path = os.path.abspath(output_path)
+    output_rel = None
+    if output_path.startswith(project_dir_abs + os.sep):
+        output_rel = os.path.relpath(output_path, project_dir_abs)
 
-    added_project_files = set()
-    external_files_to_copy = set()
     project_files_list = []
+    for entry in sorted(os.listdir(project_dir_abs)):
+        if entry in excluded_dirs or entry == ".penguin_packaged_version":
+            continue
+        # Don't pack the archive we're about to write into itself
+        if entry == output_rel:
+            continue
+        project_files_list.append(entry)
+
+    external_files_to_copy = set()
 
     def _add_file(file_path):
+        """
+        Check a config-referenced file: warn if it's missing, and scoop it
+        into external_files/ staging if it lives outside the project dir.
+        Files inside the project dir are already included wholesale.
+        """
         if not file_path:
             return
 
@@ -307,28 +321,8 @@ def _do_package(project_dir, output_path, with_snapshots=()):
         if not abs_path.startswith(project_dir_abs):
             logger.info(f"Pulling in external local file into archive: {file_path_str}")
             external_files_to_copy.add(abs_path)
-        else:
-            rel_path = os.path.relpath(abs_path, project_dir_abs)
-            if rel_path not in added_project_files:
-                project_files_list.append(rel_path)
-                added_project_files.add(rel_path)
 
-    # Always include config.yaml
-    _add_file("config.yaml")
-
-    # Always include the static directory wholesale
-    static_dir = os.path.join(project_dir_abs, "static")
-    if os.path.exists(static_dir):
-        _add_file("static")
-
-    # Bundle drop-in directories wholesale so .c/.h sources and disabled
-    # plugins travel with the project even when nothing references them
-    # directly via static_files.
-    for dropin in ("init.d", "source.d", "plugins.d"):
-        if os.path.exists(os.path.join(project_dir_abs, dropin)):
-            _add_file(dropin)
-
-    # Add explicit file references from the VALIDATED config
+    # Check explicit file references from the VALIDATED config
     core = config.get("core", {})
     _add_file(core.get("fs"))
     _add_file(core.get("kernel"))
@@ -339,7 +333,8 @@ def _do_package(project_dir, output_path, with_snapshots=()):
             if isinstance(file_info, dict) and file_info.get("type") == "host_file":
                 _add_file(file_info.get("host_path"))
 
-    # Include explicit patches from the UNPATCHED (raw) config
+    # Check explicit patches from the UNPATCHED (raw) config for
+    # missing or external references
     with open(config_path, "r") as f:
         raw_config = yaml.safe_load(f) or {}
 
@@ -355,27 +350,6 @@ def _do_package(project_dir, output_path, with_snapshots=()):
     if isinstance(raw_patches, list):
         for patch in raw_patches:
             _add_file(patch)
-
-    # Include auto-patching files exactly as PENGUIN computes them
-    raw_core = raw_config.get("core", {})
-    if raw_core.get("auto_patching", True):
-        patch_files = list(Path(project_dir_abs).glob("patch_*.yaml"))
-        patches_dir = Path(project_dir_abs, "patches")
-
-        if patches_dir.exists():
-            patch_files += list(patches_dir.glob("*.yaml"))
-
-        for pf in patch_files:
-            _add_file(pf)
-
-        # Catch loose .patch or .diff files too just in case
-        for root_file in os.listdir(project_dir_abs):
-            if root_file.endswith(".patch") or root_file.endswith(".diff"):
-                _add_file(root_file)
-
-    # Include discovered local plugins
-    for lp in local_plugins:
-        _add_file(lp)
 
     # Build the package using tar and pigz
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -416,6 +390,14 @@ def _do_package(project_dir, output_path, with_snapshots=()):
         tar_cmd = [
             "tar",
             "-I", "pigz",
+        ]
+
+        # If the output archive lands in a subdirectory of the project,
+        # make sure tar doesn't try to pack it into itself
+        if output_rel and os.sep in output_rel:
+            tar_cmd += ["--exclude", output_rel]
+
+        tar_cmd += [
             "-cf", output_path,
             "-C", project_dir_abs,
             "-T", files_list_path,
@@ -1035,8 +1017,9 @@ def pack(ctx, project_dir, out, with_snapshot):
     """
     Package a penguin project into a distributable archive.
 
-    Creates a tar.gz pulling in configs, base, and static patches while omitting
-    results and qcows. Pass --with-snapshot TAG to additionally bundle a saved
+    Creates a tar.gz of the whole project directory (including any user-added
+    binaries or other files) while omitting generated outputs (results,
+    compose_results, qcows). Pass --with-snapshot TAG to additionally bundle a saved
     VM snapshot (made portable via a relative backing rebase) for capture & share.
     """
     _startup_checks(ctx.obj['VERBOSE'])
