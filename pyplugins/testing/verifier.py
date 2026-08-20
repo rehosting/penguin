@@ -39,6 +39,18 @@ class Verifier(Plugin):
         self.outdir = self.get_arg("outdir")
         self.conditions = self.get_arg("conditions")
 
+        if not self.conditions:
+            # A verifier with nothing to verify is a misconfiguration, not a
+            # pass: `all({}.values())` is True, so this used to report "ALL
+            # tests passed" and write JUnit XML with tests="0" failures="0" --
+            # which is exactly what CI reads. Say so now, and fail the run's
+            # verdict below rather than reporting a vacuous green.
+            self.logger.error(
+                "Verifier loaded with no test conditions; nothing will be "
+                "verified. Set plugins.verifier.conditions (a zero-condition "
+                "run is reported as a failure, not a pass)."
+            )
+
         self.continuous_eval = self.get_arg("continuous_eval") or False
 
         if self.continuous_eval:
@@ -49,12 +61,21 @@ class Verifier(Plugin):
             )
             self.eval_thread.start()
 
+    @staticmethod
+    def _all_passed(results):
+        """True only if there was at least one condition and all of them passed.
+
+        Guards the `all({}.values()) is True` trap: an empty result set means
+        nothing was checked, which must never read as success.
+        """
+        return bool(results) and all(results.values())
+
     def eval_thread(self):
         while True:
             if self.shutdown_event.is_set():
                 return
             _, results = self.check_test_cases()
-            if all(results.values()):
+            if self._all_passed(results):
                 self.logger.info("Verifier: ALL tests passed")
                 self.shutdown_event.set()
                 self.panda.end_analysis()
@@ -219,7 +240,17 @@ class Verifier(Plugin):
             test_type = self.conditions[name]["type"]
             test = getattr(self, f"test_{test_type}", None)
             if test is None:
-                print(f"Verifier does not have test_{test_type}")
+                # Record it as a failure: skipping left the condition out of
+                # `results` entirely, so a set of conditions whose types were
+                # all misspelled produced an empty (vacuously passing) result.
+                self.logger.error(
+                    f"Test {name}: no test_{test_type} -- unknown condition "
+                    f"type {test_type!r}"
+                )
+                results[name] = False
+                tc = TestCase(name=name, stdout="", stderr="")
+                tc.add_failure_info(f"Unknown condition type '{test_type}'")
+                test_cases.append(tc)
                 continue
             test_passed = test(name, self.conditions[name])
 
@@ -240,6 +271,17 @@ class Verifier(Plugin):
         self.logger.info("Running verifier")
         test_cases, results = self.check_test_cases()
 
+        if not results:
+            # Nothing ran. Write a failing test case rather than an empty
+            # suite: tests="0" failures="0" passes every JUnit consumer.
+            tc = TestCase(name="verifier.no_conditions", stdout="", stderr="")
+            tc.add_failure_info(
+                "Verifier ran with no test conditions, so nothing was "
+                "verified. Set plugins.verifier.conditions."
+            )
+            test_cases.append(tc)
+            results["verifier.no_conditions"] = False
+
         for tc in test_cases:
             test_passed = results[tc.name]
             if not test_passed:
@@ -254,7 +296,7 @@ class Verifier(Plugin):
         self.logger.info(
             f"Verified output written to {join(self.outdir, 'verifier.xml')}")
 
-        if all(results.values()):
+        if self._all_passed(results):
             self.logger.info(f"{GREEN}Verifier: ALL tests passed{END}")
         else:
             self.logger.info(f"{RED}Verifier: Some tests failed{END}")
