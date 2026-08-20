@@ -61,6 +61,13 @@ these values at the end of execution.
 The plugin also creates `health_procs.txt` as a sorted list of processes run and
 `health_procs_with_args.txt` as a sorted list of processes with their arguments.
 
+## HookLogger
+"Easy mode" instrumentation: register uprobes and syscall hooks from
+printf-style action strings (`sys_read(%fd, %s:out, %d) = %d`) instead of
+writing callbacks. Drive it from the `breakpoint` CLI (over the RemoteCtrl
+plugin's socket) or the Python API. The grammar, format specifiers and filters
+are in [hooklogger.md](hooklogger.md).
+
 ## Interfaces
 Track network interfaces referenced in executed commands. Results are
 reported in `iface.log`.
