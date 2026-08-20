@@ -90,6 +90,14 @@ def assert_penguin_run_succeeded():
 
     failures = sum(int(suite.get("failures", 0)) for suite in root.iter("testsuite"))
     errors = sum(int(suite.get("errors", 0)) for suite in root.iter("testsuite"))
+    tests = sum(int(suite.get("tests", 0)) for suite in root.iter("testsuite"))
+    # An empty suite reports failures="0" and would otherwise pass here, so a
+    # verifier that checked nothing would read as a green run.
+    if not tests:
+        raise AssertionError(
+            f"Penguin verifier ran no test cases (tests=\"0\" in {verifier_xml}); "
+            "nothing was actually verified"
+        )
     if failures or errors:
         failed_msg = ", ".join(failed) if failed else "unknown verifier testcase"
         raise AssertionError(
