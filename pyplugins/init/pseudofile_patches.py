@@ -45,7 +45,6 @@ class PseudofilesTailored(InitPlugin):
     def patch(self, ctx: InitContext) -> dict | None:
         pseudofiles = self.plugins.PseudofileFinder.pseudofiles
         results = {}
-        mtd_count = 0
 
         for section, file_names in pseudofiles.items():
             for file_name in file_names:
@@ -61,7 +60,11 @@ class PseudofilesTailored(InitPlugin):
                     continue
 
                 if section == 'dev' and file_name.startswith("/dev/mtd"):
-                    # TODO: do we want to make placeholders for MTD or not?
+                    # MTD is deliberately not modelled here. Flash has its own
+                    # native subsystem (plugins.mtd.devices, with geometry and
+                    # a personality); a generic zero/discard pseudofile would
+                    # be the wrong shape for it and would shadow the real
+                    # device. See docs/pseudofile_models.md.
                     continue
 
                 if file_name.endswith("/"):
@@ -86,12 +89,6 @@ class PseudofilesTailored(InitPlugin):
                     results[file_name]['ioctl'] = {
                         '*': {"model": "return_const", "val": 0, "provenance": "default"}
                     }
-
-                    if file_name.startswith("/dev/mtd"):
-                        # MTD devices get a name (shows up in /proc/mtd)
-                        # Note 'uboot' probably isn't right, but we need something
-                        results[file_name]['name'] = f"uboot.{mtd_count}"
-                        mtd_count += 1
 
         if len(results):
             return {'pseudofiles': results}
