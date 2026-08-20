@@ -149,25 +149,45 @@ plugin function takes that op's native VFS arguments.
 ## MTD flash devices
 
 MTD nodes (`/dev/mtdN`, `/proc/mtd`) are **not** modeled through `pseudofiles`
-— they have a dedicated native subsystem with its own `devices:` config block
-(geometry, personality, backing). Legacy `pseudofiles: /dev/mtdN` entries are
-auto-migrated into it.
+— they have a dedicated native subsystem with its own `plugins.mtd.devices`
+config block (geometry, personality, backing). Legacy `pseudofiles: /dev/mtdN`
+entries are auto-migrated into it.
 
 ```yaml
-devices:
-  flash0:
-    id: 0
-    model: backing_file        # or 'zeros' (blank flash) / 'const_buf'
-    backing_file: ./flash0.bin
-    mode: rw                   # 'ro' for read-only
-    personality:
-      type: nor                # 'nand' or 'nor' (sets erase/write/oob defaults)
-      erase_size: 64k
+plugins:
+  mtd:
+    devices:
+      flash0:
+        id: 0
+        model: backing_file        # or 'zeros' (blank flash) / 'const_buf'
+        backing_file: ./flash0.bin
+        mode: rw                   # 'ro' for read-only
+        personality:
+          type: nor                # 'nand' or 'nor' (sets erase/write/oob defaults)
+          erase_size: 64k
 ```
 
 Models: `zeros` (RAM-backed blank flash), `const_buf` (in-RAM initial image),
 `backing_file` (host file). For fully custom flash physics (read/write/erase),
 register an `MtdDevice` subclass in Python via `plugins.mtd.register_mtd(dev)`.
+
+`id` is optional: devices without one are numbered alphabetically by name into
+the ids left free by those that declare one. The kernel then assigns
+`/dev/mtdN` numbers as devices register, which need not match `id` — the guest
+should find its node by name out of `/proc/mtd` rather than assuming an index.
+
+### Personality defaults
+
+`personality.type` selects a set of geometry defaults, and defaults to `nand`
+when the block is absent. Individual fields override what the type implies:
+
+| `type` | `erase_size` | `write_size` | `oob_size` | default `size` (model `zeros`) |
+|--------|--------------|--------------|------------|--------------------------------|
+| `nand` (default) | 128 KiB | 2048 | 64 | 256 MiB |
+| `nor`  | 64 KiB | 1 | 0 | 16 MiB |
+
+For `const_buf`, the size is the payload rounded up to a 128 KiB minimum. For
+`backing_file` it is the size of the file.
 
 > Note: the `devices:` block is currently a free-form mapping in the schema
 > (not yet a typed/validated structure), so consult this section for field
