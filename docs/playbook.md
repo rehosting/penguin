@@ -244,54 +244,44 @@ env:
 
 ### When to set U-Boot Environment variables
 
-**WARNING: this interface is subject to change and the documentation may be outdated**
-
 If you see output in `env_mtd.txt`, penguin detected an application searching
-for an MTD device with a specified name. When you see this, you may wish to add
-a new MTD device by adding an `mtdparts` env variable specifying values for the `0.flash` device. After this device name, you'll craft a comma-seperated list of `0xsize(name)` values. Your sizes should be multiples of 0x4000.
+for an MTD device with a specified name; `env_uboot.txt` logs the U-Boot
+variable names it went looking for. When you see this, give the guest a flash
+device of that name.
 
-```
-env:
-    mtdparts: 0.flash:0x4000(yourname),0x8000(anothername)
-```
-
-After adding such an entry, the guest will be configured to have new MTD devices named `yourname` and `anothername` and new `/dev/mtdX` files will also be created.
-
-Generally the values of `X` should correspond to the order in which you've specified these devices (e.g., `yourname` is `/dev/mtd0`, `anothername` is `/dev/mtd1`).
-You can confirm this by connecting to the root shell and examining `/proc/mtd`
-which will list the mapping from name to device file.
-
-If you'd like to then control the contents of that mtd device, use the `pseudofiles`
-plugin. If you'd like to create a valid u-boot environment with arbitrary key-value pairs, check out the `makeuboot.py` script.
-
-Alternatively, if you add the variable `MTD_PLACEHOLDER` and set it to 1 in your config's `env`, penguin will automatically set up `/dev/mtdX` for all X in 1 to 10 with a placeholder value. When running in this mode, penguin will analyze accesses to these
-devices and track variable names searched for. These names will be logged in the output
-file `env_uboot.txt`
-
-After setting these values, you'll need to customize `makeuboot.py` to generate a
-valid uboot key-value store then customize your `pseudofile` config to pass this
-file through on reads of the relevant device. Bringing this together, you might
-create the file `/results/mtd.flash` (abusing the shared `results` directory to share
-something that isn't a result) with `makeuboot.py` and then pass it through
-to your firmware with a config with elements like this:
+Flash has its own subsystem, configured under `plugins.mtd.devices`. Each entry
+is named, and that name is what the guest matches on in `/proc/mtd`:
 
 ```yaml
-env:
-    mtdparts: 0.flash:0x4000(flash)
-
-pseudofiles:
-    /dev/mtd0:
-        read:
-            model: from_file
-            filename: /results/mtd.flash
-        write:
-            model: to_file
-            filename: /results/mtd.flash
-        ioctl:
-            '*':
-                model: return_const
-                val: 0
+plugins:
+  mtd:
+    devices:
+      flash:
+        model: backing_file          # persists guest writes to the host file
+        backing_file: ./flash.bin    # relative paths resolve inside the project
+        personality:
+          type: nor
 ```
+
+Then, from the root shell, `/proc/mtd` lists the name-to-device mapping.
+
+**Match on the name, not the index.** The kernel assigns `/dev/mtdN` numbers as
+devices register, so a device named `flash` is not necessarily `/dev/mtd0`. Look
+its node up by name:
+
+```sh
+MTD=$(grep flash /proc/mtd | cut -d: -f1)   # -> mtd3, say
+cat /dev/$MTD
+```
+
+The available models (`zeros`, `const_buf`, `backing_file`), the `personality`
+geometry fields and their defaults, and how to implement custom flash physics in
+Python are documented in
+[pseudofile_models.md](pseudofile_models.md#mtd-flash-devices).
+
+Legacy `pseudofiles:` entries for `/dev/mtdN` are migrated into this subsystem
+automatically, so older configs keep working — but new configs should use
+`plugins.mtd.devices` directly.
 
 ## Stubbing library functions
 
