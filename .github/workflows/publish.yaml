@@ -70,12 +70,56 @@ jobs:
       dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
       cachix-auth-token: ${{ secrets.CACHIX_REHOSTING }}
 
+  # 2b. The portable variant of the same release, in lockstep with `build`.
+  #
+  #     Every :<version> gets a matching :<version>-portable, so a consumer that
+  #     pins a release can always obtain the portable form of exactly that
+  #     release. Publishing it on demand instead did not merely defer the storage
+  #     cost -- it created pins that could never be served: the workflow builds
+  #     `.#portableImage` from the requested tag, and that flake attribute does
+  #     not exist in any release older than the commit that introduced it, so
+  #     those tags cannot be built portable at all. The pwn.college dojo hit this
+  #     on a pin it had already validated 42 challenges against.
+  #
+  #     The marginal cost is smaller than it looks: this shares the
+  #     rehosting-tools Cachix cache with `build` above, and the portable image
+  #     is a relocation of a closure that build already produced, so what is paid
+  #     is the relocation and the push rather than a second full build. Registry
+  #     storage is the real cost -- the relocated store cannot use dockerTools'
+  #     layering, so the image is one large layer that shares no blobs with the
+  #     normal one. If that becomes binding, bound it with retention rather than
+  #     by going back to on-demand, so that every pin stays serviceable.
+  build-portable:
+    needs: version
+    uses: rehosting/ci/.github/workflows/nix-image-push.yml@v1
+    with:
+      image: rehosting/penguin
+      flake-attr: .#portableImage
+      cachix-name: rehosting-tools
+      nix-install-url: https://releases.nixos.org/nix/nix-2.31.2/install
+      enable-kvm: false
+      dockerhub-user: rehosting
+      extra-tags: |
+        rehosting/penguin:${{ needs.version.outputs.v }}-portable
+        rehosting/penguin:portable
+      # Same version-injection contract as `build`, so `penguin --version` inside
+      # the portable image reports the release rather than a git-derived version.
+      extra-build-args: --impure
+      build-env: |
+        PENGUIN_OVERRIDE_VERSION=${{ needs.version.outputs.v }}
+    secrets:
+      registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
+      registry-user: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
+      registry-password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
+      dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+      cachix-auth-token: ${{ secrets.CACHIX_REHOSTING }}
+
   # 3. Config schema + GitHub release (after the image exists). Docs/PDF/Pages
   #    are built out-of-band by docs.yaml, which runs via `workflow_run` after
   #    this workflow completes (a GITHUB_TOKEN-created release can't fire
   #    `on: release`).
   release:
-    needs: [version, build]
+    needs: [version, build, build-portable]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

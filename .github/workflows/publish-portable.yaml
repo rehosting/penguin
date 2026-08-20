@@ -5,7 +5,13 @@ name: Release Portable Container
 # host that mounts its own /nix over the container's. See the "Portable variant"
 # comment in nix/mk-image.nix and docs/nix.md.
 #
-# ON DEMAND, not part of every release. The portable image is one large layer
+# BACKFILL. Since publish.yaml gained a `build-portable` job, every new release
+# publishes its own portable image automatically; this workflow exists to build
+# one for a release cut before that change. Note it can only serve tags that
+# already contain the `portableImage` flake attribute -- older tags cannot be
+# built portable at all, which is the reason the per-release job exists.
+#
+# Historical rationale for it having been on demand: The portable image is one large layer
 # rather than 115 (dockerTools' layering can't be used on a relocated store), so
 # it shares no blobs with the normal image and adds its full compressed size to
 # registry storage on every publish. Consumers of it -- currently the
