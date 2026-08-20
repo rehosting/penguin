@@ -189,8 +189,14 @@ class ProctreeVerify(Plugin):
                   f"parent_time_bad={len(time_bad)} order_inversions={inversions} "
                   f"snapshot_ok={snap_ok}{snap_note} transients={len(transient)}")
         result = f"PROCTREE_VERIFY={'PASS' if ok else 'FAIL'} {detail}"
-        self.logger.info(result)
-        print(result, flush=True)
+        # Console stays quiet on the happy path: one short line on PASS, the
+        # full field dump only when something actually failed (and always in
+        # the marker file, which is what a post-mortem reads).
+        if ok:
+            self.logger.info(f"PROCTREE_VERIFY=PASS "
+                             f"(model={len(mp)} matched={len(mp & pp)})")
+        else:
+            self.logger.error(result)
         try:
             with open(join(self.outdir, "proctree_verify.txt"), "w") as f:
                 f.write(result + "\n")
