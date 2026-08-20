@@ -36,19 +36,32 @@ tracking down other failures and seeing what changes.
 
 
 ### Potential init programs to choose from
-Penguin's initial static analysis populates `<project_dir>/base` with a file
-`env.yaml`. Within this file, there will typically be one or more
-statically-identified init programs, listed under `igloo_init`.
+Penguin's initial static analysis writes its results to `<project_dir>/static/`.
+The init candidates are the list in `static/InitFinder.yaml`, shortest path
+first. `static/EnvFinder.yaml` carries the same list under its `igloo_init` key,
+alongside the other environment variables the analysis suggests.
 Note that this list isn't comprehensive (it's just finding executables that contain
 `start` or `init`), but it will usually find the right binary.
 
 ### How to change init:
-In your config file, change the `igloo_init` key under the `env` section:
+Set `env.igloo_init` **in a patch**, not in `config.yaml`:
 
 ```yaml
+# patch_init.yaml
 env:
   igloo_init: /your/desired/init
 ```
+
+Then either drop that file into `<project_dir>/patches/` — every `*.yaml` there
+is applied automatically, no `config.yaml` edit needed — or append it to the
+`patches:` list in `config.yaml`.
+
+Editing `env.igloo_init` in `config.yaml` **looks like it works and silently
+does nothing**. `penguin init` records the init it picked in
+`static_patches/base.yaml`, and patches are applied *on top of* `config.yaml`,
+so the generated value wins and the guest goes on dispatching the original
+init. Patches later in the list override earlier ones, which is why a user
+patch has to come after `static_patches/base.yaml`.
 
 ## Pseudofile modeling
 Unlike regular files stored on disk, files in `/proc` (procfs) and `/dev` (devtmpfs)
