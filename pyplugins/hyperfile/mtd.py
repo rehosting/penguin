@@ -395,12 +395,15 @@ class MTD(Plugin):
         number, unit = match.groups()
         return int(number) * units.get(unit.lower(), 1)
 
+    #: Geometry defaults per flash technology. `nand` is the fallback when a
+    #: device declares no personality.
+    PERSONALITIES = {
+        "nand": {"type": "nand", "erase_size": 131072, "write_size": 2048, "oob_size": 64},
+        "nor": {"type": "nor", "erase_size": 65536, "write_size": 1, "oob_size": 0},
+    }
+
     def _get_personality_defaults(self, p_type):
-        if p_type == "nand":
-            return {"type": "nand", "erase_size": 131072, "write_size": 2048, "oob_size": 64}
-        elif p_type == "nor":
-            return {"type": "nor", "erase_size": 65536, "write_size": 1, "oob_size": 0}
-        return {}
+        return dict(self.PERSONALITIES[p_type])
 
     def _validate_and_build(self, raw_devices):
         device_list = []
@@ -439,6 +442,18 @@ class MTD(Plugin):
             final_size = 0
             backing_path = None
 
+            raw_pers = dev.get("personality") or {}
+            p_type = raw_pers.get("type", "nand")
+            if p_type not in self.PERSONALITIES:
+                # Unknown types used to yield an empty geometry dict, which
+                # became a KeyError at device registration rather than a config
+                # error naming the offending value.
+                raise ValueError(
+                    f"Unknown MTD personality type '{p_type}' for device "
+                    f"'{name}' (expected one of "
+                    f"{', '.join(sorted(self.PERSONALITIES))})"
+                )
+
             if model == "backing_file":
                 backing_path = dev.get("backing_file")
                 if not backing_path:
@@ -461,9 +476,7 @@ class MTD(Plugin):
                 else:
                     # Pick a reasonable default based on the intended technology
                     # NAND defaults to 256MB, NOR defaults to 16MB
-                    p_type_guess = dev.get(
-                        "personality", {}).get("type", "nand")
-                    if p_type_guess == "nor":
+                    if p_type == "nor":
                         final_size = 16 * 1024 * 1024  # 16MB
                     else:
                         final_size = 256 * 1024 * 1024  # 256MB
@@ -478,8 +491,6 @@ class MTD(Plugin):
                     f"Unknown model type '{model}' for device '{name}'")
 
             # Personality & Geometry
-            raw_pers = dev.get("personality", {})
-            p_type = raw_pers.get("type", "nand")
             personality = self._get_personality_defaults(p_type)
 
             if "erase_size" in raw_pers:
