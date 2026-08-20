@@ -229,8 +229,8 @@ class Processes(Plugin):
             "euid": _int(proc, "euid"),
             "egid": _int(proc, "egid"),
         })
-        self.logger.info(f"processes: exec pid={pid} ppid={_int(proc, 'ppid')} "
-                         f"name={name!r}")
+        self.logger.debug(f"processes: exec pid={pid} ppid={_int(proc, 'ppid')} "
+                          f"name={name!r}")
 
     def _record_exit(self, syscall: Any, error_code: int, reason: str) -> None:
         """Emit a ``ProcExit`` row for the current process.
@@ -254,7 +254,7 @@ class Processes(Plugin):
             "code": int(error_code),
             "reason": reason,
         })
-        self.logger.info(f"processes: {reason} pid={pid} status={error_code}")
+        self.logger.debug(f"processes: {reason} pid={pid} status={error_code}")
 
     def on_signal_deliver(self, cpu: Any, event: Any) -> None:
         """Fatal-signal death -> ProcExit row.
@@ -284,7 +284,7 @@ class Processes(Plugin):
             "code": 128 + sig,  # shell convention for signal death
             "reason": f"signal:{name}",
         })
-        self.logger.info(f"processes: {name} killed pid={pid} (ProcExit)")
+        self.logger.debug(f"processes: {name} killed pid={pid} (ProcExit)")
 
     def on_proc_exit(self, cpu: Any, event: Any) -> None:
         """Authoritative task-exit -> ``ProcExit`` row (do_exit kprobe).
@@ -318,7 +318,7 @@ class Processes(Plugin):
             "code": int(code),
             "reason": reason,
         })
-        self.logger.info(f"processes: {reason} pid={pid} code={code}")
+        self.logger.debug(f"processes: {reason} pid={pid} code={code}")
 
     def on_exit(self, regs: Any, proto: Any, syscall: Any,
                 error_code: int) -> Generator[Any, None, None]:
@@ -425,6 +425,10 @@ class Processes(Plugin):
             return
         procs = _genealogy_from_rows(starts, exits)
         self._write_map_file(procs)
+        # One line per run instead of two per process: the per-event detail is at
+        # debug level, so this is the only thing the console sees by default.
+        self.logger.info(f"processes: {len(procs)} processes "
+                         f"({len(starts)} starts, {len(exits)} exits) -> {MAP_FILE}")
 
 
 # ---------------------------------------------------------------------- #
