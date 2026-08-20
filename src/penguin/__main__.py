@@ -817,11 +817,19 @@ def docs(ctx, filename):
     if filename:
         fn = filename
     else:
-        doc_files = glob.glob("**/*.md", root_dir=docs_path, recursive=True)
-        gum_args = ["gum", "choose"] + doc_files
-        try:
-            fn = subprocess.check_output(gum_args, text=True).strip()
-        except subprocess.CalledProcessError:
+        doc_files = sorted(glob.glob("**/*.md", root_dir=docs_path, recursive=True))
+        if not doc_files:
+            logger.error(f"No documentation pages found under {docs_path}")
+            sys.exit(1)
+        fn = _choose_doc(doc_files)
+        if fn is None:
+            # No interactive chooser available (no TTY, or no gum): print the
+            # list, which is what --filename's help has always promised and
+            # what every script and CI job needs.
+            click.echo("Available documentation pages:")
+            for name in doc_files:
+                click.echo(f"  {name}")
+            click.echo("\nRender one with: penguin docs --filename <page>")
             return
 
     if not fn.endswith(".md"):
@@ -832,11 +840,39 @@ def docs(ctx, filename):
         raise ValueError("Invalid filename")
 
     if not os.path.isfile(full_path):
-        logger.info(f"Documentation file not found: {fn}")
-    else:
-        with open(full_path, "r") as f:
-            lines = len(f.readlines())
-        _render_markdown_file(full_path, num_lines=lines)
+        # Was logged at info level with a zero exit, so `penguin docs
+        # --filename typo.md` looked like success to a script.
+        logger.error(f"Documentation file not found: {fn}")
+        sys.exit(1)
+    # _render_markdown_file counts the lines itself when it needs them.
+    _render_markdown_file(full_path)
+
+
+def _choose_doc(doc_files):
+    """Let the user pick a page interactively, or None if we cannot ask.
+
+    `gum choose` needs a controlling terminal, and is absent outside the
+    penguin image, so both failures are normal rather than exceptional: bare
+    `penguin docs` used to exit 0 having printed nothing when there was no TTY,
+    and raise an uncaught FileNotFoundError when gum was missing.
+    """
+    if not doc_files:
+        return None
+    try:
+        chosen = subprocess.run(
+            ["gum", "choose"] + doc_files,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+    except OSError as e:
+        logger.debug(f"interactive doc chooser unavailable: {e}")
+        return None
+    if chosen.returncode != 0:
+        logger.debug(
+            f"interactive doc chooser failed (exit {chosen.returncode}): "
+            f"{chosen.stderr.strip()}"
+        )
+        return None
+    return chosen.stdout.strip() or None
 
 
 def _render_markdown_file(path, num_lines=None):
@@ -848,10 +884,11 @@ def _render_markdown_file(path, num_lines=None):
     if num_lines is None:
         with open(path, "r") as f:
             num_lines = len(f.readlines())
-    try:
-        rows, _ = os.get_terminal_size()
-    except OSError:
-        rows = None
+    # os.get_terminal_size() returns (columns, lines) -- taking the first
+    # field as `rows` compared a line count against the terminal width.
+    rows = None
+    if sys.stdout.isatty():
+        rows = shutil.get_terminal_size(fallback=(80, 24)).lines
     glow_args = ["glow", path]
     if rows and num_lines > rows:
         subprocess.run(glow_args + ["--pager"])
