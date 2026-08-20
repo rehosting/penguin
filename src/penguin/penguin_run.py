@@ -203,15 +203,57 @@ fi
 # The markers are printed by an assembled variable so they appear only in the
 # command *output*, not in the console's echo of the typed line (which shows
 # the split literals) -- that lets us slice out exactly the command's output.
+# The end marker carries the command's exit status so we can propagate it.
 CMD="$*"
 TAG="$$"
-printf 'B="__PENGUIN""_B_%s__"; E="__PENGUIN""_E_%s__"; echo "$B"; %s; echo "$E"\r\n' \
-  "$TAG" "$TAG" "$CMD" \
-  | "$ENGINE" exec -i "$CONTAINER" telnet localhost "$TELNET_PORT" 2>/dev/null \
-  | awk -v b="__PENGUIN_B_${TAG}__" -v e="__PENGUIN_E_${TAG}__" '
-      $0 ~ b { grab=1; next }
-      $0 ~ e { grab=0 }
-      grab   { print }'
+END="__PENGUIN_E_${TAG}__"
+TIMEOUT="${PENGUIN_CONNECT_TIMEOUT:-15}"
+
+# Sub-second sleep is not in POSIX; fall back to whole seconds without it.
+if sleep 0.2 2>/dev/null; then TICK=0.2; TICKS_PER_SEC=5
+else TICK=1; TICKS_PER_SEC=1; fi
+
+work=$(mktemp -d) || exit 1
+trap 'rm -rf "$work"' EXIT HUP INT TERM
+raw="$work/raw"
+: > "$raw"
+
+# Feed the command, then hold stdin open. telnet tears the session down as soon
+# as stdin reaches EOF, so a plain `printf | telnet` returned before the guest
+# had answered and the marker-slicing awk saw nothing at all. The sentinel file
+# releases the holder once we have the output (or the timeout expires).
+{
+  printf 'B="__PENGUIN""_B_%s__"; E="__PENGUIN""_E_%s__"; echo "$B"; %s; echo "$E$?"\r\n' \
+    "$TAG" "$TAG" "$CMD"
+  while [ ! -e "$work/done" ]; do sleep "$TICK"; done
+} | "$ENGINE" exec -i "$CONTAINER" telnet localhost "$TELNET_PORT" 2>/dev/null > "$raw" &
+pipe=$!
+
+i=0
+limit=$(( TIMEOUT * TICKS_PER_SEC ))
+while [ "$i" -lt "$limit" ]; do
+  grep -q "$END" "$raw" 2>/dev/null && break
+  sleep "$TICK"
+  i=$((i + 1))
+done
+: > "$work/done"
+wait "$pipe" 2>/dev/null
+
+if ! grep -q "$END" "$raw" 2>/dev/null; then
+  echo "connect.sh: no answer from the guest console within ${TIMEOUT}s." >&2
+  echo "Raise PENGUIN_CONNECT_TIMEOUT if the command is simply slow." >&2
+  exit 1
+fi
+
+awk -v b="__PENGUIN_B_${TAG}__" -v e="$END" '
+    $0 ~ b { grab=1; next }
+    $0 ~ e { grab=0 }
+    grab   { print }' "$raw"
+
+# Exit with the guest command's own status, so this is usable in a script.
+rc=$(sed -n "s/.*${END}\([0-9][0-9]*\).*/\1/p" "$raw" | head -1)
+[ -n "$rc" ] && exit "$rc"
+exit 0
 '''
     return (tmpl
             .replace("@@CONTAINER@@", str(container_name or ""))
