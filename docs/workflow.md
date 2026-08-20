@@ -52,19 +52,31 @@ paths logged by Penguin may include `/host_...` these paths are mapped between t
 and your host machine but are based on defaults or the paths you've specified on the command line. For example, the command above will report the project is created at `/host_projects/stride` which corresponds to `./projects/stride`.
 
 When a project is initialized, Penguin uses a **static analysis** of the filesystem to
-generate an initial **configuration** specifying the rehosting process for this firmware.The static analysis results are stored in `./projects/stride/base/` and the configuration is
+generate an initial **configuration** specifying the rehosting process for this firmware.The static analysis results are stored in `./projects/stride/static/` and the configuration is
 stored at `./projects/stride/config.yaml`.
 
 ### Static analysis outputs
 
-Notable files within the `./projects/stride/base` directory include:
+`./projects/stride/base/` holds `fs.tar.gz`, a copy of the input filesystem
+archive.
 
-* `fs.tar.gz`: A copy of the input filesystem archive
-* `env.yaml`: A list of statically-identified environment variables you may later need to set. Of particular note is the `igloo_init` section which lists potential *init* programs.
-* `pseudofiles.yaml`: A list of statically-identified `/dev` and `/proc` files that you may later need to model in the rehosting process.
-* `initial_config.yaml`: A backup of the auto-generated configuration
-* `nvram.csv`: A list of all statically-identified NVRAM keys and values along with the source (a source of `defaults` indicate generic values while other sources are specific to the system under analysis).
-* `library_symbols.csv`: A list of all exported library functions along with their names and offsets
+Each static analysis writes its result to `./projects/stride/static/` under the
+name of the analysis that produced it:
+
+* `InitFinder.yaml`: Statically-identified *init* programs, shortest path first.
+* `EnvFinder.yaml`: Environment variables you may later need to set, including
+  the same init candidates under `igloo_init`.
+* `PseudofileFinder.yaml`: Statically-identified `/dev` and `/proc` files that you may later need to model in the rehosting process.
+* `InterfaceFinder.yaml`: Statically-identified network interface names.
+* `ArchId.yaml` / `KernelVersionFinder.yaml`: The detected architecture, and the
+  kernel version chosen for it.
+* `LibrarySymbols.json.xz`: Every exported library function with its name and offset.
+* `manifest.yaml`: What each analysis produced, including any that failed.
+
+The values those analyses feed into the configuration are applied as generated
+patches under `./projects/stride/static_patches/` — including the NVRAM keys
+recovered for the system (`nvram.*.yaml`, where `nvram.04_defaults` is generic
+and the others are specific to the firmware under analysis).
 
 ### Configuration
 
@@ -81,14 +93,17 @@ highlighting:
 before boot. Of particular note is the `/igloo/init` script that you can edit to control what
 happens in the system before the specified *init* program runs (i.e., that you set in `env.igloo_init`).
 
-`env`: This section stores the kernel boot arguments passed to the system. Of particular note is the `igloo_init` field which is used by penguin to select the *init* program to run during boot. While a default value is typically set here, you may wish to change this to another
-value shown in the `env.yaml` file within the base directory.
+`env`: This section stores the kernel boot arguments passed to the system. Of particular note is the `igloo_init` field which is used by penguin to select the *init* program to run during boot. A default is chosen for you and recorded in
+`static_patches/base.yaml`; to change it, set `env.igloo_init` in a patch (see
+[the playbook](playbook.md#how-to-change-init) — editing `config.yaml` directly
+has no effect, because patches are applied over it). The candidates are listed
+in `static/InitFinder.yaml`.
 
 `pseudofiles`: This section specifies pseudofiles in `/dev`, `/sys`, and `/proc` to model in
 the rehosting. Note that you may see yaml variables used where a dictionary is first defined 
 as `&id001` and then later referenced as `*id001`.
 
-`nvram`: This is a set of keys and corresponding values to initialize the system's non-volatile RAM (NVRAM) with. The sources for these values will be listed in `base/nvram.csv`.
+`nvram`: This is a set of keys and corresponding values to initialize the system's non-volatile RAM (NVRAM) with. These are contributed by generated patches under `static_patches/` — `nvram.04_defaults.yaml` carries generic values, and the other `nvram.*.yaml` patches carry values recovered from this firmware. (`nvram.csv` in a run's results directory is a different thing: the NVRAM accesses observed at runtime.)
 
 `netdevs`: This is a list of network device names to configure within the guest
 
