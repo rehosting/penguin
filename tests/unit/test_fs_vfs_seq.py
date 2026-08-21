@@ -65,16 +65,40 @@ def _drive(gen, responses):
         return e.value, ops
 
 
-def _skip_without_ops(isf):
+def _require_ops(isf):
+    """The pinned driver MUST carry the vfs_* ops.
+
+    Not a skip: read_file now routes every /proc, /sys and debugfs read through
+    them, so a pin without them means penguin cannot read a synthetic
+    filesystem at all -- and a skip would report that as green. The failure is
+    the forcing function: bump the igloo-driver pin (flake.nix) to v0.0.98 or
+    later. The igloo_ko_isf fixture still skips cleanly when no ISF resolves at
+    all (offline), which is genuinely untestable and a different thing.
+    """
     import hyper.consts as consts
-    if not hasattr(consts.HYPER_OP, "HYPER_OP_VFS_OPEN"):
-        pytest.skip("pinned igloo_driver predates the vfs_* ops")
+    for op in ("HYPER_OP_VFS_OPEN", "HYPER_OP_VFS_READ", "HYPER_OP_VFS_CLOSE"):
+        assert hasattr(consts.HYPER_OP, op), (
+            f"pinned igloo_driver ISF lacks {op}: fs.read_file cannot read "
+            "synthetic filesystems (/proc, /sys) against this driver. Bump the "
+            "igloo-driver pin (flake.nix) to v0.0.98 or later.")
+    assert kffi_has_structs(isf), (
+        "pinned igloo_driver ISF lacks the vfs_*_result structs: bump the "
+        "igloo-driver pin (flake.nix) to v0.0.98 or later.")
     return consts
+
+
+def kffi_has_structs(isf):
+    k = _KFFI([isf])
+    try:
+        return all(k.sizeof(n) > 0 for n in
+                   ("vfs_open_result", "vfs_read_result", "vfs_close_result"))
+    except Exception:
+        return False
 
 
 def test_reads_across_chunks_until_eof(tmp_path, igloo_ko_isf):
     lp = _load(tmp_path, igloo_ko_isf, regions_size=32)
-    consts = _skip_without_ops(igloo_ko_isf)
+    consts = _require_ops(igloo_ko_isf)
 
     got, ops = _drive(
         lp.plugin.read_file_seq("/proc/net/tcp"),
@@ -90,7 +114,7 @@ def test_reads_across_chunks_until_eof(tmp_path, igloo_ko_isf):
 
 def test_open_failure_reports_errno_not_empty(tmp_path, igloo_ko_isf):
     lp = _load(tmp_path, igloo_ko_isf)
-    _skip_without_ops(igloo_ko_isf)
+    _require_ops(igloo_ko_isf)
 
     with pytest.raises(OSError) as ei:
         _drive(lp.plugin.read_file_seq("/proc/net/tcp"),
@@ -103,7 +127,7 @@ def test_midread_failure_raises_and_still_closes(tmp_path, igloo_ko_isf):
     """A failure partway through must not silently return the partial data, and
     must not leak the handle -- the driver only has 16 slots."""
     lp = _load(tmp_path, igloo_ko_isf, regions_size=32)
-    consts = _skip_without_ops(igloo_ko_isf)
+    consts = _require_ops(igloo_ko_isf)
 
     ops = []
     gen = lp.plugin.read_file_seq("/proc/net/unix")
@@ -121,7 +145,7 @@ def test_midread_failure_raises_and_still_closes(tmp_path, igloo_ko_isf):
 
 def test_size_cap_stops_early(tmp_path, igloo_ko_isf):
     lp = _load(tmp_path, igloo_ko_isf, regions_size=64)
-    _skip_without_ops(igloo_ko_isf)
+    _require_ops(igloo_ko_isf)
     got, _ = _drive(lp.plugin.read_file_seq("/proc/net/tcp", size=4),
                     [_open_res(), _read_res(b"abcd"), _close_res()])
     assert got == b"abcd"
@@ -130,7 +154,7 @@ def test_size_cap_stops_early(tmp_path, igloo_ko_isf):
 def test_zero_length_file_is_success(tmp_path, igloo_ko_isf):
     """An empty synthetic file reads as b"" -- success, not an error."""
     lp = _load(tmp_path, igloo_ko_isf)
-    _skip_without_ops(igloo_ko_isf)
+    _require_ops(igloo_ko_isf)
     got, _ = _drive(lp.plugin.read_file_seq("/proc/empty"),
                     [_open_res(), _read_res(b"", eof=1), _close_res()])
     assert got == b""
@@ -139,7 +163,7 @@ def test_zero_length_file_is_success(tmp_path, igloo_ko_isf):
 def test_read_file_routes_proc_to_the_sequential_path(tmp_path, igloo_ko_isf):
     """Callers should not have to know which paths are synthetic."""
     lp = _load(tmp_path, igloo_ko_isf, regions_size=64)
-    consts = _skip_without_ops(igloo_ko_isf)
+    consts = _require_ops(igloo_ko_isf)
     got, ops = _drive(lp.plugin.read_file("/proc/net/tcp", size=8),
                       [_open_res(), _read_res(b"data"), _read_res(b"", eof=1),
                        _close_res()])
@@ -149,7 +173,7 @@ def test_read_file_routes_proc_to_the_sequential_path(tmp_path, igloo_ko_isf):
 
 def test_regular_file_still_uses_the_stateless_op(tmp_path, igloo_ko_isf):
     lp = _load(tmp_path, igloo_ko_isf, regions_size=64)
-    consts = _skip_without_ops(igloo_ko_isf)
+    consts = _require_ops(igloo_ko_isf)
     got, ops = _drive(lp.plugin.read_file("/etc/passwd", size=8), [b"root:x:"])
     assert got == b"root:x:"
     assert ops[0].op == consts.HYPER_OP.HYPER_OP_READ_FILE

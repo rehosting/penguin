@@ -41,16 +41,25 @@ def _drive(gen, responses):
         return e.value
 
 
-def test_single_read_failure_raises_not_empty(tmp_path, igloo_ko_isf):
+def test_synthetic_paths_get_an_explanatory_hint(tmp_path, igloo_ko_isf):
+    """The hint text itself, tested directly.
+
+    Not through read_file("/proc/..."): that now routes to the sequential vfs_*
+    path (see test_fs_vfs_seq), so the stateless failure is no longer reachable
+    for a synthetic path. The hint still has to explain the cause and the fix
+    wherever it surfaces, because a bare "no data" is what misled us before.
+    """
     lp = _load(tmp_path, igloo_ko_isf)
-    fs = lp.plugin
-    with pytest.raises(OSError) as ei:
-        _drive(fs.read_file("/proc/net/tcp", size=64), [None])
-    # The message has to name the path AND say why a synthetic fs can do this,
-    # otherwise the next person reads the failure as an empty file again.
-    msg = str(ei.value)
-    assert "/proc/net/tcp" in msg
-    assert "synthetic" in msg and "empty file" in msg
+    # Reach the module-level helper through the loaded plugin's own globals; the
+    # harness loads plugins under a synthetic module name, so sys.modules lookup
+    # by __module__ does not find it.
+    hint = type(lp.plugin).read_file.__globals__["_read_fail_hint"]
+
+    for path in ("/proc/net/tcp", "/sys/class/net", "/sys/kernel/debug/x"):
+        msg = hint(path)
+        assert "synthetic" in msg and "empty file" in msg
+        assert "read_file_seq" in msg, "the hint must name the fix, not just the cause"
+    assert hint("/etc/passwd") == ""
 
 
 def test_non_synthetic_path_still_raises_without_the_hint(tmp_path, igloo_ko_isf):
