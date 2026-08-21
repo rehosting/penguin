@@ -430,8 +430,11 @@ class PseudofileFinder(InitPlugin):
         results = []
 
         if os.path.exists(dev_dir):
-            for root, _, files in os.walk(dev_dir):
-                for f in files:
+            for root, dirs, files in os.walk(dev_dir):
+                # os.walk order is filesystem-dependent; sort so the discovered
+                # device list is reproducible across machines and extractions.
+                dirs.sort()
+                for f in sorted(files):
                     relative_path = os.path.join("/dev", os.path.relpath(os.path.join(root, f), dev_dir))
                     results.append(relative_path)
 

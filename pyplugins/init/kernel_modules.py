@@ -52,12 +52,17 @@ class KernelModules(InitPlugin):
                 if os.path.isdir(d_path):
                     potential_kernels.add(d)
 
-        # Filter potential kernels to match the expected version pattern
-        potential_kernels = {d for d in potential_kernels if self.is_kernel_version(d)}
+        # Filter potential kernels to match the expected version pattern.
+        # Sorted, not a set: the selection below scans for the first candidate
+        # matching each pattern, and set iteration order over strings varies
+        # from run to run under hash randomization.
+        potential_kernels = sorted(
+            d for d in potential_kernels if self.is_kernel_version(d)
+        )
 
         # Determine the kernel version to use
         if len(potential_kernels) == 1:
-            kernel_version = potential_kernels.pop()
+            kernel_version = potential_kernels[0]
         elif len(potential_kernels) > 1:
             # Prioritize the version names that match more complex patterns with dashes
             for potential_name in potential_kernels:
@@ -77,7 +82,7 @@ class KernelModules(InitPlugin):
                     "Multiple kernel versions look valid (TODO improve selection logic, grabbing first)"
                 )
                 logger.warning(potential_kernels)
-                kernel_version = potential_kernels.pop()
+                kernel_version = potential_kernels[0]
 
         if kernel_version:
             # We have a kernel version, add it to our config
