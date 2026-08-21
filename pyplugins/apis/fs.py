@@ -37,6 +37,34 @@ from hyper.consts import HYPER_OP as hop
 from hyper.portal import PortalCmd
 
 
+class PortalFileError(OSError):
+    """A guest file operation failed in the guest, as opposed to returning no data.
+
+    Subclasses ``OSError`` so existing ``except Exception`` / ``except OSError``
+    handlers keep working, while callers that care can tell "the read did not
+    happen" from "the file is empty". Before this existed, a refused read came
+    back as ``None`` and was indistinguishable from an empty file -- which is
+    how unreadable ``/proc`` files silently presented as "no data" instead of as
+    an error.
+    """
+
+
+# Synthetic (VFS-backed) filesystems whose files are generated on demand: they
+# commonly report st_size 0 and only yield data through sequential reads, so a
+# plain offset+size read can fail on them even though the path exists and the
+# guest itself can cat it. Named here purely to make the error message useful.
+_SYNTHETIC_PREFIXES = ("/proc", "/sys", "/debugfs", "/sys/kernel/debug")
+
+
+def _read_fail_hint(fname: str) -> str:
+    if fname.startswith(_SYNTHETIC_PREFIXES):
+        return (f" -- {fname} is on a synthetic (VFS) filesystem whose files are "
+                "generated on demand; these can be unreadable through the portal "
+                "offset+size read even when the guest can read them itself. Do "
+                "not treat this as an empty file.")
+    return ""
+
+
 class FS(Plugin):
     """
     FS Plugin
@@ -97,6 +125,10 @@ class FS(Plugin):
             # If size is small enough, do a single read
             if size <= rsize - 1:
                 data = yield PortalCmd(hop.HYPER_OP_READ_FILE, offset, size, None, fname_bytes)
+                if data is None:
+                    raise PortalFileError(
+                        f"read_file({fname!r}) failed in the guest"
+                        f"{_read_fail_hint(fname)}")
                 return data
 
             # For larger sizes, read in chunks
@@ -112,6 +144,12 @@ class FS(Plugin):
                 chunk = yield PortalCmd(hop.HYPER_OP_READ_FILE, current_offset, chunk_size, None, fname_bytes)
 
                 if not chunk:
+                    if not all_data:
+                        # Nothing at all came back: the read failed rather than
+                        # hitting EOF, so say so instead of returning b"".
+                        raise PortalFileError(
+                            f"read_file({fname!r}) returned no data at offset "
+                            f"{current_offset}{_read_fail_hint(fname)}")
                     self.logger.debug(
                         f"No data returned at offset {current_offset}, stopping read")
                     break
