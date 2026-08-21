@@ -90,8 +90,12 @@ class PenguestVsock(Plugin):
             self.get_arg("vsock_conn_timeout") or _DEFAULT_CONN_TIMEOUT)
         self._max_conns = int(self.get_arg("vsock_max_conns") or _DEFAULT_MAX_CONNS)
         self._conn_sem = threading.Semaphore(self._max_conns)
+        # uds_path is injected into the global plugin args by penguin_run only
+        # when the vpn/vsock stack is enabled (vpn_args), so its presence *is*
+        # the "this run has vsock" signal -- there is no vpn_enabled plugin arg
+        # (that key exists only in runtime.yaml).
         uds_path = self.get_arg("uds_path")
-        if not self.get_arg_bool("vpn_enabled") or not uds_path:
+        if not uds_path:
             self.logger.debug(
                 "penguest vsock endpoint disabled (no vsock/uds_path for this run)")
             return

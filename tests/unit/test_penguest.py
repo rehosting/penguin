@@ -420,7 +420,7 @@ def _boom(req):
 def test_vsock_endpoint_dispatch(tmp_path):
     from penguin.testing import load_pyplugin
 
-    lp = load_pyplugin(PENGUEST_VSOCK, outdir=tmp_path, args={"vpn_enabled": False})
+    lp = load_pyplugin(PENGUEST_VSOCK, outdir=tmp_path, args={})
     lp.plugin.logger = _CapturingLogger()
     assert lp.plugin.dispatch({"op": "ping"}) == {"pong": True}
     assert lp.plugin.dispatch({"op": "echo", "data": [1, 2]}) == {"echo": [1, 2]}
@@ -436,7 +436,7 @@ def test_vsock_endpoint_serves_guest_client(tmp_path):
     from penguin.testing import load_pyplugin
 
     penguest = _load_penguest()
-    lp = load_pyplugin(PENGUEST_VSOCK, outdir=tmp_path, args={"vpn_enabled": False})
+    lp = load_pyplugin(PENGUEST_VSOCK, outdir=tmp_path, args={})
     # Guest client (penguest.vsock) and host endpoint agree on the port + framing.
     assert lp.plugin.port == penguest.vsock.PENGUEST_VSOCK_PORT
 
@@ -466,7 +466,7 @@ def test_vsock_endpoint_live_listener_and_teardown(tmp_path):
     penguest = _load_penguest()
     uds = tmp_path / "vsocket"
     lp = load_pyplugin(PENGUEST_VSOCK, outdir=tmp_path,
-                       args={"vpn_enabled": True, "uds_path": str(uds)})
+                       args={"uds_path": str(uds)})
     lp.plugin.logger = _CapturingLogger()
     sock_path = f"{uds}_{penguest.vsock.PENGUEST_VSOCK_PORT}"
     try:
@@ -499,7 +499,7 @@ def test_vsock_endpoint_stalled_conn_does_not_wedge(tmp_path):
     penguest = _load_penguest()
     uds = tmp_path / "vsocket"
     lp = load_pyplugin(PENGUEST_VSOCK, outdir=tmp_path,
-                       args={"vpn_enabled": True, "uds_path": str(uds)})
+                       args={"uds_path": str(uds)})
     lp.plugin.logger = _CapturingLogger()
     sock_path = f"{uds}_{penguest.vsock.PENGUEST_VSOCK_PORT}"
     stalled = None
@@ -532,7 +532,7 @@ def test_vsock_endpoint_connection_cap(tmp_path):
     penguest = _load_penguest()
     uds = tmp_path / "vsocket"
     lp = load_pyplugin(PENGUEST_VSOCK, outdir=tmp_path,
-                       args={"vpn_enabled": True, "uds_path": str(uds),
+                       args={"uds_path": str(uds),
                              "vsock_max_conns": 1})
     lp.plugin.logger = _CapturingLogger()
     sock_path = f"{uds}_{penguest.vsock.PENGUEST_VSOCK_PORT}"
