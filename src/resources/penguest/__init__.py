@@ -57,8 +57,8 @@ _SENDTO_NR = {
     "riscv": 206,      # asm-generic
     "loongarch": 206,  # asm-generic
     "powerpc": 335,    # ppc / ppc64 (endianness-invariant)
-    "mips_o32": 4183,  # 4000 + 183
-    "mips_n64": 5045,  # 5000 + 45
+    "mips_o32": 4180,  # 4000 + 180
+    "mips_n64": 5043,  # 5000 + 43
 }
 
 
@@ -129,13 +129,27 @@ def portal_call(user_magic, *args):
     # not the buffer length, tells the host how many to read.
     arr = (ctypes.c_uint64 * (argc or 1))(*[int(a) & _UINT64_MASK for a in args])
     nr = _resolve_sendto_nr()
-    return _syscall(nr,
-                    PORTAL_MAGIC,
-                    int(user_magic) & _UINT64_MASK,
-                    argc,
-                    ctypes.addressof(arr),
-                    0,
-                    0)
+    ctypes.set_errno(0)
+    ret = _syscall(nr,
+                   PORTAL_MAGIC,
+                   int(user_magic) & _UINT64_MASK,
+                   argc,
+                   ctypes.addressof(arr),
+                   0,
+                   0)
+    # -1 means the kernel took this as a *real* sendto and failed it -- i.e. the
+    # portal was never entered (wrong SYS_sendto for this arch, portal support
+    # missing, ...). It cannot be a genuine handler result: libc's syscall()
+    # collapses every kernel return in [-4095,-1] to -1 + errno, so a handler
+    # returning -1 is indistinguishable from an error anyway. Raise rather than
+    # hand back a value the caller would read as data.
+    if ret == -1:
+        err = ctypes.get_errno()
+        raise PortalError(
+            f"portalcall for magic {int(user_magic):#x} was not intercepted "
+            f"(syscall {nr} failed with errno {err}: {os.strerror(err) if err else 'unset'}); "
+            "wrong SYS_sendto for this architecture, or no portal support in the guest")
+    return ret
 
 
 def log(msg, level="info"):

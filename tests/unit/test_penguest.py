@@ -82,10 +82,13 @@ def test_sendto_nr_env_override_wins(penguest, monkeypatch):
 
 
 def test_sendto_nr_table_by_machine(penguest, monkeypatch):
+    """Expected values are __NR_sendto from the target toolchain's
+    bits/syscall.h (musl 1.2.5), i.e. the same number portal_call.h compiles
+    against -- not derived by hand from a syscall-table offset."""
     monkeypatch.delenv("PENGUEST_SYS_SENDTO", raising=False)
     cases = {
         "x86_64": 44, "aarch64": 206, "armv7l": 290, "riscv64": 206,
-        "mips": 4183, "mips64": 5045, "ppc64le": 335, "loongarch64": 206,
+        "mips": 4180, "mips64": 5043, "ppc64le": 335, "loongarch64": 206,
     }
     for machine, expected in cases.items():
         monkeypatch.setattr(penguest.os, "uname",
@@ -133,6 +136,21 @@ def test_portal_call_zero_args_ok(penguest, monkeypatch):
                         lambda nr, m, um, argc, p, a4, a5: seen.update(argc=argc) or 7)
     assert penguest.portal_call(DEMO_MAGIC) == 7
     assert seen["argc"] == 0
+
+
+def test_portal_call_raises_when_not_intercepted(penguest, monkeypatch):
+    """A -1 return means the kernel serviced it as a real sendto and failed --
+    the portal was never entered. That must not look like a handler result."""
+    monkeypatch.setenv("PENGUEST_SYS_SENDTO", "44")
+
+    def failing_syscall(nr, *a):
+        ctypes.set_errno(9)  # EBADF
+        return -1
+
+    monkeypatch.setattr(penguest, "_syscall", failing_syscall)
+    with pytest.raises(penguest.PortalError) as ei:
+        penguest.portal_call(DEMO_MAGIC, 1, 2)
+    assert "not intercepted" in str(ei.value)
 
 
 def test_portal_call_rejects_too_many_args(penguest, monkeypatch):
