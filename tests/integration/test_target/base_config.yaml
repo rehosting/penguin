@@ -79,6 +79,7 @@ patches:
   - ./patches/tests/crashes.yaml
   - ./patches/tests/netbinds-announce.yaml
   - ./patches/tests/proctree.yaml
+  - ./patches/tests/peers.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
 

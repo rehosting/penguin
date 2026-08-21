@@ -193,8 +193,14 @@ class ProctreeVerify(Plugin):
         # full field dump only when something actually failed (and always in
         # the marker file, which is what a post-mortem reads).
         if ok:
-            self.logger.info(f"PROCTREE_VERIFY=PASS "
-                             f"(model={len(mp)} matched={len(mp & pp)})")
+            # proc_checked is in the short line deliberately: without it a PASS
+            # on a target whose /proc could not be read looks identical to a
+            # PASS that actually cross-checked against procfs, and only the
+            # latter is ground truth.
+            self.logger.info(
+                f"PROCTREE_VERIFY=PASS "
+                f"(proc_checked={'yes' if proc_available else 'no'} "
+                f"model={len(mp)} matched={len(mp & pp)})")
         else:
             self.logger.error(result)
         try:
