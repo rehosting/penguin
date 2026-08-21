@@ -32,9 +32,11 @@ Example Usage
     yield from plugins.fs.exec_program("/bin/ls", argv=["ls", "-l", "/"])
 """
 
-from penguin import Plugin
+from penguin import Plugin, plugins
 from hyper.consts import HYPER_OP as hop
 from hyper.portal import PortalCmd
+
+kffi = plugins.kffi
 
 
 class PortalFileError(OSError):
@@ -56,12 +58,28 @@ class PortalFileError(OSError):
 _SYNTHETIC_PREFIXES = ("/proc", "/sys", "/debugfs", "/sys/kernel/debug")
 
 
+# Just the handful worth naming; anything else prints as a bare number.
+_ERRNO_NAMES = {2: "ENOENT", 13: "EACCES", 21: "EISDIR", 22: "EINVAL",
+                5: "EIO", 1: "EPERM", 12: "ENOMEM", 40: "ELOOP"}
+_FS_MAGIC_NAMES = {0x9fa0: "procfs", 0x62656572: "sysfs", 0x64626720: "debugfs",
+                   0x1cd1: "devpts", 0x01021994: "tmpfs"}
+
+
+def _errno_name(n: int) -> str:
+    return _ERRNO_NAMES.get(n, f"errno {n}")
+
+
+def _fs_name(magic: int) -> str:
+    return _FS_MAGIC_NAMES.get(magic, f"fs magic {magic:#x}")
+
+
 def _read_fail_hint(fname: str) -> str:
     if fname.startswith(_SYNTHETIC_PREFIXES):
         return (f" -- {fname} is on a synthetic (VFS) filesystem whose files are "
-                "generated on demand; these can be unreadable through the portal "
-                "offset+size read even when the guest can read them itself. Do "
-                "not treat this as an empty file.")
+                "generated on demand; these cannot be read with a stateless "
+                "offset+size read even when the guest can read them itself. Use "
+                "read_file_seq (igloo_driver vfs_* ops), which holds the file "
+                "open across reads. Do not treat this as an empty file.")
     return ""
 
 
@@ -86,6 +104,87 @@ class FS(Plugin):
     ----
     All methods are generated and their signatures and types are enforced.
     """
+
+    # ------------------------------------------------------------------ #
+    # Sequential (synthetic-filesystem) reads
+    # ------------------------------------------------------------------ #
+    def _vfs_supported(self) -> bool:
+        """True when the pinned igloo_driver carries the vfs_* ops.
+
+        Checked rather than assumed: penguin can run against an older driver
+        release, and an AttributeError deep inside a read is a much worse
+        failure than falling back to the stateless op.
+        """
+        return getattr(hop, "HYPER_OP_VFS_OPEN", None) is not None
+
+    def read_file_seq(self, fname: str, size: int = None) -> bytes:
+        """Read a file by holding it open across reads (vfs_open/read/close).
+
+        This is the only way to read a synthetic filesystem correctly. procfs,
+        sysfs and debugfs generate their contents at open time and serve them
+        through sequential reads of that one open file, so the stateless
+        "open, seek, read, close" op re-generates the content on every chunk and
+        cannot produce a coherent result -- and for many such files it produces
+        nothing at all.
+
+        Raises :class:`PortalFileError` carrying the guest-side errno when the
+        open or a read fails, so the caller learns *why* instead of receiving an
+        empty buffer.
+        """
+        if not self._vfs_supported():
+            raise PortalFileError(
+                f"read_file_seq({fname!r}) needs the igloo_driver vfs_* portal "
+                "ops, which the pinned driver does not provide; bump the "
+                "igloo-driver pin (flake.nix)")
+
+        fname_bytes = fname.encode('latin-1')[:255] + b'\0'
+        raw = yield PortalCmd(hop.HYPER_OP_VFS_OPEN, 0, 0, None, fname_bytes)
+        if not raw:
+            raise PortalFileError(
+                f"vfs_open({fname!r}) got no response from the guest")
+
+        res = kffi.from_buffer("vfs_open_result", raw)
+        err, handle = int(res.error), int(res.handle)
+        if err or not handle:
+            raise PortalFileError(
+                f"vfs_open({fname!r}) failed: errno {-err} "
+                f"({_errno_name(-err)}){_read_fail_hint(fname)}")
+
+        fs_magic = int(res.fs_magic)
+        self.logger.debug(
+            f"vfs_open({fname}) -> handle {handle} on {_fs_name(fs_magic)}")
+
+        rsize = self.plugins.portal.regions_size
+        hdr = kffi.sizeof("vfs_read_result")
+        chunk = max(1, rsize - hdr - 1)
+        out = b""
+        try:
+            while True:
+                want = chunk if size is None else min(chunk, size - len(out))
+                if want <= 0:
+                    break
+                raw = yield PortalCmd(hop.HYPER_OP_VFS_READ, handle, want, None)
+                if not raw:
+                    raise PortalFileError(
+                        f"vfs_read({fname!r}) got no response from the guest")
+                r = kffi.from_buffer("vfs_read_result", raw)
+                rerr, nbytes, eof = int(r.error), int(r.nbytes), int(r.eof)
+                if rerr:
+                    raise PortalFileError(
+                        f"vfs_read({fname!r}) failed after {len(out)} bytes: "
+                        f"errno {-rerr} ({_errno_name(-rerr)})")
+                if nbytes:
+                    out += bytes(raw[hdr:hdr + nbytes])
+                # eof is a successful read of nothing: stop, do not error.
+                if eof or nbytes == 0:
+                    break
+        finally:
+            # Always hand the handle back, including on the error paths above:
+            # the driver's table is 16 slots and leaking them forces it to
+            # reclaim the oldest, which would break an unrelated reader.
+            yield PortalCmd(hop.HYPER_OP_VFS_CLOSE, handle, 0, None)
+
+        return out
 
     def read_file(self, fname: str, size: int = None,
                   offset: int = 0) -> bytes:
@@ -116,6 +215,14 @@ class FS(Plugin):
 
         > **Note:** This method is generated and type-checked.
         """
+        # Synthetic filesystems must be read sequentially from one open file
+        # (see read_file_seq). Route them there automatically so callers do not
+        # each have to know which paths are special -- and so existing callers
+        # reading /proc start working rather than silently getting nothing.
+        if fname.startswith(_SYNTHETIC_PREFIXES) and self._vfs_supported():
+            data = yield from self.read_file_seq(fname, size=size)
+            return data
+
         fname_bytes = fname.encode('latin-1')[:255] + b'\0'
 
         rsize = self.plugins.portal.regions_size
