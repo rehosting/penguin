@@ -262,13 +262,63 @@ exit 0
             .replace("@@GUEST_CMD_HINT@@", guest_cmd_hint))
 
 
+def _render_connect_script_vsock(container_name) -> str:
+    """Render results/<n>/connect.sh for the vsock console backend.
+
+    Instead of telnetting a serial port, it drives the guest command channel
+    (guesthopper) inside the container -- no telnet port / serial console, so
+    ttyS1 is free:
+
+    - no args  -> interactive pty shell (``guest_cmd.py --shell`` over an -it exec).
+    - ``connect.sh CMD...`` -> run CMD once over vsock; guest_cmd streams
+      stdout/stderr and exits with the command's return code.
+    """
+    guest_cmd_py = "/igloo_static/guesthopper/guest_cmd.py"
+    tmpl = r'''#!/bin/sh
+# Connect to this penguin run's guest over the vsock command channel. GENERATED
+# by penguin -- re-run the project to refresh it. No serial/telnet port is used.
+set -u
+
+CONTAINER="@@CONTAINER@@"
+GUEST_CMD="@@GUEST_CMD@@"
+
+ENGINE=""
+for e in docker podman; do
+  if command -v "$e" >/dev/null 2>&1; then ENGINE="$e"; break; fi
+done
+if [ -z "$ENGINE" ]; then
+  echo "connect.sh needs docker or podman on PATH." >&2
+  exit 1
+fi
+
+if [ -z "$CONTAINER" ] || ! "$ENGINE" ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
+  echo "Container '$CONTAINER' is not running -- start the run first." >&2
+  exit 1
+fi
+
+if [ "$#" -eq 0 ]; then
+  # Interactive pty shell over vsock (-it gives guest_cmd.py a real terminal).
+  exec "$ENGINE" exec -it "$CONTAINER" python3 "$GUEST_CMD" --shell
+fi
+
+# Command mode: run "$@" once over vsock.
+exec "$ENGINE" exec -i "$CONTAINER" python3 "$GUEST_CMD" "$@"
+'''
+    return (tmpl
+            .replace("@@CONTAINER@@", str(container_name or ""))
+            .replace("@@GUEST_CMD@@", guest_cmd_py))
+
+
 def _write_connect_script(out_dir, container_name, telnet_port, root_shell,
-                          guest_cmd) -> None:
+                          guest_cmd, backend="vsock") -> None:
     """Write results/<n>/connect.sh (executable) for this run."""
     path = os.path.join(out_dir, "connect.sh")
     with open(path, "w") as f:
-        f.write(_render_connect_script(container_name, telnet_port, root_shell,
-                                       guest_cmd))
+        if root_shell and backend == "vsock":
+            f.write(_render_connect_script_vsock(container_name))
+        else:
+            f.write(_render_connect_script(container_name, telnet_port, root_shell,
+                                           guest_cmd))
     os.chmod(path, 0o755)
 
 
@@ -722,6 +772,11 @@ def run_config(
     ldpreload_enabled = conf.get("lib_inject", dict()).get("enabled", True)
     if not ldpreload_enabled:
         conf["env"].pop("LD_PRELOAD", None)
+    # Backend is already resolved at config load (vsock may have fallen back to
+    # telnet if the VPN transport was unavailable). The telnet console is the
+    # only one that consumes ttyS1 / a telnet port.
+    root_shell_backend = conf["core"].get("root_shell_backend", "vsock")
+    telnet_console = root_shell_enabled and root_shell_backend == "telnet"
 
     _write_runtime_metadata(out_dir, {
         "pid": os.getpid(),
@@ -750,8 +805,9 @@ def run_config(
         telnet_port,
         root_shell_enabled,
         conf["core"].get("guest_cmd", False),
+        root_shell_backend,
     )
-    if root_shell_enabled:
+    if telnet_console:
         # Let the image's `rootshell` helper find the real console port.
         _write_root_shell_port(telnet_port)
 
@@ -760,13 +816,15 @@ def run_config(
         conf["core"]["show_output"] = False
         show_output_bool = False
 
-    if graphics and root_shell_enabled:
-        logger.warning("Graphics and root_shell are mutually exclusive. Using graphics")
-        root_shell = False
+    # Only the telnet console conflicts with graphics (both are display/serial
+    # backends); a vsock console rides the command channel and can coexist.
+    if graphics and telnet_console:
+        logger.warning("Graphics and the telnet root_shell are mutually exclusive. Using graphics")
+        telnet_console = False
         conf["core"]["root_shell"] = False
 
     root_shell = []
-    if root_shell_enabled:
+    if telnet_console:
         root_shell = [
             "-serial",
             "telnet:0.0.0.0:" + str(telnet_port) + ",server,nowait",
@@ -995,7 +1053,12 @@ def run_config(
 
 
 def _port_is_free(port: int) -> bool:
+    # SO_REUSEADDR mirrors what QEMU's telnet chardev listener does, so this
+    # probe accepts a port lingering in TIME_WAIT from a prior run's accepted
+    # connection -- QEMU can rebind it. Without it the probe returns a false
+    # negative and find_free_port needlessly skips a usable port.
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind(("0.0.0.0", port))
             return True
@@ -1005,6 +1068,7 @@ def _port_is_free(port: int) -> bool:
 
 def _random_free_port() -> int:
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("0.0.0.0", 0))
         return sock.getsockname()[1]
 
