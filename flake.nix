@@ -90,7 +90,7 @@
   # commit pinned above -- and the same kernel store paths this flake resolves,
   # so the pairing is verifiable by content rather than by version number.
   inputs.igloo-driver = {
-    url = "https://github.com/rehosting/igloo_driver/releases/download/v0.0.97/igloo_driver.tar.gz";
+    url = "https://github.com/rehosting/igloo_driver/releases/download/v0.0.98/igloo_driver.tar.gz";
     flake = false;
   };
   # v0.0.25 is the slimmed penguin-tools: it no longer ships the forked guest
