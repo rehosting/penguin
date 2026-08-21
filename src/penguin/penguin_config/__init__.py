@@ -294,6 +294,36 @@ def load_unpatched_config(path):
     return config
 
 
+def _resolve_console_backend(config):
+    """Resolve core.root_shell_backend and its transport dependency (in place).
+
+    The 'vsock' backend (default) serves the root shell on-demand over the guest
+    command channel (guesthopper) instead of the ttyS1 serial console, freeing
+    that UART. It needs the vsock transport (guesthopper + the VPN-owned
+    vhost-device-vsock), so core.guest_cmd is auto-enabled for it. If the vpn
+    plugin is disabled the transport is unavailable, so fall back to the telnet
+    console rather than leaving the run with no shell. No-op unless root_shell
+    is on and the backend is vsock.
+    """
+    if not config["core"].get("root_shell", False):
+        return
+    if config["core"].get("root_shell_backend", "vsock") != "vsock":
+        return
+    plugins_cfg = config.get("plugins") or {}
+    # Mirror penguin_run's vpn-enabled test: present dict -> enabled unless
+    # explicitly false; absent/None -> disabled.
+    vpn_cfg = plugins_cfg.get("vpn", {"enabled": False}) or {"enabled": False}
+    if not vpn_cfg.get("enabled", True):
+        logger.warning(
+            "core.root_shell_backend=vsock needs the VPN vsock transport, but the "
+            "vpn plugin is disabled; falling back to the telnet console on ttyS1 "
+            "for this run."
+        )
+        config["core"]["root_shell_backend"] = "telnet"
+    else:
+        config["core"]["guest_cmd"] = True
+
+
 def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=False):
     """Load penguin config from path"""
     with open(path, "r") as f:
@@ -387,6 +417,8 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
                 "Migrating the value for this run."
             )
             config["core"]["timeout"] = legacy_timeout
+
+    _resolve_console_backend(config)
 
     if config["core"].get("guest_cmd", False) is True:
         guesthopper_name = arch_registry.spec(config["core"]["arch"]).canonical
