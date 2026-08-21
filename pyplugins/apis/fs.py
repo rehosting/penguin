@@ -76,10 +76,14 @@ def _fs_name(magic: int) -> str:
 def _read_fail_hint(fname: str) -> str:
     if fname.startswith(_SYNTHETIC_PREFIXES):
         return (f" -- {fname} is on a synthetic (VFS) filesystem whose files are "
-                "generated on demand; these cannot be read with a stateless "
-                "offset+size read even when the guest can read them itself. Use "
-                "read_file_seq (igloo_driver vfs_* ops), which holds the file "
-                "open across reads. Do not treat this as an empty file.")
+                "generated on demand. A multi-chunk stateless read cannot read "
+                "these coherently; use read_file_seq (igloo_driver vfs_* ops), "
+                "which holds the file open. Note that on kernels from ~5.10 some "
+                "of these paths (/proc/<pid>/*, /proc/net/*) are refused by "
+                "__kernel_read for BOTH ops because of their f_op, even though "
+                "the guest itself can read them -- so a failure here is not "
+                "necessarily fixed by switching ops. Either way, do not treat it "
+                "as an empty file.")
     return ""
 
 
@@ -120,12 +124,22 @@ class FS(Plugin):
     def read_file_seq(self, fname: str, size: int = None) -> bytes:
         """Read a file by holding it open across reads (vfs_open/read/close).
 
-        This is the only way to read a synthetic filesystem correctly. procfs,
-        sysfs and debugfs generate their contents at open time and serve them
-        through sequential reads of that one open file, so the stateless
-        "open, seek, read, close" op re-generates the content on every chunk and
-        cannot produce a coherent result -- and for many such files it produces
-        nothing at all.
+        procfs, sysfs and debugfs generate their contents at open time and serve
+        them through sequential reads of that one open file, and report st_size
+        0. The stateless "open, seek, read, close" op re-generates the content
+        per chunk, so a *multi-chunk* read of such a file cannot produce a
+        coherent result. This holds one file open, so it can.
+
+        What this does NOT fix, measured rather than assumed: whether a
+        synthetic file is readable from the driver at all is decided by its
+        ``f_op``, not by statefulness. On kernels from ~5.10, ``__kernel_read``
+        refuses any file that has ``->read`` set or lacks ``->read_iter``
+        (``warn_unsupported`` -> EINVAL), which rules out ``/proc/<pid>/*`` and
+        ``/proc/net/*`` for *both* ops -- while ``/proc/version``,
+        ``/proc/mounts`` and sysfs read fine through either. On 4.10 there is no
+        such guard and the stateless op reads all of them. So this op is the
+        right shape for synthetic files, but it is not what makes them readable;
+        see igloo_driver's portal_vfs.c header for the partition.
 
         Raises :class:`PortalFileError` carrying the guest-side errno when the
         open or a read fails, so the caller learns *why* instead of receiving an
