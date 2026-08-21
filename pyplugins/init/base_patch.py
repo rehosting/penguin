@@ -187,7 +187,8 @@ class BasePatch(InitPlugin):
 
         # Always add our utilities into static files
         guest_scripts_dir = os.path.join(STATIC_DIR, "guest-utils", "scripts")
-        for f in os.listdir(guest_scripts_dir):
+        # Sorted so the static_files keys land in a stable order.
+        for f in sorted(os.listdir(guest_scripts_dir)):
             result["static_files"][f"/igloo/utils/{f}"] = {
                 "type": "host_file",
                 "host_path": f"{guest_scripts_dir}/{f}",
