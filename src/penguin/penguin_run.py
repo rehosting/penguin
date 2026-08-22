@@ -262,7 +262,7 @@ exit 0
             .replace("@@GUEST_CMD_HINT@@", guest_cmd_hint))
 
 
-def _render_connect_script_vsock(container_name, telnet_port) -> str:
+def _render_connect_script_vsock(container_name, telnet_port, ssh_port=None) -> str:
     """Render results/<n>/connect.sh for the vsock console backend.
 
     Instead of telnetting a serial port, it drives the guest command channel
@@ -284,7 +284,7 @@ def _render_connect_script_vsock(container_name, telnet_port) -> str:
 #
 # A telnet front door is also available (same vsock session under the hood):
 #   <docker|podman> exec -it @@CONTAINER@@ telnet localhost @@TELNET_PORT@@
-set -u
+@@SSH_HINT@@set -u
 
 CONTAINER="@@CONTAINER@@"
 GUEST_CMD="@@GUEST_CMD@@"
@@ -311,23 +311,59 @@ fi
 # Command mode: run "$@" once over vsock.
 exec "$ENGINE" exec -i "$CONTAINER" python3 "$GUEST_CMD" "$@"
 '''
+    # SSH is served on localhost inside the container (open auth). It is not
+    # reachable from the host by default (localhost bind); documented for the
+    # in-container / same-netns case.
+    ssh_hint = ""
+    if ssh_port is not None:
+        ssh_hint = (
+            "# An SSH front door (open auth) is also served on "
+            f"localhost:{ssh_port} inside the\n"
+            "# container, bridging to the same vsock session.\n"
+        )
     return (tmpl
             .replace("@@CONTAINER@@", str(container_name or ""))
             .replace("@@TELNET_PORT@@", str(telnet_port))
+            .replace("@@SSH_HINT@@", ssh_hint)
             .replace("@@GUEST_CMD@@", guest_cmd_py))
 
 
 def _write_connect_script(out_dir, container_name, telnet_port, root_shell,
-                          guest_cmd, backend="vsock") -> None:
+                          guest_cmd, backend="vsock", ssh_port=None) -> None:
     """Write results/<n>/connect.sh (executable) for this run."""
     path = os.path.join(out_dir, "connect.sh")
     with open(path, "w") as f:
         if root_shell and backend == "vsock":
-            f.write(_render_connect_script_vsock(container_name, telnet_port))
+            f.write(_render_connect_script_vsock(container_name, telnet_port, ssh_port))
         else:
             f.write(_render_connect_script(container_name, telnet_port, root_shell,
                                            guest_cmd))
     os.chmod(path, 0o755)
+
+
+def _launch_ssh_gateway(uds_path, vsock_port, ssh_port):
+    """Start the host-side SSH front door for the vsock console.
+
+    Mirrors _launch_telnet_gateway: runs inside the container, listening on
+    localhost:<ssh_port> and bridging SSH clients to the guest's vsock pty via
+    ssh_gateway.py (asyncssh). Open auth, like the telnet door. Bound to
+    localhost, so it is not exposed on the host unless the run publishes the
+    port (--extra_docker_args -p ...); reaching it externally needs that publish
+    (a localhost-bound listener is not reachable via docker -p, so binding wider
+    would be required for external use -- deliberately left localhost-only here).
+    """
+    gateway_py = "/igloo_static/guesthopper/ssh_gateway.py"
+    proc = subprocess.Popen(
+        [
+            "python3", gateway_py,
+            "--listen-host", "127.0.0.1",
+            "--listen-port", str(ssh_port),
+            "--socket", str(uds_path),
+            "--port", str(vsock_port),
+        ]
+    )
+    logger.info(f"ssh front door: localhost:{ssh_port} -> guest vsock pty")
+    return proc
 
 
 def _launch_telnet_gateway(uds_path, vsock_port, telnet_port):
@@ -833,6 +869,13 @@ def run_config(
         root_shell_enabled = False
         conf["core"]["root_shell"] = False
 
+    # The vsock console's telnet/SSH front doors ride the guest command channel.
+    # Allocate the SSH port here (localhost, unpublished by default) so it lands
+    # in runtime.yaml and connect.sh; the gateways themselves are launched once
+    # the transport socket exists.
+    vsock_console = vpn_enabled and root_shell_enabled and root_shell_backend == "vsock"
+    ssh_port = _random_free_port() if vsock_console else None
+
     _write_runtime_metadata(out_dir, {
         "pid": os.getpid(),
         "project": proj_dir,
@@ -849,6 +892,7 @@ def run_config(
         "vsock_cid": vpn_args.get("CID"),
         "vsock_socket_path": _runtime_path(vpn_args.get("socket_path")),
         "vsock_uds_path": _runtime_path(vpn_args.get("uds_path")),
+        "ssh_port": ssh_port,
     })
 
     # A one-glance "get into the guest" helper next to runtime.yaml. Reaches the
@@ -861,6 +905,7 @@ def run_config(
         root_shell_enabled,
         conf["core"].get("guest_cmd", False),
         root_shell_backend,
+        ssh_port,
     )
     if telnet_console:
         # Let the image's `rootshell` helper find the real console port.
@@ -1091,12 +1136,17 @@ def run_config(
     # inside the container) but rides the vsock channel, so ttyS1 stays free.
     # Only when the vsock root shell is actually active and the transport is up.
     telnet_gateway_proc = None
-    if vpn_enabled and root_shell_enabled and root_shell_backend == "vsock":
+    ssh_gateway_proc = None
+    if vsock_console:
         # 12341234 is the guest agent's default vsock port (guesthopper /
         # guest_cmd.py); keep them in lockstep.
         telnet_gateway_proc = _launch_telnet_gateway(
             vpn_args["uds_path"], 12341234, telnet_port
         )
+        if ssh_port is not None:
+            ssh_gateway_proc = _launch_ssh_gateway(
+                vpn_args["uds_path"], 12341234, ssh_port
+            )
 
     logger.info("Launching rehosting")
 
@@ -1110,12 +1160,13 @@ def run_config(
         finally:
             # think about this and maybe join on the thread
             plugins.unload_all()
-            if telnet_gateway_proc is not None:
-                telnet_gateway_proc.terminate()
-                try:
-                    telnet_gateway_proc.wait(timeout=2)
-                except Exception:
-                    telnet_gateway_proc.kill()
+            for gw in (telnet_gateway_proc, ssh_gateway_proc):
+                if gw is not None:
+                    gw.terminate()
+                    try:
+                        gw.wait(timeout=2)
+                    except Exception:
+                        gw.kill()
             if vpn_enabled:
                 shutil.rmtree(vpn_tmpdir.name, ignore_errors=True)
 
