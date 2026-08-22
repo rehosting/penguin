@@ -286,9 +286,7 @@ def _render_connect_script_vsock(container_name, telnet_port, ssh_port=None) -> 
 # Connect to this penguin run's guest over the vsock command channel. GENERATED
 # by penguin -- re-run the project to refresh it. No serial console is used.
 #
-# A telnet front door is also available (same vsock session under the hood):
-#   <docker|podman> exec -it @@CONTAINER@@ telnet localhost @@TELNET_PORT@@
-@@SSH_HINT@@set -u
+@@FRONTDOOR_HINT@@set -u
 
 CONTAINER="@@CONTAINER@@"
 GUEST_CMD="@@GUEST_CMD@@"
@@ -315,20 +313,26 @@ fi
 # Command mode: run "$@" once over vsock.
 exec "$ENGINE" exec -i "$CONTAINER" python3 "$GUEST_CMD" "$@"
 '''
-    # SSH is served on localhost inside the container (open auth). It is not
-    # reachable from the host by default (localhost bind); documented for the
-    # in-container / same-netns case.
-    ssh_hint = ""
+    # Telnet/SSH front doors ride the same vsock session and are bound to the
+    # container's network on the standard ports (open auth), so the rehosted
+    # device answers on its container IP like a real one. Build the hint from
+    # this run's container IP when known.
+    cname = str(container_name or "")
+    container_ip = os.environ.get("CONTAINER_IP") or ""
+    host = container_ip or "<container-ip>"
+    hint = ["# Front doors onto the SAME session (guest speaks only vsock):"]
+    tport = "" if telnet_port == 23 else f" {telnet_port}"
+    hint.append(f"#   telnet {host}{tport}")
     if ssh_port is not None:
-        ssh_hint = (
-            "# An SSH front door (open auth) is also served on "
-            f"localhost:{ssh_port} inside the\n"
-            "# container, bridging to the same vsock session.\n"
-        )
+        sport = "" if ssh_port == 22 else f" -p {ssh_port}"
+        hint.append(f"#   ssh root@{host}{sport}")
+    if not container_ip:
+        hint.append("#   (container IP is in runtime.yaml; or from the host: "
+                    f"'<engine> exec -it {cname} telnet localhost {telnet_port}')")
+    frontdoor_hint = "\n".join(hint) + "\n"
     return (tmpl
-            .replace("@@CONTAINER@@", str(container_name or ""))
-            .replace("@@TELNET_PORT@@", str(telnet_port))
-            .replace("@@SSH_HINT@@", ssh_hint)
+            .replace("@@CONTAINER@@", cname)
+            .replace("@@FRONTDOOR_HINT@@", frontdoor_hint)
             .replace("@@GUEST_CMD@@", guest_cmd_py))
 
 
@@ -348,52 +352,48 @@ def _write_connect_script(out_dir, container_name, telnet_port, root_shell,
 def _launch_ssh_gateway(uds_path, vsock_port, ssh_port):
     """Start the host-side SSH front door for the vsock console.
 
-    Mirrors _launch_telnet_gateway: runs inside the container, listening on
-    localhost:<ssh_port> and bridging SSH clients to the guest's vsock pty via
-    ssh_gateway.py (asyncssh). Open auth, like the telnet door. Bound to
-    localhost, so it is not exposed on the host unless the run publishes the
-    port (--extra_docker_args -p ...); reaching it externally needs that publish
-    (a localhost-bound listener is not reachable via docker -p, so binding wider
-    would be required for external use -- deliberately left localhost-only here).
+    Mirrors _launch_telnet_gateway: runs inside the container, bridging SSH
+    clients to the guest's vsock pty via ssh_gateway.py (asyncssh). Open auth,
+    like the telnet door. Bound to 0.0.0.0 on the standard SSH port so the
+    rehosted device is reachable on its container IP -- `ssh root@<container-ip>`
+    -- like a real device. Nothing is published to the host unless the run adds
+    -p (--extra_docker_args).
     """
     gateway_py = "/igloo_static/guesthopper/ssh_gateway.py"
     proc = subprocess.Popen(
         [
             "python3", gateway_py,
-            "--listen-host", "127.0.0.1",
+            "--listen-host", "0.0.0.0",
             "--listen-port", str(ssh_port),
             "--socket", str(uds_path),
             "--port", str(vsock_port),
         ]
     )
-    logger.info(f"ssh front door: localhost:{ssh_port} -> guest vsock pty")
+    logger.info(f"ssh front door: 0.0.0.0:{ssh_port} -> guest vsock pty")
     return proc
 
 
 def _launch_telnet_gateway(uds_path, vsock_port, telnet_port):
     """Start the host-side telnet front door for the vsock console.
 
-    Runs inside the container, listening on localhost:<telnet_port> and bridging
-    telnet clients to the guest's vsock pty session. This preserves the familiar
-    ``<engine> exec -it <container> telnet localhost <telnet_port>`` experience
-    of the old serial console while the guest speaks only the clean vsock command
-    channel (ttyS1 stays free). Bound to localhost -- reach it via docker/podman
-    exec, exactly as the serial telnet console was reached.
+    Runs inside the container, bridging telnet clients to the guest's vsock pty
+    session, while the guest speaks only the clean vsock command channel (ttyS1
+    stays free). Bound to 0.0.0.0 on the standard telnet port so the rehosted
+    device is reachable on its container IP -- `telnet <container-ip>` -- like a
+    real device (and still via `<engine> exec -it <container> telnet localhost
+    <telnet_port>`). Nothing is published to the host unless the run adds -p.
     """
     gateway_py = "/igloo_static/guesthopper/telnet_gateway.py"
     proc = subprocess.Popen(
         [
             "python3", gateway_py,
-            "--listen-host", "127.0.0.1",
+            "--listen-host", "0.0.0.0",
             "--listen-port", str(telnet_port),
             "--socket", str(uds_path),
             "--port", str(vsock_port),
         ]
     )
-    logger.info(
-        f"telnet front door: localhost:{telnet_port} -> guest vsock pty "
-        f"(reach it with: <engine> exec -it <container> telnet localhost {telnet_port})"
-    )
+    logger.info(f"telnet front door: 0.0.0.0:{telnet_port} -> guest vsock pty")
     return proc
 
 
@@ -878,7 +878,11 @@ def run_config(
     # in runtime.yaml and connect.sh; the gateways themselves are launched once
     # the transport socket exists.
     vsock_console = vpn_enabled and root_shell_enabled and root_shell_backend == "vsock"
-    ssh_port = _random_free_port() if vsock_console else None
+    # SSH front door on the standard SSH port by default (override with
+    # PENGUIN_SSH_PORT). Bound wide (see _launch_ssh_gateway) so the rehosted
+    # device is reachable on its container IP like a real device. The container
+    # runs with --cap-add=NET_BIND_SERVICE, so binding port 22 is allowed.
+    ssh_port = _env_int("PENGUIN_SSH_PORT", 22, min_value=1) if vsock_console else None
 
     _write_runtime_metadata(out_dir, {
         "pid": os.getpid(),
