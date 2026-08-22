@@ -339,6 +339,10 @@
               # (guarded). Both are core to the rehosting assembler/disassembler.
               keystone-engine
               capstone
+              # asyncssh backs the host-side SSH front door
+              # (/igloo_static/guesthopper/ssh_gateway.py), launched by
+              # penguin_run for the vsock console. Pulls in cryptography.
+              asyncssh
             ]
           )
           # ratarmountcore[full]: penguin reads the firmware rootfs tarball at
