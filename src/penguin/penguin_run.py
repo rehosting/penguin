@@ -15,7 +15,7 @@ from penguin import getColoredLogger, plugins
 from .common import yaml, style_config_for_dump, get_inits_from_proj
 from yamlcore import CoreDumper, CoreLoader
 from .defaults import default_plugin_path, vnc_password
-from penguin.penguin_config import load_config
+from penguin.penguin_config import _vpn_enabled, load_config
 from .plugin_manager import ArgsBox
 from .utils import hash_image_inputs, get_penguin_kernel_version, boot_fingerprint
 from .q_config import load_q_config, ROOTFS
@@ -558,7 +558,10 @@ def run_config(
 
     # We have to set up vsock args for qemu CLI arguments if we're using the vpn. We
     # special case this here and add the arguments to the plugin later
-    vpn_enabled = conf_plugins.get("vpn", {"enabled": False}).get("enabled", True)
+    # Shared with _resolve_console_backend so the console backend decision and
+    # the vsock transport setup can't disagree (and this no longer crashes on a
+    # present-but-null vpn value).
+    vpn_enabled = _vpn_enabled(conf_plugins)
     vsock_args = []
     vpn_args = {}
 
