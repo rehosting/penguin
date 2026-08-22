@@ -77,6 +77,14 @@ _PATH_MAX = 255
 # it is a hang.
 _MAX_SEQ_READS = 16384
 
+# The same bound for the STATELESS full-file read, which had none at all. A
+# read_file(path) with no size stops when a read comes back empty, so a file
+# that never ends -- /dev/zero, /dev/urandom, a growing log, a modelled
+# pseudofile that regenerates per read -- span forever. At a 4 KB chunk this is
+# ~66 MB, past any firmware file worth pulling through a hypercall one page at
+# a time.
+_MAX_STATELESS_READS = 16384
+
 
 def _is_synthetic(fname: str) -> bool:
     """True if ``fname`` is under a synthetic-filesystem root.
@@ -116,6 +124,23 @@ def _encode_path(fname: str) -> bytes:
             f"refusing to truncate it because the truncated path names a "
             f"different file: {fname!r}")
     return raw + b'\0'
+
+
+def _encode_data(data) -> bytes:
+    """Bytes for the portal, or a PortalFileError explaining why not.
+
+    A str that latin-1 cannot carry used to raise a bare UnicodeEncodeError from
+    the middle of write_file, which reads as a bug in the plugin rather than as
+    a rejected argument.
+    """
+    if isinstance(data, bytes):
+        return data
+    try:
+        return data.encode('latin-1')
+    except UnicodeEncodeError as e:
+        raise PortalFileError(
+            f"data is not encodable for the portal (latin-1): {e}. Encode it "
+            f"yourself and pass bytes if you want a specific encoding.") from e
 
 
 # Just the handful worth naming; anything else prints as a bare number.
@@ -287,7 +312,12 @@ class FS(Plugin):
         rsize = self.plugins.portal.regions_size
         hdr = kffi.sizeof("vfs_read_result")
         chunk = max(1, rsize - hdr - 1)
-        out = b""
+        # Accumulated in a list, not with `out += got`. Concatenating bytes in a
+        # loop copies the whole buffer every iteration, so a 4 MB file over
+        # ~1000 chunks moved gigabytes for no reason -- slow enough that the
+        # loop bound below looked like a hang when it was only quadratic.
+        parts = []
+        out_len = 0
         # A seq_file has no seek: the only way to reach an offset is to read and
         # discard up to it. Done here rather than rejected because read_file
         # accepts an offset, and silently ignoring it -- which is what happened
@@ -298,7 +328,7 @@ class FS(Plugin):
                 # Discarded bytes do not count toward `size`, so a capped read
                 # still has to pull `skip` extra bytes off the front.
                 want = (chunk if size is None
-                        else min(chunk, skip + size - len(out)))
+                        else min(chunk, skip + size - out_len))
                 if want <= 0:
                     break
                 raw = yield PortalCmd(hop.HYPER_OP_VFS_READ, handle, want, None)
@@ -309,7 +339,7 @@ class FS(Plugin):
                 rerr, nbytes, eof = int(r.error), int(r.nbytes), int(r.eof)
                 if rerr:
                     raise PortalFileError(
-                        f"vfs_read({fname!r}) failed after {len(out)} bytes: "
+                        f"vfs_read({fname!r}) failed after {out_len} bytes: "
                         f"errno {-rerr} ({_errno_name(-rerr)})"
                         f"{_errno_hint(-rerr)}")
                 if nbytes:
@@ -317,15 +347,16 @@ class FS(Plugin):
                     if skip:
                         drop = min(skip, len(got))
                         got, skip = got[drop:], skip - drop
-                    out += got
+                    parts.append(got)
+                    out_len += len(got)
                 # eof is a successful read of nothing: stop, do not error.
                 if eof or nbytes == 0:
                     break
             else:
                 raise PortalFileError(
                     f"vfs_read({fname!r}) never reported EOF after "
-                    f"{self._max_seq_reads()} reads ({len(out)} bytes); refusing to "
-                    f"loop further")
+                    f"{self._max_seq_reads()} reads ({out_len} bytes); refusing "
+                    f"to loop further")
         except GeneratorExit:
             # A PortalCmd cannot be yielded while the generator is being closed,
             # so the handle cannot be returned here. Warn instead of raising
@@ -344,7 +375,7 @@ class FS(Plugin):
             yield PortalCmd(hop.HYPER_OP_VFS_CLOSE, handle, 0, None)
             raise
         yield PortalCmd(hop.HYPER_OP_VFS_CLOSE, handle, 0, None)
-        return out
+        return b"".join(parts)
 
     def read_file(self, fname: str, size: int = None,
                   offset: int = 0) -> bytes:
@@ -425,7 +456,8 @@ class FS(Plugin):
                 return data
 
             # For larger sizes, read in chunks
-            all_data = b""
+            parts = []
+            got_any = False
             current_offset = offset
             bytes_remaining = size
 
@@ -437,7 +469,7 @@ class FS(Plugin):
                 chunk = yield PortalCmd(hop.HYPER_OP_READ_FILE, current_offset, chunk_size, None, fname_bytes)
 
                 if not chunk:
-                    if not all_data and current_offset == offset:
+                    if not got_any and current_offset == offset:
                         # Nothing at all came back on the FIRST read. The
                         # stateless op reports EOF as a failure, so a genuinely
                         # empty file is indistinguishable from a failed read
@@ -456,24 +488,32 @@ class FS(Plugin):
                         f"No data returned at offset {current_offset}, stopping read")
                     break
 
-                all_data += chunk
+                parts.append(chunk)
+                got_any = True
                 current_offset += len(chunk)
                 bytes_remaining -= len(chunk)
 
-                # If we got less data than requested, we've reached EOF
-                if len(chunk) < chunk_size:
-                    self.logger.debug(
-                        f"Reached EOF at offset {current_offset} (requested {chunk_size}, got {len(chunk)})")
-                    break
+                # A SHORT read is not EOF. This op is a pread, and a pread on a
+                # chardev, a pipe or anything with a short-read habit returns
+                # less than asked for routinely. Treating that as end-of-file
+                # truncated the read silently -- the caller got a prefix with no
+                # indication the rest existed. Termination comes from an empty
+                # read instead, which costs one extra round trip on the last
+                # chunk and is the only signal that actually means "no more".
 
-            return all_data
+            return b"".join(parts)
 
         # If size is not specified, read the entire file in chunks
-        all_data = b""
+        parts = []
+        total = 0
         current_offset = offset
         chunk_size = rsize - 1
 
-        while True:
+        # Bounded. Without a bound this loop only ended when a read came back
+        # empty, so a file that never ends -- /dev/zero, /dev/urandom, a growing
+        # log -- span forever, one guest round trip at a time, with no marker and
+        # nothing to distinguish it from the emulation having wedged.
+        for _ in range(_MAX_STATELESS_READS):
             self.logger.debug(
                 f"Reading file chunk: {fname}, offset={current_offset}, size={chunk_size}")
 
@@ -484,16 +524,18 @@ class FS(Plugin):
                     f"No data returned at offset {current_offset}, stopping read")
                 break
 
-            all_data += chunk
+            parts.append(chunk)
+            total += len(chunk)
             current_offset += len(chunk)
+            # Short read is not EOF here either; see the note on the sized path.
+        else:
+            raise PortalFileError(
+                f"read_file({fname!r}) never reported EOF after "
+                f"{_MAX_STATELESS_READS} reads ({total} bytes); refusing to "
+                f"loop further. A file with no end (/dev/zero, /dev/urandom, a "
+                f"growing log) cannot be read whole -- pass an explicit size.")
 
-            # If we got less data than requested, we've reached EOF
-            if len(chunk) < chunk_size:
-                self.logger.debug(
-                    f"Reached EOF at offset {current_offset} (requested {chunk_size}, got {len(chunk)})")
-                break
-
-        return all_data
+        return b"".join(parts)
 
     def write_file(self, fname: str, data: bytes | str, offset: int = 0) -> int:
         """
@@ -522,15 +564,26 @@ class FS(Plugin):
 
         > **Note:** This method is generated and type-checked.
         """
-        # Convert string data to bytes if necessary
-        if isinstance(data, str):
-            data = data.encode('latin-1')
+        data = _encode_data(data)
+        if offset < 0:
+            # read_file validates this; write_file passed it straight to the
+            # driver, which casts it to an unsigned offset and writes somewhere
+            # the caller did not name.
+            raise PortalFileError(
+                f"write_file({fname!r}): offset={offset} is negative")
 
         fname_bytes = _encode_path(fname)
         rsize = self.plugins.portal.regions_size
 
         # Calculate the maximum data size that can fit in one region
         max_data_size = rsize - len(fname_bytes)
+        if max_data_size <= 16:
+            # A long path in a small region leaves no room for data. Unguarded,
+            # the chunk size went negative, every slice was empty, and the write
+            # returned 0 as though the guest had refused it.
+            raise PortalFileError(
+                f"write_file({fname!r}): the path takes {len(fname_bytes)} of "
+                f"the {rsize}-byte portal region, leaving no room for data")
 
         # If data is small enough, do a single write
         if len(data) <= max_data_size:
@@ -564,20 +617,36 @@ class FS(Plugin):
 
             bytes_written = yield PortalCmd(hop.HYPER_OP_WRITE_FILE, current_offset, len(chunk), None, fname_bytes + chunk)
 
-            if not bytes_written:
-                self.logger.error(
-                    f"Failed to write chunk at offset {current_offset}")
-                break
+            # Everything below used to `break` and return a short count. That
+            # gave one function two behaviours depending only on the size of the
+            # data: a small write raised on refusal, a large one reported
+            # success having written a prefix. A caller comparing the count
+            # against len(data) catches it; one that does not has silently
+            # truncated the file.
+            if bytes_written is None:
+                raise PortalFileError(
+                    f"write_file({fname!r}) was refused at offset "
+                    f"{current_offset} after {total_bytes} of {len(data)} bytes"
+                    f"{_read_fail_hint(fname)}")
+            if bytes_written > chunk_size:
+                # An impossible count. Left alone, current_offset advanced by it
+                # while current_pos advanced by the chunk size, so every later
+                # chunk landed at the wrong offset and the total over-reported:
+                # a corrupted file returned as a success.
+                raise PortalFileError(
+                    f"write_file({fname!r}) reported {bytes_written} bytes "
+                    f"written for a {chunk_size}-byte chunk -- more bytes than "
+                    f"it was given, so the offset can no longer be trusted")
+            if bytes_written < chunk_size:
+                raise PortalFileError(
+                    f"write_file({fname!r}) wrote {total_bytes + bytes_written} "
+                    f"of {len(data)} bytes and then stopped ({bytes_written} of "
+                    f"a {chunk_size}-byte chunk at offset {current_offset}). The "
+                    f"file now holds a prefix of what you passed.")
 
             total_bytes += bytes_written
             current_offset += bytes_written
-            current_pos += chunk_size
-
-            # If we couldn't write the full chunk, stop
-            if bytes_written < chunk_size:
-                self.logger.debug(
-                    f"Partial write: wrote {bytes_written} of {chunk_size} bytes")
-                break
+            current_pos += bytes_written
 
         self.logger.debug(f"Total bytes written to file: {total_bytes}")
         return total_bytes
