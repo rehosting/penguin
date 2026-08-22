@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import socket
+import atexit
 from contextlib import contextmanager, closing
 from pathlib import Path
 from time import sleep
@@ -349,52 +350,93 @@ def _write_connect_script(out_dir, container_name, telnet_port, root_shell,
     os.chmod(path, 0o755)
 
 
-def _launch_ssh_gateway(uds_path, vsock_port, ssh_port):
-    """Start the host-side SSH front door for the vsock console.
+# Front-door gateway subprocesses, tracked so an abnormal exit that bypasses
+# _run()'s finally (a hard crash between launch and the run, a SIGKILL of the
+# runner) still reaps them instead of leaving them holding the listen ports --
+# the same atexit-backed safety net the vpn subprocesses have.
+_gateway_procs = []
+_gateway_atexit_registered = False
 
-    Mirrors _launch_telnet_gateway: runs inside the container, bridging SSH
-    clients to the guest's vsock pty via ssh_gateway.py (asyncssh). Open auth,
-    like the telnet door. Bound to 0.0.0.0 on the standard SSH port so the
-    rehosted device is reachable on its container IP -- `ssh root@<container-ip>`
-    -- like a real device. Nothing is published to the host unless the run adds
-    -p (--extra_docker_args).
+
+def _terminate_gateway(proc) -> None:
+    """Best-effort stop of one gateway subprocess (idempotent, never raises)."""
+    if proc is None:
+        return
+    try:
+        if proc.poll() is not None:
+            return  # already gone
+        proc.terminate()
+        try:
+            proc.wait(timeout=2)
+        except Exception:
+            proc.kill()
+    except Exception:
+        pass
+
+
+def _kill_gateways() -> None:
+    for proc in _gateway_procs:
+        _terminate_gateway(proc)
+
+
+def _launch_gateway(kind, gateway_py, listen_port, uds_path, vsock_port):
+    """Start one host-side front-door gateway and confirm it actually came up.
+
+    Runs inside the container, bridging TCP clients (telnet or ssh) to the
+    guest's vsock pty via `gateway_py`, while the guest speaks only the clean
+    vsock command channel (ttyS1 stays free). Bound to 0.0.0.0 on `listen_port`
+    so the rehosted device answers on its container IP like a real one; nothing
+    is published to the host unless the run adds -p (--extra_docker_args).
+
+    The gateway's stderr is inherited (its startup line and any bind/import error
+    land in the run log). After launch we briefly poll: a gateway that dies
+    immediately (port unbindable, `asyncssh` missing, bad script) would otherwise
+    leave a live-looking Popen handle and a logged "front door up" that lies. On
+    early death we log a warning and return None so the caller doesn't treat a
+    dead door as running.
     """
-    gateway_py = "/igloo_static/guesthopper/ssh_gateway.py"
+    global _gateway_atexit_registered
     proc = subprocess.Popen(
         [
             "python3", gateway_py,
             "--listen-host", "0.0.0.0",
-            "--listen-port", str(ssh_port),
+            "--listen-port", str(listen_port),
             "--socket", str(uds_path),
             "--port", str(vsock_port),
         ]
     )
-    logger.info(f"ssh front door: 0.0.0.0:{ssh_port} -> guest vsock pty")
+    _gateway_procs.append(proc)
+    if not _gateway_atexit_registered:
+        atexit.register(_kill_gateways)
+        _gateway_atexit_registered = True
+
+    # Give it a moment to bind (or fail fast) before declaring it up.
+    sleep(0.5)
+    if proc.poll() is not None:
+        logger.warning(
+            f"{kind} front door failed to start on 0.0.0.0:{listen_port} "
+            f"(exit {proc.returncode}); see run stderr. Other consoles are "
+            f"unaffected (guest_cmd over `<engine> exec` still works)."
+        )
+        return None
+    logger.info(f"{kind} front door: 0.0.0.0:{listen_port} -> guest vsock pty")
     return proc
+
+
+def _launch_ssh_gateway(uds_path, vsock_port, ssh_port):
+    """Start the host-side SSH front door (asyncssh, open auth) for the vsock
+    console -- `ssh root@<container-ip>`. See _launch_gateway."""
+    return _launch_gateway(
+        "ssh", "/igloo_static/guesthopper/ssh_gateway.py", ssh_port, uds_path, vsock_port
+    )
 
 
 def _launch_telnet_gateway(uds_path, vsock_port, telnet_port):
-    """Start the host-side telnet front door for the vsock console.
-
-    Runs inside the container, bridging telnet clients to the guest's vsock pty
-    session, while the guest speaks only the clean vsock command channel (ttyS1
-    stays free). Bound to 0.0.0.0 on the standard telnet port so the rehosted
-    device is reachable on its container IP -- `telnet <container-ip>` -- like a
-    real device (and still via `<engine> exec -it <container> telnet localhost
-    <telnet_port>`). Nothing is published to the host unless the run adds -p.
-    """
-    gateway_py = "/igloo_static/guesthopper/telnet_gateway.py"
-    proc = subprocess.Popen(
-        [
-            "python3", gateway_py,
-            "--listen-host", "0.0.0.0",
-            "--listen-port", str(telnet_port),
-            "--socket", str(uds_path),
-            "--port", str(vsock_port),
-        ]
+    """Start the host-side telnet front door for the vsock console --
+    `telnet <container-ip>`. See _launch_gateway."""
+    return _launch_gateway(
+        "telnet", "/igloo_static/guesthopper/telnet_gateway.py", telnet_port, uds_path, vsock_port
     )
-    logger.info(f"telnet front door: 0.0.0.0:{telnet_port} -> guest vsock pty")
-    return proc
 
 
 def _write_root_shell_port(telnet_port) -> None:
@@ -881,8 +923,16 @@ def run_config(
     # SSH front door on the standard SSH port by default (override with
     # PENGUIN_SSH_PORT). Bound wide (see _launch_ssh_gateway) so the rehosted
     # device is reachable on its container IP like a real device. The container
-    # runs with --cap-add=NET_BIND_SERVICE, so binding port 22 is allowed.
-    ssh_port = _env_int("PENGUIN_SSH_PORT", 22, min_value=1) if vsock_console else None
+    # runs with --cap-add=NET_BIND_SERVICE so binding 22 is allowed -- but that
+    # cap is only *effective* for a root container process; on the non-rootless
+    # path the run drops to a non-root user, where the bind can fail. So probe
+    # the port (exactly as find_free_port() does for telnet) and fall back to a
+    # free high port rather than launching a gateway that silently can't bind.
+    ssh_port = (
+        _pick_gateway_port(_env_int("PENGUIN_SSH_PORT", 22, min_value=1))
+        if vsock_console
+        else None
+    )
 
     _write_runtime_metadata(out_dir, {
         "pid": os.getpid(),
@@ -1166,15 +1216,16 @@ def run_config(
         except Exception as e:
             logger.exception(e)
         finally:
-            # think about this and maybe join on the thread
-            plugins.unload_all()
+            # think about this and maybe join on the thread.
+            # Guard plugin unload so a throwing uninit() (e.g. vpn's
+            # host_vpn.wait timing out) can't strand the gateway/tmpdir cleanup
+            # that follows it.
+            try:
+                plugins.unload_all()
+            except Exception as e:
+                logger.exception(e)
             for gw in (telnet_gateway_proc, ssh_gateway_proc):
-                if gw is not None:
-                    gw.terminate()
-                    try:
-                        gw.wait(timeout=2)
-                    except Exception:
-                        gw.kill()
+                _terminate_gateway(gw)
             if vpn_enabled:
                 shutil.rmtree(vpn_tmpdir.name, ignore_errors=True)
 
@@ -1204,6 +1255,18 @@ def _random_free_port() -> int:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("0.0.0.0", 0))
         return sock.getsockname()[1]
+
+
+def _pick_gateway_port(preferred: int) -> int:
+    """Return `preferred` if this process can actually bind it, else a free high
+    port. Privileged ports (<1024) need the container's NET_BIND_SERVICE cap to
+    be *effective*, which it is not for the non-root user the run drops to on the
+    non-rootless path -- so `_port_is_free(22)` fails there and we self-heal to a
+    high port instead of launching a gateway that can never bind. Mirrors how
+    find_free_port() keeps the telnet door from silently failing to bind 23."""
+    if _port_is_free(preferred):
+        return preferred
+    return _random_free_port()
 
 
 def find_free_port():
