@@ -482,24 +482,27 @@ class VfsReadVerify(Plugin):
     def _check_handle_table(self, path):
         """Leaking every slot must degrade for one reader, not wedge the table.
 
-        The driver has 16 slots. A host that leaks handles -- a crashed
-        generator, a plugin that forgot to close -- must not make the portal
-        permanently unable to read any file, so the driver reclaims the oldest
-        idle slot. The property being checked is that the (N+1)th open still
-        SUCCEEDS and that the cost lands on the oldest handle as an EBADF,
-        rather than the open failing forever.
+        The driver has a fixed number of handle slots. A host that leaks
+        handles -- a crashed generator, a plugin that forgot to close -- must not
+        make the portal permanently unable to read ANY file, so the driver
+        reclaims the oldest idle slot. The properties checked are that opens keep
+        SUCCEEDING past the table size, and that the cost lands on the oldest
+        handle only.
 
-        Never run on a guest before. It also covers the case that made
-        reclaiming dangerous in the first place: a slot with a read in flight
-        must not be the victim (it cannot be reached single-threaded from here,
-        so it is called out in the marker rather than claimed).
+        The table size is discovered rather than asserted: opens continue until
+        the first handle stops reading. Hardcoding it would make this check fail
+        confusingly the day VFS_SLOTS changes, and testing the constant is not
+        the point -- the property is.
+
+        Never run on a guest before. The one case it cannot reach from here is
+        the one that made reclaim dangerous: a slot with a read in flight must
+        not be the victim. That needs two concurrent portal callers, so it is
+        called out here rather than claimed.
         """
-        SLOTS = 16
-        # Set by _check_bad_handles, which runs first. Falls back to EBADF so
-        # the check still means something if it is ever reordered.
-        bad = self._bad_errno or EBADF
+        MAX_OPENS = 64
         handles = []
-        for _ in range(SLOTS + 4):
+        bad = None
+        for i in range(MAX_OPENS):
             handle, err, _ = yield from self._vfs_open(path)
             if not handle and err is None:
                 # No response at all is a portal problem, not a table problem.
@@ -510,39 +513,49 @@ class VfsReadVerify(Plugin):
                 return None, (f"no portal response opening {path}; the handle "
                               f"table was not exercised")
             if not handle:
-                # Refusing an open because the table is full is exactly the
-                # failure this is here to catch: a leak would become a
-                # permanent inability to read anything.
+                # Refusing an open is exactly the failure this is here to catch:
+                # a leak would become a permanent inability to read anything.
                 for h in handles:
                     yield from self._vfs_close(h)
-                return False, (f"open {len(handles) + 1} of {SLOTS + 4} failed "
-                               f"with {_errname(err)}: the table wedges on a "
-                               f"leak instead of reclaiming")
+                return False, (f"open {i + 1} failed with {_errname(err)} after "
+                               f"{len(handles)} handles were left open: the "
+                               f"table wedges on a leak instead of reclaiming "
+                               f"the oldest slot")
             handles.append(handle)
+            if len(handles) == 1:
+                continue
+            # Has the oldest been evicted yet? EOF is not an error, so a file
+            # that runs out mid-probe does not read as a reclaim.
+            _, bad, _ = yield from self._vfs_read(handles[0], 16)
+            if bad:
+                break
+        if not bad:
+            for h in handles:
+                yield from self._vfs_close(h)
+            return False, (f"{MAX_OPENS} handles opened without the oldest ever "
+                           f"being reclaimed: either the table is bigger than "
+                           f"this check reaches, or handles are leaking in the "
+                           f"driver")
 
-        # The 4 oldest should have been reclaimed to make room.
-        reclaimed = []
-        live = []
-        for h in handles:
+        slots = len(handles) - 1
+        survivors = []
+        casualties = []
+        for h in handles[1:]:
             _, err, _ = yield from self._vfs_read(h, 16)
-            (reclaimed if err == bad else live).append((h, err))
-
-        for h, _ in live:
+            (casualties if err else survivors).append((h, err))
+        for h, _ in survivors:
             yield from self._vfs_close(h)
 
-        if len(reclaimed) != 4:
-            return False, (f"{len(reclaimed)} of {len(handles)} handles were "
-                           f"reclaimed ({_errname(bad)}), expected exactly 4 "
-                           f"(opened {SLOTS + 4} into {SLOTS} slots); live "
-                           f"errnos {[_errname(e) for _, e in live]}")
-        # Reclaim must take the OLDEST, or a long-lived reader loses its handle
-        # to a short-lived one.
-        if [h for h, _ in reclaimed] != handles[:4]:
-            return False, ("reclaim did not take the 4 oldest handles: "
-                           f"took {[h for h, _ in reclaimed]}, oldest are "
-                           f"{handles[:4]}")
-        return True, (f"{SLOTS + 4} opens into {SLOTS} slots: the 4 oldest "
-                      f"became {_errname(bad)}, the rest stayed readable")
+        if casualties:
+            return False, (f"opening {len(handles)} handles into {slots} slots "
+                           f"took out {len(casualties) + 1} of them "
+                           f"({[_errname(e) for _, e in casualties]}); reclaim "
+                           f"must cost the OLDEST handle and nothing else, or "
+                           f"the newest -- the one most likely to have a read in "
+                           f"flight -- can be the victim")
+        return True, (f"the table holds {slots} handles; the {slots + 1}th open "
+                      f"succeeded and evicted only the oldest "
+                      f"({_errname(bad)}), leaving {len(survivors)} readable")
 
     def _check_directory(self, path="/proc"):
         """A directory must fail with an errno, not read as an empty file.
