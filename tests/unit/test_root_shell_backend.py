@@ -74,21 +74,32 @@ def test_root_shell_off_is_noop():
 
 # --- connect.sh rendering -------------------------------------------------- #
 
+def _active_lines(script):
+    """Non-comment, non-blank lines -- the commands the script actually runs."""
+    return [ln for ln in script.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+
+
 @pytest.mark.skipif(shutil.which("sh") is None, reason="no /bin/sh")
 def test_vsock_connect_script_is_valid_sh(tmp_path):
-    s = _render_connect_script_vsock("test_target")
+    # With an SSH port too, so the ssh-hint comment lines are covered.
+    s = _render_connect_script_vsock("test_target", 2323, 2222)
     p = tmp_path / "connect.sh"
     p.write_text(s)
     r = subprocess.run(["sh", "-n", str(p)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
 
 
-def test_vsock_connect_script_drives_guest_cmd_not_telnet():
-    s = _render_connect_script_vsock("test_target")
+def test_vsock_connect_script_executes_guest_cmd_not_telnet():
+    # The vsock console's *executed* interactive path is guest_cmd --shell.
+    # The telnet/ssh front doors are advertised in header comments (they ride the
+    # same vsock session), but must never be the command the script runs.
+    s = _render_connect_script_vsock("test_target", 2323, 2222)
     assert '"$GUEST_CMD" --shell' in s          # interactive pty over vsock
     assert "guest_cmd.py" in s                   # the GUEST_CMD path
-    assert "telnet localhost" not in s           # no serial/telnet invocation
     assert 'CONTAINER="test_target"' in s
+    active = _active_lines(s)
+    assert not any("telnet" in ln for ln in active), \
+        "telnet must appear only as a hint comment, never as the executed command"
 
 
 def test_write_connect_script_picks_vsock_variant(tmp_path):
@@ -96,7 +107,9 @@ def test_write_connect_script_picks_vsock_variant(tmp_path):
     s = (tmp_path / "connect.sh").read_text()
     assert '"$GUEST_CMD" --shell' in s
     assert "guest_cmd.py" in s
-    assert "2323" not in s  # no telnet port in the vsock script
+    # The telnet port may appear in a hint comment, but the executed command is
+    # guest_cmd, not telnet.
+    assert not any("telnet" in ln for ln in _active_lines(s))
 
 
 def test_write_connect_script_telnet_backend_uses_telnet(tmp_path):
