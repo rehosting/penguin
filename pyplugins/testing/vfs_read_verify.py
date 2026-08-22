@@ -87,15 +87,38 @@ OPTIONAL = [
 # Each entry earns its place by having a known mechanism, not by being
 # inconvenient. If a gap starts working, the check says so loudly (see the
 # canary below) so the list shrinks instead of quietly outliving its cause.
+# Each entry is (min_kernel, reason). min_kernel matters: __kernel_read's
+# refusal only exists from ~5.10, and MEASURED CONFIRMS IT -- every one of these
+# reads fine on 4.10 and fails on 6.13. Without the version condition the canary
+# would fire "gap closed!" on every 4.10 run, which is how a warning becomes
+# noise and then gets ignored.
 KNOWN_GAPS = {
     "/proc/net/tcp": (
-        "kernels >=~5.10: /proc/net/* register proc_read = seq_read, so the "
-        "inode gets proc_reg_file_ops (.read, no .read_iter) and __kernel_read "
-        "refuses it (warn_unsupported -> EINVAL) for both portal read ops. Not "
-        "fixable module-side: proc_reg_read forwards to a proc_ops a module "
-        "cannot inspect, so private_data cannot be proven to be a seq_file "
-        "(in /proc/<pid>/mem it is an mm_struct). Consumers should read socket "
-        "state from the kernel via the OSI fd walk instead of from procfs."),
+        (5, 10),
+        "/proc/net/* register proc_read = seq_read, so the inode gets "
+        "proc_reg_file_ops (.read, no .read_iter) and __kernel_read refuses it "
+        "(warn_unsupported -> EINVAL) for both portal read ops. Not fixable "
+        "module-side: proc_reg_read forwards to a proc_ops a module cannot "
+        "inspect, so private_data cannot be proven to be a seq_file (in "
+        "/proc/<pid>/mem it is an mm_struct). Consumers should read socket state "
+        "from the kernel via the OSI fd walk instead of from procfs."),
+    # Measured 2026-08-21: reads (8192B, multi-chunk) on 4.10, EINVAL on 6.13.
+    # This is the widest of the gaps -- it means penguin cannot read its OWN
+    # modelled pseudofiles from the host on a modern kernel.
+    "/proc/large_file": (
+        (5, 10),
+        "hyperfs (a penguin-MODELLED pseudofile). hyperfs_file_operations sets "
+        ".read = hyperfs_read with no .read_iter, so every modelled pseudofile "
+        "is in the class __kernel_read refuses. Not fixed by the seq_read_iter "
+        "fallback either, which keys on ->read == seq_read. Fixing it means "
+        "giving hyperfs a .read_iter, which is a driver change with a much wider "
+        "blast radius than this check."),
+    # Same class, reached a different way: proc_ops.proc_read = seq_read.
+    "/proc/kallsyms": (
+        (5, 10),
+        "proc_reg_file_ops via proc_ops.proc_read = seq_read -- same refusal as "
+        "/proc/net/*. Notable because it is 4 MB and reads fine on 4.10, so it "
+        "is the only file here that proves the multi-chunk path at scale."),
 }
 
 # The windowed-read check: open one file and read it in deliberately small
@@ -105,8 +128,13 @@ KNOWN_GAPS = {
 # largest was 453 bytes -- so the loop, the driver's f_pos writeback, EOF across
 # calls and handle lifetime over a long read, i.e. the entire reason the
 # sequential op exists, had never actually run on a guest.
-WINDOW_PATH = "/proc/version"
-WINDOW_BYTES = 64
+# The path and window are chosen from what the run actually measured, not fixed
+# in advance. Hardcoding /proc/version with a 64-byte window failed on mips64
+# 4.10 for a silly reason: /proc/version there is EXACTLY 64 bytes, so the file
+# arrived in one read and the check reported the driver as broken. The window is
+# now derived from the file's real size, so there are always several data reads.
+MIN_WINDOW_READS = 4
+MAX_WINDOW_BYTES = 64
 
 # Read for information only. Sizes are recorded so we learn what is actually
 # available on these guests -- in particular whether anything here exceeds a
@@ -129,16 +157,16 @@ PROBES = [
     # working one.
     "/sys/kernel/debug",
     "/sys/kernel/debug/sched/debug",
-    # hyperfs (penguin's OWN modelled pseudofile, 8192 bytes, from
-    # procfs_test.yaml). hyperfs_file_operations sets .read with no .read_iter,
-    # which puts every modelled pseudofile in the class __kernel_read refuses --
-    # so penguin may not be able to read its own /proc and /sys models from the
-    # host at all on >=5.10. Measured here rather than assumed.
-    "/proc/large_file",
-    # ->read = seq_read via proc_ops, so proc_reg_file_ops: expected refused,
-    # and NOT fixed by the seq_read_iter fallback (its ->read is proc_reg_read).
-    "/proc/kallsyms",
+    # /proc/large_file (hyperfs) and /proc/kallsyms moved to KNOWN_GAPS: both are
+    # now measured facts with a mechanism, not open questions, so they belong
+    # where the canary watches them.
 ]
+
+# Probe reads are capped. Uncapped, /proc/kallsyms alone pulled 4,202,759 bytes
+# on 4.10 -- about 1037 portal round trips for one informational line. The cap is
+# still comfortably over a chunk, so it can prove MULTI-CHUNK; sizes at or above
+# it are reported as ">=" rather than as the file's real length.
+PROBE_CAP = 16384
 
 MARKER = "vfs_read_verify.txt"
 
@@ -169,10 +197,10 @@ class VfsReadVerify(Plugin):
     # ------------------------------------------------------------------ #
     # Reads
     # ------------------------------------------------------------------ #
-    def _read_seq(self, path):
+    def _read_seq(self, path, size=None):
         """Read via the sequential path; return ``(bytes, error-string)``."""
         try:
-            data = yield from plugins.fs.read_file(path)
+            data = yield from plugins.fs.read_file(path, size=size)
         except Exception as e:
             return None, f"{type(e).__name__}: {e}"
         return data, None
@@ -246,7 +274,21 @@ class VfsReadVerify(Plugin):
             yield PortalCmd(hop.HYPER_OP_VFS_CLOSE, handle, 0, None)
         return out, reads, data_reads, eof_seen, error
 
-    def _check_sequential_contract(self, one_shot):
+    def _pick_window(self, sizes):
+        """Choose (path, window) so the windowed read spans several reads.
+
+        Largest readable required path wins, with a window sized to give at
+        least MIN_WINDOW_READS data-bearing reads. Derived from measurement
+        because a window that happens to equal the file size proves nothing --
+        and silently looked like a driver bug when it happened.
+        """
+        readable = [(n, p) for p, n in sizes.items() if n]
+        if not readable:
+            return None, 0
+        n, path = max(readable)
+        return path, max(1, min(MAX_WINDOW_BYTES, n // MIN_WINDOW_READS))
+
+    def _check_sequential_contract(self, path, window, one_shot):
         """Prove the sequential semantics, not just that a read returns bytes.
 
         Four things have to hold, and only the first is about getting data:
@@ -265,36 +307,39 @@ class VfsReadVerify(Plugin):
 
         Returns ``(ok, detail)``.
         """
+        if not path:
+            return False, ("no required path was readable, so the sequential "
+                           "contract could not be exercised at all")
         data, reads, data_reads, eof, error = yield from self._read_windowed(
-            WINDOW_PATH, WINDOW_BYTES)
+            path, window)
         if error:
-            return False, f"{WINDOW_PATH} windowed read failed: {error}"
+            return False, f"{path} windowed read failed: {error}"
         if data_reads < 2:
-            return False, (f"{WINDOW_PATH} came back in {data_reads} "
-                           f"data-bearing read(s) of {WINDOW_BYTES}B: the "
-                           f"multi-read path never ran (got {len(data)}B)")
+            return False, (f"{path} came back in {data_reads} data-bearing "
+                           f"read(s) of {window}B: the multi-read path never "
+                           f"ran (got {len(data)}B)")
         # Checked before the one-shot comparison: a regenerating driver also
         # fails that comparison, but "the content repeats" is the diagnosis and
         # "the bytes differ" is only the symptom.
         head = data[:32]
         if head and data.count(head) != 1:
-            return False, (f"{WINDOW_PATH} opening bytes appear "
+            return False, (f"{path} opening bytes appear "
                            f"{data.count(head)}x: content was re-generated per "
                            f"read instead of continued")
         if one_shot is not None and data != one_shot:
-            return False, (f"{WINDOW_PATH} windowed ({len(data)}B) != one-shot "
+            return False, (f"{path} windowed ({len(data)}B) != one-shot "
                            f"({len(one_shot)}B): {data[:48]!r} vs "
                            f"{one_shot[:48]!r}")
         if not eof:
-            return False, f"{WINDOW_PATH} never reported EOF over {reads} reads"
-        return True, (f"{WINDOW_PATH} {len(data)}B over {data_reads} "
-                      f"data-bearing reads of {WINDOW_BYTES}B (+EOF), coherent")
+            return False, f"{path} never reported EOF over {reads} reads"
+        return True, (f"{path} {len(data)}B over {data_reads} data-bearing "
+                      f"reads of {window}B (+EOF), coherent")
 
-    def _check_size_cap(self):
+    def _check_size_cap(self, path):
         """``size=`` must stop early rather than being advisory."""
         want = 32
         try:
-            data = yield from plugins.fs.read_file_seq(WINDOW_PATH, size=want)
+            data = yield from plugins.fs.read_file_seq(path, size=want)
         except Exception as e:
             return False, f"size cap: {type(e).__name__}: {e}"
         if len(data) != want:
@@ -304,23 +349,6 @@ class VfsReadVerify(Plugin):
     def _verify(self):
         lines = []
         failures = []
-
-        # The mechanism checks come first: they are the ones that say the
-        # sequential contract holds at all, and a failure in the path table
-        # below must not stop them from running.
-        one_shot, one_shot_err = yield from self._read_seq(WINDOW_PATH)
-        seq_ok_contract, detail = yield from self._check_sequential_contract(
-            one_shot if not one_shot_err else None)
-        lines.append(f"sequential_contract={'OK' if seq_ok_contract else 'FAIL'}"
-                     f" -- {detail}")
-        if not seq_ok_contract:
-            failures.append(f"sequential contract: {detail}")
-
-        cap_ok, cap_detail = yield from self._check_size_cap()
-        lines.append(f"size_cap={'OK' if cap_ok else 'FAIL'} -- {cap_detail}")
-        if not cap_ok:
-            failures.append(f"size cap: {cap_detail}")
-
         checks = list(REQUIRED)
 
         # The strongest check in the set, built from ground truth we already
@@ -342,6 +370,8 @@ class VfsReadVerify(Plugin):
 
         seq_ok = 0
         stateless_ok = 0
+        sizes = {}
+        one_shot = {}
         # Counted for EVERY required path, not just the ones the sequential read
         # served. The first version only tallied stateless on seq-successful
         # paths, which understated it and hid the most interesting cell of the
@@ -372,8 +402,29 @@ class VfsReadVerify(Plugin):
                 continue
 
             seq_ok += 1
+            sizes[path] = len(data)
             lines.append(f"{path} seq=OK({len(data)}B) stateless={_n(st)}"
                          + (f" stateless_err={st_err}" if st_err else ""))
+            one_shot[path] = data
+
+        # Mechanism checks, aimed at the largest path this run actually read.
+        # Deliberately after the table rather than before it: the window has to
+        # be derived from a measured size, or it can equal the file size and
+        # report a healthy driver as broken (which is what happened on mips64
+        # 4.10, where /proc/version is exactly 64 bytes).
+        wpath, window = self._pick_window(sizes)
+        contract_ok, detail = yield from self._check_sequential_contract(
+            wpath, window, one_shot.get(wpath))
+        lines.append(f"sequential_contract={'OK' if contract_ok else 'FAIL'}"
+                     f" -- {detail}")
+        if not contract_ok:
+            failures.append(f"sequential contract: {detail}")
+
+        if wpath:
+            cap_ok, cap_detail = yield from self._check_size_cap(wpath)
+            lines.append(f"size_cap={'OK' if cap_ok else 'FAIL'} -- {cap_detail}")
+            if not cap_ok:
+                failures.append(f"size cap: {cap_detail}")
 
         for path in OPTIONAL:
             data, err = yield from self._read_seq(path)
@@ -381,21 +432,35 @@ class VfsReadVerify(Plugin):
             lines.append(f"{path} seq={'OK(%dB)' % n if n else 'none'}"
                          + (f" ({err})" if err else ""))
 
-        # Canary: a known gap that starts reading is news. Report it as such
-        # rather than silently passing, so the entry gets removed on purpose.
+        # Canary: a gap that starts reading ON A KERNEL WHERE IT WAS EXPECTED TO
+        # FAIL is news. Below that kernel it is expected to work, so reading is
+        # not news and must not warn -- otherwise the warning fires on every
+        # 4.10 run and stops meaning anything.
+        kver = _kernel_version(one_shot.get("/proc/version"))
         closed = []
-        for path, reason in KNOWN_GAPS.items():
+        expected_gaps = 0
+        for path, (min_kernel, reason) in KNOWN_GAPS.items():
+            applies = kver is None or kver >= min_kernel
             data, err = yield from self._read_seq(path)
-            if data and not err:
+            got = bool(data) and not err
+            if not applies:
+                lines.append(
+                    f"{path} gap=n/a on {_kv(kver)} (expected readable below "
+                    f"{_kv(min_kernel)}): "
+                    + (f"OK({len(data)}B)" if got else f"none ({err})"))
+                continue
+            expected_gaps += 1
+            if got:
                 closed.append(path)
-                lines.append(f"{path} gap=CLOSED seq=OK({len(data)}B) -- "
-                             f"remove from KNOWN_GAPS ({reason})")
+                lines.append(f"{path} gap=CLOSED on {_kv(kver)} "
+                             f"seq=OK({len(data)}B) -- remove from KNOWN_GAPS "
+                             f"({reason})")
             else:
                 lines.append(f"{path} gap=open ({err or 'no data'})")
         if closed:
             self.logger.warning(
-                "vfs_read_verify: KNOWN_GAPS entries now readable, remove them: "
-                + ", ".join(closed))
+                "vfs_read_verify: KNOWN_GAPS entries now readable on "
+                f"{_kv(kver)}, remove them: " + ", ".join(closed))
 
         # Informational sweep across the vfs types, so the marker records what
         # is actually reachable on these guests instead of us inferring it from
@@ -404,21 +469,30 @@ class VfsReadVerify(Plugin):
                     - kffi.sizeof("vfs_read_result") - 1)
         biggest = 0
         for path in PROBES:
-            data, err = yield from self._read_seq(path)
+            data, err = yield from self._read_seq(path, size=PROBE_CAP)
             n = len(data) if data else 0
             biggest = max(biggest, n)
+            size_txt = f"{'>=' if n >= PROBE_CAP else ''}{n}B"
             lines.append(f"probe {path} "
-                         + (f"OK({n}B){' MULTI-CHUNK' if n > chunk else ''}"
+                         + (f"OK({size_txt})"
+                            f"{' MULTI-CHUNK' if n > chunk else ''}"
                             if n else f"none ({err or 'no data'})"))
+        # Stated explicitly because its absence is meaningful and easy to
+        # misread: on 6.13 the only readable procfs files are all smaller than a
+        # chunk (the big ones are in the refused class), so a real multi-chunk
+        # read cannot be demonstrated there at all and the windowed check above
+        # is the stand-in. Saying "no" beats leaving it ambiguous.
         lines.append(f"chunk_bytes={chunk} largest_probe={biggest}B "
-                     f"multichunk_seen={'yes' if biggest > chunk else 'no'}")
+                     f"multichunk_seen={'yes' if biggest > chunk else 'no'}"
+                     f" probe_cap={PROBE_CAP}")
 
         ok = not failures
         summary = (f"VFS_READ_VERIFY={'PASS' if ok else 'FAIL'} "
                    f"seq={seq_ok}/{len(checks)} "
                    f"stateless={stateless_ok}/{len(checks)} "
-                   f"contract={'ok' if seq_ok_contract else 'FAIL'} "
-                   f"gaps_closed={len(closed)}/{len(KNOWN_GAPS)} "
+                   f"contract={'ok' if contract_ok else 'FAIL'} "
+                   f"kernel={_kv(kver)} "
+                   f"gaps_closed={len(closed)}/{expected_gaps} "
                    f"caller_pid={pid if pid else 'unknown'}")
         if ok:
             self.logger.info(summary)
@@ -446,6 +520,27 @@ class VfsReadVerify(Plugin):
         if not self._reported:
             self._write("VFS_READ_VERIFY=FAIL never_triggered=yes "
                         "(the guest ioctl never reached the host hook)", [], [])
+
+
+def _kernel_version(version_bytes):
+    """(major, minor) from /proc/version, or None if it cannot be read.
+
+    None means "do not apply a version condition": better to report a gap that
+    might not apply than to silently skip one because a read failed.
+    """
+    if not version_bytes:
+        return None
+    try:
+        text = version_bytes.decode("latin-1", "replace")
+        rel = text.split("version", 1)[1].strip().split()[0]
+        major, minor = rel.split(".")[:2]
+        return int(major), int("".join(c for c in minor if c.isdigit()))
+    except Exception:
+        return None
+
+
+def _kv(ver):
+    return "unknown" if not ver else f"{ver[0]}.{ver[1]}"
 
 
 def _n(data):
