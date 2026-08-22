@@ -61,10 +61,12 @@ OSI = str(REPO_ROOT / "pyplugins" / "apis" / "osi.py")
 # struct osi_fd_entry     { u64 fd, name_offset; }            -- 16 bytes.
 FD_HDR = 16
 FD_ENT = 16
-# handle_op_read_fds: max_fds = (CHUNK_SIZE / 2) / sizeof(struct osi_fd_entry).
+# handle_op_read_fds: max_fds = (CHUNK_SIZE / 2) / sizeof(struct osi_fd_entry),
+# where CHUNK_SIZE is PAGE_SIZE - sizeof(region_header) and region_header is
+# {u32 op, u32 pid, u64 addr, u64 size} == 24 bytes, so 4096 - 24 on a 4K page.
 # The exact value does not matter to these probes, only that a batch can fill,
 # so each test passes its own small max_fds.
-CHUNK_SIZE = 4055
+CHUNK_SIZE = 4096 - 24
 DRIVER_MAX_FDS = (CHUNK_SIZE // 2) // FD_ENT
 
 
