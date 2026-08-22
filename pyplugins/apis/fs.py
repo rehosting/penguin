@@ -32,6 +32,8 @@ Example Usage
     yield from plugins.fs.exec_program("/bin/ls", argv=["ls", "-l", "/"])
 """
 
+import posixpath
+
 from penguin import Plugin, plugins
 from hyper.consts import HYPER_OP as hop
 from hyper.portal import PortalCmd
@@ -51,11 +53,69 @@ class PortalFileError(OSError):
     """
 
 
-# Synthetic (VFS-backed) filesystems whose files are generated on demand: they
-# commonly report st_size 0 and only yield data through sequential reads, so a
-# plain offset+size read can fail on them even though the path exists and the
-# guest itself can cat it. Named here purely to make the error message useful.
-_SYNTHETIC_PREFIXES = ("/proc", "/sys", "/debugfs", "/sys/kernel/debug")
+# Synthetic (VFS-backed) filesystem roots whose files are generated on demand:
+# they commonly report st_size 0 and only yield data through sequential reads,
+# so a plain offset+size read can fail on them even though the path exists and
+# the guest itself can cat it.
+#
+# Roots, matched on a path BOUNDARY. A bare startswith() sent /system/bin/sh and
+# /sysroot/etc/passwd down the synthetic path -- and /system is everywhere in
+# Android-derived firmware. "/debugfs" is gone (it was never a real mount point)
+# and "/sys/kernel/debug" with it, being under /sys already.
+_SYNTHETIC_ROOTS = ("/proc", "/sys")
+
+# The portal path field. Longer paths were silently truncated to fit, which does
+# not fail -- it opens a DIFFERENT file and returns its contents as though they
+# were the requested file's.
+_PATH_MAX = 255
+
+# read_file_seq walks a file it cannot stat, so the loop needs a bound that does
+# not depend on the driver behaving. At a 4 KB chunk this is 64 MB -- far past any
+# real synthetic file (the largest seen is /proc/kallsyms at ~4 MB, ~1000 reads),
+# so reaching it means a driver that never reports EOF rather than a big file.
+# Every iteration is a guest round trip, so an unbounded loop is not merely slow,
+# it is a hang.
+_MAX_SEQ_READS = 16384
+
+
+def _is_synthetic(fname: str) -> bool:
+    """True if ``fname`` is under a synthetic-filesystem root.
+
+    Normalized first so that ``//proc/x`` and ``/etc/../proc/x`` -- the same
+    file as ``/proc/x`` -- take the same code path as it does. They previously
+    routed to the stateless op while ``/proc/x`` routed to the sequential one,
+    so on a modern kernel the same file worked or EINVAL'd depending purely on
+    how the caller spelled it.
+    """
+    norm = posixpath.normpath(fname)
+    # POSIX leaves a leading "//" implementation-defined and normpath preserves
+    # it, so "//proc/x" stayed un-normalized and routed differently from
+    # "/proc/x" -- the same file, two code paths, one of which EINVALs on 6.13.
+    if norm.startswith("//"):
+        norm = "/" + norm.lstrip("/")
+    return any(norm == r or norm.startswith(r + "/") for r in _SYNTHETIC_ROOTS)
+
+
+def _encode_path(fname: str) -> bytes:
+    """Path -> NUL-terminated portal bytes, refusing what cannot be sent whole.
+
+    Both failure modes here used to be silent: an over-long path was truncated
+    (reading a different file) and a non-latin-1 path raised a bare
+    UnicodeEncodeError out of the middle of a read, which callers catching
+    OSError never saw.
+    """
+    try:
+        raw = fname.encode('latin-1')
+    except UnicodeEncodeError as e:
+        raise PortalFileError(
+            f"path {fname!r} is not encodable for the portal path field "
+            f"(latin-1): {e}") from e
+    if len(raw) > _PATH_MAX:
+        raise PortalFileError(
+            f"path is {len(raw)} bytes, over the portal limit of {_PATH_MAX}; "
+            f"refusing to truncate it because the truncated path names a "
+            f"different file: {fname!r}")
+    return raw + b'\0'
 
 
 # Just the handful worth naming; anything else prints as a bare number.
@@ -74,16 +134,17 @@ def _fs_name(magic: int) -> str:
 
 
 def _read_fail_hint(fname: str) -> str:
-    if fname.startswith(_SYNTHETIC_PREFIXES):
+    if _is_synthetic(fname):
         return (f" -- {fname} is on a synthetic (VFS) filesystem whose files are "
-                "generated on demand. A multi-chunk stateless read cannot read "
-                "these coherently; use read_file_seq (igloo_driver vfs_* ops), "
-                "which holds the file open. Note that on kernels from ~5.10 some "
-                "of these paths (/proc/<pid>/*, /proc/net/*) are refused by "
-                "__kernel_read for BOTH ops because of their f_op, even though "
-                "the guest itself can read them -- so a failure here is not "
-                "necessarily fixed by switching ops. Either way, do not treat it "
-                "as an empty file.")
+                "generated on demand. For reads, a multi-chunk stateless read "
+                "cannot handle these coherently; use read_file_seq (igloo_driver "
+                "vfs_* ops), which holds the file open. Note that on kernels from "
+                "~5.10 some of these paths (/proc/<pid>/*, /proc/net/*, and every "
+                "hyperfs-modelled pseudofile) are refused by __kernel_read for "
+                "BOTH read ops because of their f_op, even though the guest "
+                "itself can read them -- so a failure here is not necessarily "
+                "fixed by switching ops. There is no sequential WRITE op at all. "
+                "Either way, do not read this as an empty file.")
     return ""
 
 
@@ -112,6 +173,13 @@ class FS(Plugin):
     # ------------------------------------------------------------------ #
     # Sequential (synthetic-filesystem) reads
     # ------------------------------------------------------------------ #
+    _warned_no_vfs = False
+
+    def _max_seq_reads(self) -> int:
+        """Indirection so a test can lower the bound; 16384 reads cannot be
+        driven in a test at any sane cost."""
+        return _MAX_SEQ_READS
+
     def _vfs_supported(self) -> bool:
         """True when the pinned igloo_driver carries the vfs_* ops.
 
@@ -121,7 +189,8 @@ class FS(Plugin):
         """
         return getattr(hop, "HYPER_OP_VFS_OPEN", None) is not None
 
-    def read_file_seq(self, fname: str, size: int = None) -> bytes:
+    def read_file_seq(self, fname: str, size: int = None,
+                      offset: int = 0) -> bytes:
         """Read a file by holding it open across reads (vfs_open/read/close).
 
         procfs, sysfs and debugfs generate their contents at open time and serve
@@ -151,7 +220,16 @@ class FS(Plugin):
                 "ops, which the pinned driver does not provide; bump the "
                 "igloo-driver pin (flake.nix)")
 
-        fname_bytes = fname.encode('latin-1')[:255] + b'\0'
+        if size is not None and size < 0:
+            raise PortalFileError(f"read_file_seq({fname!r}): size={size} is "
+                                  "negative")
+        if size == 0:
+            return b""
+        if offset < 0:
+            raise PortalFileError(f"read_file_seq({fname!r}): offset={offset} "
+                                  "is negative")
+
+        fname_bytes = _encode_path(fname)
         raw = yield PortalCmd(hop.HYPER_OP_VFS_OPEN, 0, 0, None, fname_bytes)
         if not raw:
             raise PortalFileError(
@@ -159,10 +237,18 @@ class FS(Plugin):
 
         res = kffi.from_buffer("vfs_open_result", raw)
         err, handle = int(res.error), int(res.handle)
-        if err or not handle:
+        if err:
             raise PortalFileError(
                 f"vfs_open({fname!r}) failed: errno {-err} "
                 f"({_errno_name(-err)}){_read_fail_hint(fname)}")
+        if not handle:
+            # Reported success and gave us nothing to read from. Said plainly
+            # rather than dressed up as "errno 0", which is what it used to
+            # print -- along with a synthetic-filesystem hint that pointed at
+            # the wrong thing entirely for what is a driver bug.
+            raise PortalFileError(
+                f"vfs_open({fname!r}) reported success but returned handle 0; "
+                f"the driver's open path is broken")
 
         fs_magic = int(res.fs_magic)
         self.logger.debug(
@@ -172,9 +258,17 @@ class FS(Plugin):
         hdr = kffi.sizeof("vfs_read_result")
         chunk = max(1, rsize - hdr - 1)
         out = b""
+        # A seq_file has no seek: the only way to reach an offset is to read and
+        # discard up to it. Done here rather than rejected because read_file
+        # accepts an offset, and silently ignoring it -- which is what happened
+        # before -- returns the wrong bytes with no error at all.
+        skip = offset
         try:
-            while True:
-                want = chunk if size is None else min(chunk, size - len(out))
+            for _ in range(self._max_seq_reads()):
+                # Discarded bytes do not count toward `size`, so a capped read
+                # still has to pull `skip` extra bytes off the front.
+                want = (chunk if size is None
+                        else min(chunk, skip + size - len(out)))
                 if want <= 0:
                     break
                 raw = yield PortalCmd(hop.HYPER_OP_VFS_READ, handle, want, None)
@@ -188,16 +282,37 @@ class FS(Plugin):
                         f"vfs_read({fname!r}) failed after {len(out)} bytes: "
                         f"errno {-rerr} ({_errno_name(-rerr)})")
                 if nbytes:
-                    out += bytes(raw[hdr:hdr + nbytes])
+                    got = bytes(raw[hdr:hdr + nbytes])
+                    if skip:
+                        drop = min(skip, len(got))
+                        got, skip = got[drop:], skip - drop
+                    out += got
                 # eof is a successful read of nothing: stop, do not error.
                 if eof or nbytes == 0:
                     break
-        finally:
-            # Always hand the handle back, including on the error paths above:
-            # the driver's table is 16 slots and leaking them forces it to
-            # reclaim the oldest, which would break an unrelated reader.
+            else:
+                raise PortalFileError(
+                    f"vfs_read({fname!r}) never reported EOF after "
+                    f"{self._max_seq_reads()} reads ({len(out)} bytes); refusing to "
+                    f"loop further")
+        except GeneratorExit:
+            # A PortalCmd cannot be yielded while the generator is being closed,
+            # so the handle cannot be returned here. Warn instead of raising
+            # RuntimeError("generator ignored GeneratorExit"), which is what
+            # happened before and lost the real story: the caller abandoned the
+            # read and the driver now has to reclaim the slot.
+            self.logger.warning(
+                f"read_file_seq({fname}) abandoned mid-read; handle {handle} "
+                "cannot be closed from here and the driver will have to reclaim "
+                "the slot")
+            raise
+        except BaseException:
+            # Hand the handle back on the error paths too: the table is 16 slots
+            # and a leak forces the driver to reclaim the oldest, breaking an
+            # unrelated reader far from the cause.
             yield PortalCmd(hop.HYPER_OP_VFS_CLOSE, handle, 0, None)
-
+            raise
+        yield PortalCmd(hop.HYPER_OP_VFS_CLOSE, handle, 0, None)
         return out
 
     def read_file(self, fname: str, size: int = None,
@@ -233,11 +348,37 @@ class FS(Plugin):
         # (see read_file_seq). Route them there automatically so callers do not
         # each have to know which paths are special -- and so existing callers
         # reading /proc start working rather than silently getting nothing.
-        if fname.startswith(_SYNTHETIC_PREFIXES) and self._vfs_supported():
-            data = yield from self.read_file_seq(fname, size=size)
-            return data
+        if size is not None and size < 0:
+            raise PortalFileError(f"read_file({fname!r}): size={size} is negative")
+        if size == 0:
+            # Asked for nothing, return nothing. Passed through, the driver reads
+            # requested_size == 0 as "as much as fits" and hands back a whole
+            # chunk -- the opposite of what the caller asked for.
+            return b""
+        if offset < 0:
+            raise PortalFileError(f"read_file({fname!r}): offset={offset} is "
+                                  "negative")
 
-        fname_bytes = fname.encode('latin-1')[:255] + b'\0'
+        if _is_synthetic(fname):
+            if self._vfs_supported():
+                # offset is forwarded, not dropped. It used to be silently
+                # discarded here, so a caller asking for offset N got the bytes
+                # at 0 and no indication anything had been ignored.
+                data = yield from self.read_file_seq(
+                    fname, size=size, offset=offset)
+                return data
+            # Falling back is not free: on kernels from ~5.10 the stateless op
+            # cannot read large parts of procfs at all, so say so once rather
+            # than letting the caller silently receive nothing.
+            if not self._warned_no_vfs:
+                self._warned_no_vfs = True
+                self.logger.warning(
+                    "the pinned igloo_driver has no vfs_* ops, so synthetic "
+                    "reads (%s) fall back to the stateless op, which cannot "
+                    "read /proc/<pid>/* or /proc/net/* on kernels from ~5.10. "
+                    "Bump the igloo-driver pin.", fname)
+
+        fname_bytes = _encode_path(fname)
 
         rsize = self.plugins.portal.regions_size
 
@@ -265,12 +406,21 @@ class FS(Plugin):
                 chunk = yield PortalCmd(hop.HYPER_OP_READ_FILE, current_offset, chunk_size, None, fname_bytes)
 
                 if not chunk:
-                    if not all_data:
-                        # Nothing at all came back: the read failed rather than
-                        # hitting EOF, so say so instead of returning b"".
-                        raise PortalFileError(
-                            f"read_file({fname!r}) returned no data at offset "
-                            f"{current_offset}{_read_fail_hint(fname)}")
+                    if not all_data and current_offset == offset:
+                        # Nothing at all came back on the FIRST read. The
+                        # stateless op reports EOF as a failure, so a genuinely
+                        # empty file is indistinguishable from a failed read
+                        # here -- see the note on the size=None path, which
+                        # returns b"" for the same case. Raising for one and
+                        # returning b"" for the other gave the same file two
+                        # different behaviours depending on `size`, so this
+                        # branch now matches: empty, with a warning.
+                        self.logger.warning(
+                            f"read_file({fname}) returned no data at offset "
+                            f"{current_offset}; treating as empty. The stateless "
+                            f"op cannot distinguish EOF from failure"
+                            f"{_read_fail_hint(fname)}")
+                        return b""
                     self.logger.debug(
                         f"No data returned at offset {current_offset}, stopping read")
                     break
@@ -345,7 +495,7 @@ class FS(Plugin):
         if isinstance(data, str):
             data = data.encode('latin-1')
 
-        fname_bytes = fname.encode('latin-1')[:255] + b'\0'
+        fname_bytes = _encode_path(fname)
         rsize = self.plugins.portal.regions_size
 
         # Calculate the maximum data size that can fit in one region
@@ -356,6 +506,14 @@ class FS(Plugin):
             self.logger.debug(
                 f"Writing {len(data)} bytes to file {fname} at offset {offset}")
             bytes_written = yield PortalCmd(hop.HYPER_OP_WRITE_FILE, offset, len(data), None, fname_bytes + data)
+            if bytes_written is None:
+                # The same conflation this module fixed for reads was still live
+                # for writes: a refused write returned None, which a caller
+                # reading it as a count sees as 0 bytes written -- i.e. as a
+                # successful write of nothing.
+                raise PortalFileError(
+                    f"write_file({fname!r}) failed in the guest"
+                    f"{_read_fail_hint(fname)}")
             return bytes_written
 
         # For larger files, write in chunks
