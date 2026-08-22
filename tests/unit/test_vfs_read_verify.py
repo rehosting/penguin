@@ -106,16 +106,25 @@ def _close_res(error=0):
     return struct.pack("<iI", error, 0)
 
 
+# The window is chosen from the largest readable required path, which in these
+# fixtures is /proc/version. Kept explicit so a fixture change that shifts the
+# winner shows up as a test failure rather than as silently weaker coverage.
 VERSION = GUEST_FILES["/proc/version"]
+assert len(VERSION) > max(
+    len(GUEST_FILES["/proc/mounts"]),
+    len(GUEST_FILES["/proc/self/status"])), (
+    "the windowed check aims at the largest required file; keep it /proc/version")
 
 
-def _windowed_ok(window=64, data=VERSION):
+def _windowed_ok(window=None, data=VERSION):
     """Driver responses for a healthy windowed read: open, chunks, EOF, close.
 
     Mirrors what the driver really does -- a short read is NOT EOF; EOF is a
     separate zero-byte read -- so a plugin that treats a short read as the end
     fails here rather than in CI.
     """
+    if window is None:
+        window = max(1, min(64, len(data) // 4))   # mirrors _pick_window
     out = [_open_res()]
     for i in range(0, len(data), window):
         out.append(_read_res(data[i:i + window]))
@@ -144,7 +153,8 @@ def _drive_collect(lp, windowed, sc):
     hooks = [h for h in lp.manager.syscall_hooks if h["name"] == "ioctl"]
     assert hooks, "no ioctl hook registered"
     gen = hooks[0]["handler"](None, None, sc, 0, 0x89f7, 0x1000)
-    return drive(gen, list(windowed) + [None] * 8, collect=True)
+    # Three stateless required-path reads precede the windowed sequence.
+    return drive(gen, [None] * 3 + list(windowed) + [None] * 8, collect=True)
 
 
 def _marker(tmp_path):
@@ -160,8 +170,8 @@ def _trigger(lp, responses=None, windowed=None, stateless=None):
     list so a test states its intent instead of a bare sequence of blobs.
     """
     if responses is None:
-        responses = ((windowed if windowed is not None else _windowed_ok())
-                     + list(stateless if stateless is not None else [None] * 3))
+        responses = (list(stateless if stateless is not None else [None] * 3)
+                     + (windowed if windowed is not None else _windowed_ok()))
     sc = FakeSyscall()
     lp.dispatch_syscall("ioctl", None, None, sc, 0, 0x89f7,
                         0x1000, on_return=True, responses=responses)
@@ -339,7 +349,7 @@ def test_a_known_gap_does_not_fail_the_check(tmp_path, igloo_ko_isf):
 
     marker = _marker(tmp_path)
     assert "VFS_READ_VERIFY=PASS" in marker
-    assert "gaps_closed=0/1" in marker
+    assert "gaps_closed=0/3" in marker
     assert "/proc/net/tcp gap=open" in marker
 
 
@@ -356,7 +366,7 @@ def test_a_gap_that_starts_working_is_reported_loudly(tmp_path, igloo_ko_isf):
 
     marker = _marker(tmp_path)
     assert "VFS_READ_VERIFY=PASS" in marker
-    assert "gaps_closed=1/1" in marker
+    assert "gaps_closed=1/3" in marker
     assert "gap=CLOSED" in marker
     assert "remove from KNOWN_GAPS" in marker
 
@@ -521,8 +531,11 @@ def test_probes_record_chunk_size_and_multichunk_reach(tmp_path, igloo_ko_isf):
     assert "multichunk_seen=" in marker
     # Every probe path is absent from GUEST_FILES, so each is reported, not skipped.
     assert "probe /proc/zoneinfo" in marker
-    assert "probe /proc/large_file" in marker      # the hyperfs question
     assert "probe /sys/kernel/debug" in marker     # the debugfs question
+    # hyperfs and kallsyms are tracked as KNOWN_GAPS rather than probes now:
+    # both have a measured mechanism, so they belong where the canary watches
+    # them instead of in the open-question sweep.
+    assert "/proc/large_file gap=" in marker
 
 
 def test_a_big_probe_is_flagged_as_multichunk(tmp_path, igloo_ko_isf):
@@ -534,3 +547,77 @@ def test_a_big_probe_is_flagged_as_multichunk(tmp_path, igloo_ko_isf):
     marker = _marker(tmp_path)
     assert "MULTI-CHUNK" in marker
     assert "multichunk_seen=yes" in marker
+
+
+# --------------------------------------------------------------------------- #
+# Kernel-aware gaps. __kernel_read's refusal only exists from ~5.10, and the
+# live run confirmed every gap reads fine on 4.10 -- so a version-blind canary
+# would shout "gap closed!" on every 4.10 job, which is how a warning turns into
+# noise and then gets ignored.
+# --------------------------------------------------------------------------- #
+
+OLD_KERNEL = dict(GUEST_FILES)
+OLD_KERNEL["/proc/version"] = (b"Linux version 4.10.0-igloo (nix@builder) "
+                               b"(gcc (GCC) 9.5.0) #1 SMP Thu Aug 21 2026\n")
+
+
+def test_a_gap_readable_below_its_min_kernel_is_not_news(tmp_path, igloo_ko_isf):
+    files = dict(OLD_KERNEL)
+    files["/proc/net/tcp"] = b"  sl  local_address rem_address\n"
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(files))
+    _trigger(lp)
+
+    marker = _marker(tmp_path)
+    assert "kernel=4.10" in marker
+    assert "gap=n/a on 4.10" in marker
+    assert "gap=CLOSED" not in marker, (
+        "a gap reading on a kernel below its threshold was reported as news")
+    # And it must not inflate the denominator either: nothing was expected to
+    # fail here, so 0 gaps applied.
+    assert "gaps_closed=0/0" in marker
+
+
+def test_the_same_gap_is_news_on_a_new_kernel(tmp_path, igloo_ko_isf):
+    """Same data, newer kernel -> now it is a real finding."""
+    files = dict(GUEST_FILES)          # 6.13 in /proc/version
+    files["/proc/net/tcp"] = b"  sl  local_address rem_address\n"
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(files))
+    _trigger(lp)
+
+    marker = _marker(tmp_path)
+    assert "gap=CLOSED on 6.13" in marker
+    assert "remove from KNOWN_GAPS" in marker
+
+
+def test_unreadable_version_applies_every_gap(tmp_path, igloo_ko_isf):
+    """If the kernel cannot be identified, do not silently skip the gaps.
+
+    Reporting a gap that might not apply is recoverable; quietly dropping one
+    because a read failed is how coverage disappears without anyone noticing.
+    """
+    files = dict(GUEST_FILES)
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(files, raise_on=["/proc/version"]))
+    _trigger(lp)
+
+    marker = _marker(tmp_path)
+    assert "kernel=unknown" in marker
+    assert "gap=n/a" not in marker
+
+
+def test_probe_reads_are_capped(tmp_path, igloo_ko_isf):
+    """A 4 MB informational read is ~1000 portal round trips; cap it.
+
+    Uncapped, /proc/kallsyms alone did that on every 4.10 job. The cap must stay
+    above a chunk so MULTI-CHUNK is still detectable, and a capped read must be
+    labelled so nobody reads the number as the file's real size.
+    """
+    files = dict(GUEST_FILES)
+    files["/proc/zoneinfo"] = b"z" * 5_000_000
+    fs = FakeFS(files)
+    lp = _load(tmp_path, igloo_ko_isf, fs)
+    _trigger(lp)
+
+    marker = _marker(tmp_path)
+    assert "probe_cap=16384" in marker
+    assert "OK(>=16384B) MULTI-CHUNK" in marker
+    assert "5000000" not in marker, "the probe read was not capped"
