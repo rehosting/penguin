@@ -74,6 +74,14 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 # packages = find: (setup.cfg) — discover from the src/ project root.
+# src/resources/ is a data tree, NOT an importable package, even though it now
+# contains Python sources (resources/penguest/, the guest-side binding, which is
+# copied *into the guest* rather than imported on the host). Without this exclude,
+# auto-discovery installs a top-level site-packages/resources/ holding only
+# penguest/, and nix/penguin.nix's `cp -r resources $out/.../resources` then lands
+# the real resource tree at resources/resources/ instead of overlaying it — which
+# hides resources/init.sh from defaults.py.
+exclude = ["resources*"]
 
 [tool.setuptools.package-data]
 penguin = ["scripts/*.sh", "resources/*"]
