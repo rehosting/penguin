@@ -476,15 +476,23 @@ class Portal(Plugin):
             _, _, data = self._read_memregion_state_and_data(cpum)
             in_op = (op, data)
         elif op == hop.HYPER_RESP_READ_FAIL:
-            self.logger.debug("Failed to read memory")
+            # WARNING, not debug: the guest-side handler refused the read and we
+            # are about to return None, which every caller is free to read as
+            # "empty". A silent debug line here is how an unreadable file looks
+            # exactly like an empty one -- see the /proc case, where a failed
+            # read surfaced as "no processes" rather than as an error.
+            self.logger.warning(
+                "portal: guest returned READ_FAIL (op %#x) -- the read did not "
+                "happen; callers will see no data", op)
         elif op == hop.HYPER_RESP_READ_PARTIAL:
             _, _, data = self._read_memregion_state_and_data(cpum)
             in_op = (op, data)
         elif op == hop.HYPER_RESP_WRITE_OK:
             pass
         elif op == hop.HYPER_RESP_WRITE_FAIL:
-            self.logger.debug("Failed to write memory")
-            pass
+            self.logger.warning(
+                "portal: guest returned WRITE_FAIL (op %#x) -- the write did "
+                "not happen", op)
         elif op == hop.HYPER_RESP_READ_NUM:
             _, size = self._read_memregion_state(cpum)
             in_op = (op, size)

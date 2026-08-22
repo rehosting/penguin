@@ -1,0 +1,40 @@
+# Live proof that the host can read the guest's own synthetic filesystems
+# through the driver's vfs_open/read/close ops. The host-side tests pack the
+# real driver structs but stub the transport, so this is the only check that
+# says a booted guest actually hands back procfs content -- on every
+# arch/kernel combo.
+#
+# The guest issues a magic ioctl (0x89f7); the host hook reads /proc from that
+# task's context and requires /proc/self/status to name this very process, so a
+# pass cannot come from a cached blob or a modelled pseudofile.
+plugins:
+  vfs_read_verify: {}
+  verifier:
+    conditions:
+      vfs_read+procfs_readable:
+        type: file_contains
+        file: vfs_read_verify.txt
+        string: VFS_READ_VERIFY=PASS
+      # The guest half has to have run too. Without this, a host hook that
+      # never fired would leave the marker to uninit -- caught above -- but a
+      # guest-side failure to reach the ioctl at all would be reported as a
+      # host bug. Keep the two halves distinguishable.
+      vfs_read+guest_triggered:
+        type: file_contains
+        file: console.log
+        string: "/tests/vfs_read.sh PASS"
+
+static_files:
+  /tests/vfs_read.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -x
+      set +e  # the ioctl's retval is set by the host hook; do not abort on it
+
+      # Trigger: the host's on_sys_ioctl_return hook for 0x89f7 does the reads
+      # in *this* process's context, which is what makes /proc/self meaningful.
+      /igloo/utils/send_syscall ioctl 0x0 0x89f7 vfs_read
+
+      exit 0
+    mode: 73
