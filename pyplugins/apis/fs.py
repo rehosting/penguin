@@ -69,6 +69,17 @@ _SYNTHETIC_ROOTS = ("/proc", "/sys")
 # were the requested file's.
 _PATH_MAX = 255
 
+# handle_op_exec's own limits, read off portal_exec.c rather than guessed. It
+# copies exe_path into char[256] with strncpy(sizeof - 1), and parses at most 15
+# argv and 15 envp entries (`for (i = 0; i < 15 && *buf; i++)`). Every one of
+# these TRUNCATES: argument 16 is dropped, a longer exe_path names a different
+# binary, and nothing about the blob is malformed so nothing fails. Bounding the
+# blob against the region is necessary and not sufficient -- 21 short arguments
+# fit the region comfortably.
+_EXEC_PATH_MAX = 255
+_EXEC_ARGV_MAX = 15
+_EXEC_ENVP_MAX = 15
+
 # read_file_seq walks a file it cannot stat, so the loop needs a bound that does
 # not depend on the driver behaving. At a 4 KB chunk this is 64 MB -- far past any
 # real synthetic file (the largest seen is /proc/kallsyms at ~4 MB, ~1000 reads),
@@ -731,6 +742,24 @@ class FS(Plugin):
         self.logger.debug(
             f"exec_program called: exe_path={exe_path}, wait={wait}")
 
+        if len(exe_path.encode('latin-1', 'replace')) > _EXEC_PATH_MAX:
+            raise PortalFileError(
+                f"exe_path is {len(exe_path)} characters, over the driver's "
+                f"limit of {_EXEC_PATH_MAX}; refusing to truncate it because "
+                f"the truncated path names a different binary: {exe_path!r}")
+        if argv and len(argv) > _EXEC_ARGV_MAX:
+            raise PortalFileError(
+                f"exec_program was given {len(argv)} arguments; the driver "
+                f"parses at most {_EXEC_ARGV_MAX} and silently drops the rest, "
+                f"which runs a truncated command line rather than failing. "
+                f"dropped: {list(argv[_EXEC_ARGV_MAX:])!r}")
+        if envp and len(envp) > _EXEC_ENVP_MAX:
+            raise PortalFileError(
+                f"exec_program was given {len(envp)} environment variables; "
+                f"the driver parses at most {_EXEC_ENVP_MAX} and silently drops "
+                f"the rest. dropped: "
+                f"{list(envp)[_EXEC_ENVP_MAX:]!r}")
+
         # Prepare the data buffer using a list of bytes objects
         data_parts = []
 
@@ -740,6 +769,21 @@ class FS(Plugin):
         # Add argv (null-separated, double-null terminated)
         if argv:
             for i, arg in enumerate(argv):
+                if arg == "":
+                    # An empty argument cannot be represented at all: its NUL is
+                    # indistinguishable from the double-NUL that ends the list.
+                    # The driver therefore stops there AND parses the remaining
+                    # arguments as the ENVIRONMENT, so argv=["a", "", "-x"] runs
+                    # `a` with no arguments and "-x" in its environment. Empty
+                    # arguments are legitimate (sh -c '...' '' passes one), so
+                    # this is a limitation of the wire format, reported rather
+                    # than silently mangled.
+                    raise PortalFileError(
+                        f"argv[{i}] is the empty string, which this wire format "
+                        f"cannot carry: its NUL terminator is the same byte that "
+                        f"ends the argument list, so the driver would drop it "
+                        f"and read {argv[i + 1:]!r} as the environment instead. "
+                        f"argv={list(argv)!r}")
                 data_parts.append(_encode_arg(arg, f"argv[{i}]"))
         data_parts.append(b'\0')  # Double null termination
 
