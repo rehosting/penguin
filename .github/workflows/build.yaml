@@ -219,7 +219,11 @@ jobs:
       enable-kvm: false
       # Inject the computed version (flake reads PENGUIN_OVERRIDE_VERSION via
       # builtins.getEnv, which needs --impure).
-      extra-build-args: --impure
+      # TEMP (revert before merge): build the image against the guesthopper
+      # workspace/gcmd branch (the framed channel + keepalive, guesthopper#22)
+      # so run_tests exercises the new command channel end-to-end. At landing
+      # this is dropped and flake.lock is bumped to the guesthopper release tag.
+      extra-build-args: --impure --override-input guesthopper github:rehosting/guesthopper/workspace/gcmd
       build-env: |
         PENGUIN_OVERRIDE_VERSION=${{ needs.version.outputs.v }}
     secrets:
