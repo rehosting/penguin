@@ -19,12 +19,12 @@ from penguin.penguin_config import _vpn_enabled, load_config
 from .plugin_manager import ArgsBox
 from .utils import hash_image_inputs, get_penguin_kernel_version, boot_fingerprint
 from .q_config import load_q_config, ROOTFS
+from .boot_env import partition_boot_env
+from . import arch_registry
 
 # Module-level logger for module-scope helpers (the front-door launchers). The
 # run functions create their own scoped loggers locally.
 logger = getColoredLogger("penguin.runner")
-from .boot_env import partition_boot_env
-from . import arch_registry
 
 
 def _env_int(name: str, default: int, min_value: int = 0) -> int:
