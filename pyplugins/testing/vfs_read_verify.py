@@ -107,19 +107,24 @@ KNOWN_GAPS = {
     # modelled pseudofiles from the host on a modern kernel.
     "/proc/large_file": (
         (5, 10),
-        "a penguin-MODELLED pseudofile, so its f_op comes from the HOST: "
-        "hyperfile/procfs.py builds igloo_proc_ops from whichever methods the "
-        "model overrides, and handle_op_procfs_create_file installs them. A "
-        "model that defines read() therefore produces .read with no .read_iter, "
-        "which is the class __kernel_read refuses -- and the seq_read_iter "
-        "fallback does not help, since it keys on ->read == seq_read. (An "
-        "earlier version of this note blamed hyperfs_file_operations. That is "
-        "the wrong file: hyperfs backs the passthrough tree, not procfs "
-        "models.) Fixable per model rather than in the driver: igloo_proc_ops "
-        "already carries read_iter and the driver already wires it to "
-        "proc_read_iter/.read_iter, so a model implementing ONLY read_iter is "
-        "readable from the guest (via new_sync_read) AND from the host. Only -- "
-        "__kernel_read refuses any file with .read set, whatever else it has."),
+        "a penguin-MODELLED pseudofile. Its f_op is chosen by PROCFS, not by "
+        "us: hyperfile/procfs.py builds igloo_proc_ops from whichever methods "
+        "the model overrides, and on 5.6+ procfs sets i_fop to "
+        "proc_iter_file_ops (.read_iter, no .read) iff proc_ops->proc_read_iter "
+        "is non-NULL, else proc_reg_file_ops (.read, no .read_iter). Only the "
+        "first passes __kernel_read. So the host can read a modelled pseudofile "
+        "iff its model defines read_iter -- and defining read as well costs "
+        "nothing, because the selection never looks at proc_read. On 4.10 the "
+        "model MUST still define read: every regular procfs file gets "
+        "proc_reg_file_ops there whatever the module supplied, and proc_reg_read "
+        "forwards only ->read, so read_iter alone is -EIO to the guest too. A "
+        "model needs BOTH. No read mixin in the tree defines read_iter today, "
+        "so this is every modelled pseudofile, not this one. Needs no driver "
+        "change: igloo_proc_ops already carries read_iter. Two earlier versions "
+        "of this note were wrong -- one blamed hyperfs_file_operations (the "
+        "wrong filesystem) and one said ONLY read_iter (breaks 4.10). The rule "
+        "is now a truth table in tests/unit/test_pseudofile_host_readability.py "
+        "with the kernel citations."),
     # Same class, reached a different way: proc_ops.proc_read = seq_read.
     "/proc/kallsyms": (
         (5, 10),
