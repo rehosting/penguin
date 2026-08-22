@@ -704,6 +704,12 @@ class VfsReadVerify(Plugin):
                 ok, detail = False, f"raised {type(e).__name__}: {e}"
             verdict = "OK" if ok else ("n/a" if ok is None else "FAIL")
             lines.append(f"{name}={verdict} -- {detail}")
+            # Logged, not only written to the marker: the marker file is not
+            # collected by CI, so on a matrix run the only visible record was
+            # the summary's handle_checks=N/M -- from which WHICH checks passed
+            # had to be inferred. These four say different things about the
+            # driver, so the distinction is worth a line each.
+            self.logger.info(f"vfs_read_verify: {name}={verdict} -- {detail}")
             if ok is False:
                 failures.append(f"{name}: {detail}")
             elif ok:

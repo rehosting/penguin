@@ -926,3 +926,59 @@ def test_the_unexercised_blocking_open_is_stated(tmp_path, igloo_ko_isf):
     lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
     _trigger(lp, handles=_handle_checks_ok())
     assert "blocking_open=unexercised" in _marker(tmp_path)
+
+
+class _Log:
+    """Recorder in place of the plugin's logger.
+
+    caplog cannot see it: the plugin logs through a coloredlogs logger that does
+    not propagate to the root handler, so asserting against caplog passes for
+    the wrong reason.
+    """
+
+    def __init__(self):
+        self.messages = []
+
+    def _rec(self, msg, *a, **kw):
+        try:
+            self.messages.append(str(msg) % a if a else str(msg))
+        except Exception:
+            self.messages.append(str(msg))
+
+    warning = error = info = debug = _rec
+
+    def __contains__(self, needle):
+        return any(needle in m for m in self.messages)
+
+
+def test_each_handle_check_verdict_is_logged(tmp_path, igloo_ko_isf):
+    """The four verdicts must reach the log, not only the marker file.
+
+    CI does not collect the marker, so on a matrix run the only visible record
+    was the summary's handle_checks=N/M -- and which checks passed had to be
+    inferred from it. These four say different things about the driver
+    (generation checking, reclaim policy, directory handling, ordinary files),
+    so an inference is not good enough.
+    """
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
+    log = _Log()
+    lp.plugin.logger = log
+    _trigger(lp, handles=_handle_checks_ok())
+
+    for name in ("bad_handles", "handle_table", "directory", "regular_file"):
+        assert f"{name}=OK" in log, f"{name} verdict never reached the log"
+
+
+def test_an_n_a_verdict_is_logged_too(tmp_path, igloo_ko_isf):
+    """n/a is the verdict most in need of being visible.
+
+    It is the one that means "this ran and proved nothing", so a run where it
+    is silently absent looks exactly like a run where the check passed.
+    """
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
+    log = _Log()
+    lp.plugin.logger = log
+    _trigger(lp)   # no handle responses: three checks cannot run
+
+    assert "handle_table=n/a" in log
+    assert "bad_handles=n/a" in log
