@@ -45,7 +45,7 @@ from pathlib import Path
 
 import pytest
 
-from penguin.testing import RealKffi, resolve_igloo_ko_isf
+from penguin.testing import RealKffi
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PYPLUGINS = str(REPO_ROOT / "pyplugins")
