@@ -137,8 +137,10 @@ def _windowed_ok(window=None, data=VERSION):
 
 
 EBADF, EISDIR, ENFILE = 9, 21, 23
-SLOTS = 16          # must match VFS_SLOTS in the driver
-OVERSHOOT = 4       # how many opens past the table the check makes
+# What these fixtures MODEL as the driver's table size. The check under test
+# discovers this rather than assuming it, which is the point -- so this number
+# is a property of the fake driver, not a constant the plugin shares.
+SLOTS = 16
 
 
 def _bad_handle_responses(read_after_close=-EBADF, unissued=-EBADF,
@@ -155,30 +157,40 @@ def _bad_handle_responses(read_after_close=-EBADF, unissued=-EBADF,
             _read_res(error=zero)]
 
 
-def _handle_table_responses(opens=SLOTS + OVERSHOOT, reclaimed=None,
-                            open_fails_at=None, bad=EBADF):
-    """Driver responses for _check_handle_table.
+def _handle_table_responses(slots=SLOTS, bad=EBADF, open_fails_at=None,
+                            extra_casualties=0, never_reclaims=False,
+                            max_opens=64):
+    """Driver responses for _check_handle_table, in the order it issues them.
 
-    `reclaimed` is the set of 0-based OPEN indices whose later read reports
-    EBADF, i.e. the slots the driver chose to reclaim; the default is the oldest
-    OVERSHOOT, which is the documented policy. `open_fails_at` makes that open
-    fail with ENFILE, modelling a table that wedges on a leak instead of
-    reclaiming -- the failure mode that would make one leaked handle break every
-    later read in the run.
+    The check discovers the table size, so the sequence is interleaved: one open,
+    then a read of the OLDEST handle to see whether it has been evicted yet. The
+    reads answer 0 (still fine) until open number `slots + 1`, at which point the
+    oldest reports `bad`.
+
+    `open_fails_at` makes that open fail with ENFILE -- a table that wedges on a
+    leak rather than reclaiming, which would break every later read in the run.
+    `extra_casualties` kills that many additional handles, modelling a reclaim
+    that takes more than the oldest. `never_reclaims` keeps answering 0 forever.
     """
-    if reclaimed is None:
-        reclaimed = set(range(OVERSHOOT))
     out = []
-    n = opens if open_fails_at is None else open_fails_at + 1
-    for i in range(n):
+    n_opens = max_opens if never_reclaims else slots + 1
+    for i in range(n_opens):
         if i == open_fails_at:
             out.append(_open_res(error=-ENFILE, handle=0))
             return out
         out.append(_open_res(handle=i + 1))
-    for i in range(opens):
-        out.append(_read_res(error=-bad) if i in reclaimed
-                   else _read_res(b"x" * 16))
-    out += [_close_res(0)] * (opens - len(reclaimed))
+        if i == 0:
+            continue                      # no oldest to probe yet
+        last = (not never_reclaims) and (i == slots)
+        out.append(_read_res(error=-bad) if last else _read_res(b"x" * 16))
+    if never_reclaims:
+        # then every handle is closed
+        return out + [_close_res(0)] * n_opens
+    # the survivor sweep: handles[1:], then a close for each survivor
+    survivors = slots - extra_casualties
+    out += [_read_res(error=-bad)] * extra_casualties
+    out += [_read_res(b"x" * 16)] * survivors
+    out += [_close_res(0)] * survivors
     return out
 
 
@@ -798,23 +810,58 @@ def test_a_wedged_handle_table_fails(tmp_path, igloo_ko_isf):
     assert "wedges" in marker
 
 
-def test_reclaiming_a_recent_handle_instead_of_the_oldest_fails(
-        tmp_path, igloo_ko_isf):
-    """Reclaim has to take the oldest, or a long read loses to a short one.
+def test_reclaiming_more_than_the_oldest_fails(tmp_path, igloo_ko_isf):
+    """Reclaim has to cost the oldest handle and nothing else.
 
-    Evicting recent handles is not merely unfair: the newest handle is the one
-    most likely to have a read in flight, and reclaiming that is a use-after-free
-    on the struct file it is reading from.
+    Taking extra handles is not merely unfair: the newest handle is the one most
+    likely to have a read in flight, and reclaiming that is a use-after-free on
+    the struct file it is reading from.
     """
     lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
     _trigger(lp, handles=(
         _bad_handle_responses()
-        + _handle_table_responses(reclaimed={4, 5, 6, 7})
+        + _handle_table_responses(extra_casualties=3)
         + _directory_responses()))
 
     marker = _marker(tmp_path)
     assert "VFS_READ_VERIFY=FAIL" in marker
-    assert "oldest" in marker
+    assert "OLDEST" in marker
+
+
+def test_a_table_that_never_reclaims_fails(tmp_path, igloo_ko_isf):
+    """Opens that always succeed with nothing ever evicted means a leak.
+
+    Every open takes a slot. If 64 of them are handed out and none of the
+    earlier ones ever go bad, the driver is not reclaiming -- it is losing
+    struct files, and the guest runs out of file descriptors eventually rather
+    than here.
+    """
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
+    _trigger(lp, handles=(
+        _bad_handle_responses()
+        + _handle_table_responses(never_reclaims=True)
+        + _directory_responses()))
+
+    marker = _marker(tmp_path)
+    assert "VFS_READ_VERIFY=FAIL" in marker
+    assert "without the oldest ever being reclaimed" in marker
+
+
+def test_the_discovered_table_size_is_reported(tmp_path, igloo_ko_isf):
+    """The check derives the table size, so it has to say what it found.
+
+    A driver whose table silently shrank to 2 slots would still pass the
+    property -- opens succeed, only the oldest dies -- so the number has to
+    reach the marker for anyone to notice.
+    """
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
+    _trigger(lp, handles=(_bad_handle_responses()
+                          + _handle_table_responses(slots=3)
+                          + _directory_responses()))
+
+    marker = _marker(tmp_path)
+    assert "VFS_READ_VERIFY=PASS" in marker
+    assert "the table holds 3 handles" in marker
 
 
 def test_a_directory_reading_as_empty_fails(tmp_path, igloo_ko_isf):
