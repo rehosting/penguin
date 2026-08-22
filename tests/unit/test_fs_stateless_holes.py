@@ -8,7 +8,6 @@ fix applied to one of three loops reads as "fixed" and is not.
 
 Grouped by cost, worst first.
 """
-import struct
 import pytest
 from pathlib import Path
 from penguin.testing import RealKffi, load_pyplugin
