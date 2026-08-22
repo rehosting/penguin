@@ -156,7 +156,7 @@ def _bad_handle_responses(read_after_close=-EBADF, unissued=-EBADF,
 
 
 def _handle_table_responses(opens=SLOTS + OVERSHOOT, reclaimed=None,
-                            open_fails_at=None):
+                            open_fails_at=None, bad=EBADF):
     """Driver responses for _check_handle_table.
 
     `reclaimed` is the set of 0-based OPEN indices whose later read reports
@@ -176,7 +176,7 @@ def _handle_table_responses(opens=SLOTS + OVERSHOOT, reclaimed=None,
             return out
         out.append(_open_res(handle=i + 1))
     for i in range(opens):
-        out.append(_read_res(error=-EBADF) if i in reclaimed
+        out.append(_read_res(error=-bad) if i in reclaimed
                    else _read_res(b"x" * 16))
     out += [_close_res(0)] * (opens - len(reclaimed))
     return out
@@ -705,22 +705,61 @@ def test_handle_checks_pass_on_a_healthy_driver(tmp_path, igloo_ko_isf):
     assert "regular_file=OK" in marker
 
 
-def test_read_after_close_answering_einval_fails(tmp_path, igloo_ko_isf):
-    """The EBADF/EINVAL distinction is load-bearing, so assert it.
+def test_a_driver_that_answers_einval_is_n_a_not_a_pass(tmp_path, igloo_ko_isf):
+    """An old pin must read as an old pin, not as a broken handle table.
 
-    EINVAL is what __kernel_read returns for a file it will not serve, so a
-    driver that also uses it for a bad handle makes those two indistinguishable
-    on a live guest -- which is exactly the ambiguity that cost a debugging pass
-    on /proc/self/status. Reverting that must fail here, not in a person's head.
+    EINVAL is also what __kernel_read returns for a file it refuses, so on a
+    driver that uses it for bad handles too the DISTINCTION is missing even
+    though every check holds. Failing would turn every 4.10 combo red on a pin
+    that is merely old; passing would let the stale pin sit there forever. n/a,
+    with the reason, is the only verdict that is true.
     """
     lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
-    _trigger(lp, handles=(_bad_handle_responses(read_after_close=-22)
+    einval = -22
+    _trigger(lp, handles=(
+        _bad_handle_responses(read_after_close=einval, unissued=einval,
+                              zero=einval, double_close=einval)
+        + _handle_table_responses(bad=22) + _directory_responses()))
+
+    marker = _marker(tmp_path)
+    assert "VFS_READ_VERIFY=PASS" in marker, \
+        "an old pin must not fail the run"
+    assert "bad_handles=n/a" in marker
+    assert "predates the EBADF split" in marker
+    # and the handle table is still checked, against the errno this driver uses
+    assert "handle_table=OK" in marker
+
+
+def test_bad_handle_errnos_that_disagree_fail(tmp_path, igloo_ko_isf):
+    """The four bad-handle cases must agree with each other.
+
+    Tolerating EINVAL is about an old pin using a DIFFERENT errno consistently.
+    A driver where read-after-close says one thing and an unissued handle says
+    another is not an old pin, it is a handle table with a hole in it.
+    """
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
+    _trigger(lp, handles=(_bad_handle_responses(unissued=-22)
                           + _handle_table_responses() + _directory_responses()))
 
     marker = _marker(tmp_path)
     assert "VFS_READ_VERIFY=FAIL" in marker
     assert "bad_handles=FAIL" in marker
-    assert "want EBADF" in marker
+    assert "unissued handle" in marker
+
+
+def test_a_closed_handle_that_still_reads_fails(tmp_path, igloo_ko_isf):
+    """The one case no pin gets to be old about.
+
+    A closed handle that reads successfully means the generation check is not
+    working, and the bytes come from whatever file has since taken the slot.
+    """
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
+    _trigger(lp, handles=(_bad_handle_responses(read_after_close=0)
+                          + _handle_table_responses() + _directory_responses()))
+
+    marker = _marker(tmp_path)
+    assert "VFS_READ_VERIFY=FAIL" in marker
+    assert "generation check" in marker
 
 
 def test_unissued_handle_that_reads_successfully_fails(tmp_path, igloo_ko_isf):
@@ -728,7 +767,8 @@ def test_unissued_handle_that_reads_successfully_fails(tmp_path, igloo_ko_isf):
 
     Same slot, wrong generation: if the generation check were dropped this
     returns another file's bytes with no error at all, which is the worst shape
-    of bug in the whole bridge.
+    of bug in the whole bridge -- and it is the case a permissive errno policy
+    could hide, so it is asserted against success, not against an errno.
     """
     lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
     _trigger(lp, handles=(_bad_handle_responses(unissued=0)

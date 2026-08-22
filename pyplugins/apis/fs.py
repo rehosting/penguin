@@ -143,6 +143,30 @@ def _encode_data(data) -> bytes:
             f"yourself and pass bytes if you want a specific encoding.") from e
 
 
+def _encode_arg(value, what: str) -> bytes:
+    """Encode one NUL-terminated field of the exec blob.
+
+    The blob is a flat NUL-separated buffer, so an embedded NUL does not travel
+    as data -- it ends the field early and turns the remainder into the NEXT
+    field. argv=["sh", "-c", "echo hi\0; rm -rf /"] therefore passes "echo hi"
+    and then a separate argument, silently, and the exec still reports success.
+    Anything assembled from config or guest-derived strings can have arguments
+    appended to it this way, so the NUL is rejected rather than dropped.
+    """
+    try:
+        raw = value.encode('latin-1')
+    except UnicodeEncodeError as e:
+        raise PortalFileError(
+            f"{what} {value!r} is not encodable for the portal "
+            f"(latin-1): {e}") from e
+    if b'\0' in raw:
+        raise PortalFileError(
+            f"{what} {value!r} contains a NUL byte. The exec blob is "
+            f"NUL-separated, so this would not pass through as data -- it would "
+            f"end the field early and turn the rest into another argument.")
+    return raw + b'\0'
+
+
 # Just the handful worth naming; anything else prints as a bare number.
 # EBADF/EBUSY/ENFILE/EAGAIN all come from the driver's handle table or its
 # non-blocking open rather than from the file, and each means something the
@@ -675,18 +699,31 @@ class FS(Plugin):
         Returns
         -------
         int
-            Return code from execution.
+            With ``wait=True``, the program's return code. With ``wait=False``
+            (the default) the call returns as soon as the guest has been asked
+            to run it, so the value only says the request was accepted -- it is
+            not the program's exit status, which is not known yet.
 
         Raises
         ------
-        Exception
-            If the program cannot be executed.
+        PortalFileError
+            If there is no program to run, an argument cannot be carried by the
+            portal (non-latin-1, or containing a NUL), the request does not fit
+            in one portal region, or the guest does not answer.
 
         Executes a program in the guest using the kernel's `call_usermodehelper` function. Optionally waits for completion.
 
         > **Note:** This method is generated and type-checked.
         """
         if not exe_path:
+            if not argv:
+                # Was `argv[0]` on a None/empty argv: TypeError: 'NoneType'
+                # object is not subscriptable, thrown from inside a filesystem
+                # API, which reads as a bug in the plugin rather than as a
+                # missing argument.
+                raise PortalFileError(
+                    "exec_program needs either exe_path or a non-empty argv; "
+                    f"got exe_path={exe_path!r}, argv={argv!r}")
             exe_path = argv[0]
 
         self.logger.debug(
@@ -696,19 +733,18 @@ class FS(Plugin):
         data_parts = []
 
         # Add executable path (null-terminated)
-        data_parts.append(exe_path.encode('latin-1') + b'\0')
+        data_parts.append(_encode_arg(exe_path, "exe_path"))
 
         # Add argv (null-separated, double-null terminated)
         if argv:
-            for arg in argv:
-                data_parts.append(arg.encode('latin-1') + b'\0')
+            for i, arg in enumerate(argv):
+                data_parts.append(_encode_arg(arg, f"argv[{i}]"))
         data_parts.append(b'\0')  # Double null termination
 
         # Add environment variables (null-separated, double-null terminated)
         if envp:
             for key, value in envp.items():
-                env_string = f"{key}={value}"
-                data_parts.append(env_string.encode('latin-1') + b'\0')
+                data_parts.append(_encode_arg(f"{key}={value}", f"envp[{key!r}]"))
         data_parts.append(b'\0')  # Double null termination
 
         data_parts.append(b'\0')  # Just null termination
@@ -716,9 +752,29 @@ class FS(Plugin):
         # Convert the list to a single bytes object
         data = b''.join(data_parts)
 
+        # One portal region holds the whole blob. Overflowing it does not fail:
+        # whatever falls off the end is dropped, so a long argv becomes a
+        # DIFFERENT, shorter command line -- and it still executes.
+        rsize = self.plugins.portal.regions_size
+        if len(data) > rsize:
+            raise PortalFileError(
+                f"exec_program blob is {len(data)} bytes, over the "
+                f"{rsize}-byte portal region; refusing to truncate it because a "
+                f"truncated argv is a different command that would still run. "
+                f"exe_path={exe_path!r}, {len(argv or [])} args, "
+                f"{len(envp or {})} env vars")
+
         # Call the kernel with the prepared data
         # The wait mode is passed in header.addr field
         result = yield PortalCmd(hop.HYPER_OP_EXEC, wait, len(data), None, data)
 
         self.logger.debug(f"exec_program result: {result}")
+        if result is None:
+            # None is not a return code. `if not result` reads it as success and
+            # `result == 0` reads it as failure, so neither caller learns that
+            # the exec did not happen -- the same conflation fixed for reads and
+            # then for writes.
+            raise PortalFileError(
+                f"exec_program({exe_path!r}) got no response from the guest, so "
+                f"whether the program ran is unknown")
         return result

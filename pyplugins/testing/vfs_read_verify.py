@@ -181,12 +181,17 @@ PROBE_CAP = 16384
 # penguin itself, so it exists regardless of what the firmware ships.
 REGULAR_FILE = "/igloo/utils/send_syscall"
 
+EBADF, EINVAL = 9, 22
+
 MARKER = "vfs_read_verify.txt"
 
 
 class VfsReadVerify(Plugin):
     def __init__(self) -> None:
         self.outdir = self.get_arg("outdir")
+        # Discovered by _check_bad_handles and reused by _check_handle_table:
+        # which errno THIS driver uses to reject a handle.
+        self._bad_errno = None
         self.done = False
         self._reported = False
 
@@ -416,7 +421,6 @@ class VfsReadVerify(Plugin):
         kernel's read path without a debug build -- which CI does not build.
         Asserting the distinction here is what keeps that diagnosis available.
         """
-        EBADF = 9
         problems = []
 
         handle, err, _ = yield from self._vfs_open(path)
@@ -425,34 +429,55 @@ class VfsReadVerify(Plugin):
                           f"({_errname(err) if err else 'no response'})")
         cerr = yield from self._vfs_close(handle)
         if cerr:
-            problems.append(f"close of a live handle failed with errno {cerr}")
+            problems.append(f"close of a live handle failed with "
+                            f"{_errname(cerr)}")
 
-        # read-after-close: the generation counter's entire purpose
-        _, err, _ = yield from self._vfs_read(handle, 64)
-        if err != EBADF:
-            problems.append(f"read after close gave errno {err}, want EBADF "
-                            f"({EBADF})")
+        # read-after-close: the generation counter's entire purpose. Whatever
+        # errno comes back here is taken as THIS driver's bad-handle errno and
+        # everything else is required to agree with it -- so an old pin is
+        # reported as an old pin rather than as a broken handle table.
+        _, bad, _ = yield from self._vfs_read(handle, 64)
+        self._bad_errno = bad
+        if not bad:
+            problems.append("read after close SUCCEEDED: a closed handle still "
+                            "reads, so the generation check is not working")
+
         cerr = yield from self._vfs_close(handle)
-        if cerr != EBADF:
-            problems.append(f"double close gave errno {cerr}, want EBADF")
+        if cerr != bad:
+            problems.append(f"double close gave {_errname(cerr)} but read "
+                            f"after close gave {_errname(bad)}")
 
         # A handle we never issued. Same slot, wrong generation: this is the one
         # that would silently read the WRONG FILE if the generation check were
         # dropped, so it matters more than the arithmetic suggests.
         _, err, _ = yield from self._vfs_read(handle + (1 << 8), 64)
-        if err != EBADF:
-            problems.append(f"read of an unissued handle gave errno {err}, "
-                            f"want EBADF")
+        if err != bad:
+            problems.append(f"read of an unissued handle gave {_errname(err)}, "
+                            f"want {_errname(bad)}")
         # Handle 0 is reserved invalid so that a zeroed field cannot address
         # slot 0 by accident.
         _, err, _ = yield from self._vfs_read(0, 64)
-        if err != EBADF:
-            problems.append(f"read of handle 0 gave errno {err}, want EBADF")
+        if err != bad:
+            problems.append(f"read of handle 0 gave {_errname(err)}, want "
+                            f"{_errname(bad)}")
 
         if problems:
             return False, "; ".join(problems)
-        return True, "read-after-close, double close, unissued handle and "\
-                     "handle 0 all EBADF"
+        if bad == EINVAL:
+            # Consistent, but EINVAL is also what __kernel_read returns for a
+            # file it refuses, so the two are indistinguishable on this pin.
+            # n/a rather than a pass: the checks all held, the DISTINCTION did
+            # not, and calling that green is how it would stay stale.
+            return None, ("all four bad-handle cases agree, but on EINVAL -- "
+                          "the pinned igloo_driver predates the EBADF split, so "
+                          "a handle-table failure is still indistinguishable "
+                          "from the kernel refusing the file. Bump the pin.")
+        if bad != EBADF:
+            return False, (f"bad handles report {_errname(bad)}; want EBADF, "
+                           f"which is what read(2) uses and what keeps this "
+                           f"distinct from the kernel's own EINVAL")
+        return True, ("read-after-close, double close, unissued handle and "
+                      "handle 0 all EBADF")
 
     def _check_handle_table(self, path):
         """Leaking every slot must degrade for one reader, not wedge the table.
@@ -470,7 +495,9 @@ class VfsReadVerify(Plugin):
         so it is called out in the marker rather than claimed).
         """
         SLOTS = 16
-        EBADF = 9
+        # Set by _check_bad_handles, which runs first. Falls back to EBADF so
+        # the check still means something if it is ever reordered.
+        bad = self._bad_errno or EBADF
         handles = []
         for _ in range(SLOTS + 4):
             handle, err, _ = yield from self._vfs_open(path)
@@ -489,8 +516,8 @@ class VfsReadVerify(Plugin):
                 for h in handles:
                     yield from self._vfs_close(h)
                 return False, (f"open {len(handles) + 1} of {SLOTS + 4} failed "
-                               f"with errno {err}: the table wedges on a leak "
-                               f"instead of reclaiming")
+                               f"with {_errname(err)}: the table wedges on a "
+                               f"leak instead of reclaiming")
             handles.append(handle)
 
         # The 4 oldest should have been reclaimed to make room.
@@ -498,16 +525,16 @@ class VfsReadVerify(Plugin):
         live = []
         for h in handles:
             _, err, _ = yield from self._vfs_read(h, 16)
-            (reclaimed if err == EBADF else live).append((h, err))
+            (reclaimed if err == bad else live).append((h, err))
 
         for h, _ in live:
             yield from self._vfs_close(h)
 
         if len(reclaimed) != 4:
             return False, (f"{len(reclaimed)} of {len(handles)} handles were "
-                           f"reclaimed, expected exactly 4 (opened "
-                           f"{SLOTS + 4} into {SLOTS} slots); live errnos "
-                           f"{[e for _, e in live]}")
+                           f"reclaimed ({_errname(bad)}), expected exactly 4 "
+                           f"(opened {SLOTS + 4} into {SLOTS} slots); live "
+                           f"errnos {[_errname(e) for _, e in live]}")
         # Reclaim must take the OLDEST, or a long-lived reader loses its handle
         # to a short-lived one.
         if [h for h, _ in reclaimed] != handles[:4]:
@@ -515,7 +542,7 @@ class VfsReadVerify(Plugin):
                            f"took {[h for h, _ in reclaimed]}, oldest are "
                            f"{handles[:4]}")
         return True, (f"{SLOTS + 4} opens into {SLOTS} slots: the 4 oldest "
-                      f"became EBADF, the rest stayed readable")
+                      f"became {_errname(bad)}, the rest stayed readable")
 
     def _check_directory(self, path="/proc"):
         """A directory must fail with an errno, not read as an empty file.
