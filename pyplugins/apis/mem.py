@@ -49,6 +49,45 @@ class Mem(Plugin):
     ==========
     Provides guest memory access and manipulation via the hypervisor portal.
 
+    Reads never fail
+    ----------------
+    By default every read here is a total function. Memory the guest cannot
+    supply -- unmapped, swapped out, a bad pointer, a driver-side failure --
+    is reported as NUL bytes (or an empty/truncated string), never as an
+    exception and never as ``None``. That is deliberate: it keeps try/except
+    out of hundreds of call sites, lets a generator read a pointer without a
+    guard around it, and stops one plugin dereferencing garbage from taking a
+    whole run down.
+
+    The cost is that a fabricated zero is indistinguishable from a real one.
+    Usually that is the right trade. Sometimes it is not:
+
+    * a pointer that reads 0 looks like a genuine NULL, so a list walk stops
+      at the first unmapped page and reports a short list as a complete one;
+    * a struct in unreadable memory decodes to an all-zero struct, which looks
+      exactly like a valid zero-initialised one;
+    * a read-modify-write on such a struct writes the fabricated zeros *back*,
+      so a bad read becomes a bad write;
+    * two unreadable regions compare equal.
+
+    For those cases every reader takes ``required=True``, which returns
+    ``None`` instead of fabricating. It is still not an exception -- the caller
+    checks a value, it does not wrap the call -- and the default behaviour is
+    untouched, so passing it is a local decision at the one call site that
+    needs it::
+
+        # fine: a wrong value here is a wrong log line
+        val = yield from plugins.mem.read_int(addr)
+
+        # not fine: this decides whether to write to the guest
+        val = yield from plugins.mem.read_int(addr, required=True)
+        if val is None:
+            return
+
+    ``required`` propagates through the derived readers, so
+    ``read_char_ptrlist(..., required=True)`` fails if any pointer or any
+    string underneath it could not be read.
+
     Attributes
     ----------
     endian_format : str
@@ -203,10 +242,33 @@ class Mem(Plugin):
             raise ValueError(f"Memory write failed with err={err}")  # TODO: make a PANDA Exn class
 
     def read_bytes(self, addr: Union[int, Ptr], size: int,
-                   pid: Optional[int] = None) -> Generator[Any, Any, bytes]:
+                   pid: Optional[int] = None,
+                   required: bool = False) -> Generator[Any, Any, Optional[bytes]]:
         """
         Reads bytes from guest memory.
         Optimized with a Fast Path for single-chunk reads.
+
+        Parameters
+        ----------
+        addr : int or Ptr
+            Address to read from.
+        size : int
+            Number of bytes to read.
+        pid : int, optional
+            Process ID for context.
+        required : bool, optional
+            Whether the caller needs to know that the read failed. Default
+            False, which is the total contract described in the class
+            docstring: unreadable memory is reported as NUL bytes and the
+            caller cannot fail. Pass True where a fabricated zero would be
+            taken for real data -- see the class docstring for when that
+            matters.
+
+        Returns
+        -------
+        bytes or None
+            Exactly ``size`` bytes. ``None`` only when ``required`` is set and
+            the read could not be satisfied in full.
         """
         if isinstance(addr, Ptr):
             addr = addr.address
@@ -227,8 +289,12 @@ class Mem(Plugin):
             # Fallback to Portal
             chunk = yield PortalCmd(hop.HYPER_OP_READ, addr, size, pid)
             if not chunk:
+                if required:
+                    return None
                 return b"\x00" * size
             if len(chunk) != size:
+                if required:
+                    return None
                 return chunk.ljust(size, b"\x00")
             return chunk
 
@@ -261,8 +327,12 @@ class Mem(Plugin):
                 chunk = yield PortalCmd(hop.HYPER_OP_READ, chunk_addr, chunk_size, pid)
 
             if not chunk:
+                if required:
+                    return None
                 chunk = b"\x00" * chunk_size
             elif len(chunk) != chunk_size:
+                if required:
+                    return None
                 chunk = chunk.ljust(chunk_size, b"\x00")
             read_chunks.append(chunk)
         # Optimization: Use b''.join only once at the end
@@ -291,7 +361,8 @@ class Mem(Plugin):
         return self.ffi.unpack(buf, size)
 
     def read_str(self, addr: Union[int, Ptr],
-                 pid: Optional[int] = None) -> Generator[Any, Any, str]:
+                 pid: Optional[int] = None,
+                 required: bool = False) -> Generator[Any, Any, Optional[str]]:
         """
         Read a null-terminated string from guest memory.
 
@@ -305,11 +376,20 @@ class Mem(Plugin):
             Address to read from.
         pid : int, optional
             Process ID for context.
+        required : bool, optional
+            Whether the caller needs to know that the string is incomplete.
+            Default False, which is the total contract: a read that fails
+            part-way, or a string longer than one portal region, comes back
+            truncated and indistinguishable from a short string. Pass True to
+            get ``None`` in both of those cases instead.
 
         Returns
         -------
-        str
-            String read from memory.
+        str or None
+            String read from memory. ``None`` only when ``required`` is set and
+            the string could not be read in full -- including a NULL ``addr``,
+            a failed read part-way through, and hitting the size cap without
+            finding a terminator.
         """
         if isinstance(addr, Ptr):
             addr = addr.address
@@ -329,6 +409,10 @@ class Mem(Plugin):
             total_read = 0
             curr_addr = addr
             cpu = self._get_cpu()
+            # Whether we actually saw the NUL that ends the string. Without
+            # this, "the string ended" and "I stopped looking" are the same
+            # return value.
+            terminated = False
 
             while total_read < SAFE_MAX:
                 # 1. Calculate space left in current page
@@ -361,7 +445,12 @@ class Mem(Plugin):
                     chunk = yield PortalCmd(hop.HYPER_OP_READ_STR, curr_addr, to_read, pid)
 
                 if not chunk:
-                    # If both methods failed or returned empty, we stop.
+                    # Both methods failed or returned empty. Note this is a
+                    # read failure, not an end-of-string: the loop walks page
+                    # by page precisely so it can cross page boundaries, so
+                    # "the next page is unmapped" lands right here.
+                    if required:
+                        return None
                     break
 
                 # 5. Scan for NULL terminator
@@ -370,6 +459,7 @@ class Mem(Plugin):
                 if null_idx != -1:
                     # Found terminator: append valid part and stop
                     result.extend(chunk[:null_idx])
+                    terminated = True
                     break
                 else:
                     # No terminator: append whole chunk and continue
@@ -377,9 +467,15 @@ class Mem(Plugin):
                     total_read += len(chunk)
                     curr_addr += len(chunk)
 
+            if required and not terminated:
+                # Ran out of budget (SAFE_MAX) without finding the end. A path
+                # can legitimately be longer than this cap -- PATH_MAX is 4096
+                # and SAFE_MAX is one portal region, which is smaller.
+                return None
+
             return result.decode('latin-1', errors='replace')
 
-        return ""
+        return None if required else ""
 
     def read_str_panda(self, cpu, addr: Union[int, Ptr]) -> str:
         """
@@ -435,7 +531,8 @@ class Mem(Plugin):
         return result.decode('latin-1', errors='replace')
 
     def read_int(self, addr: Union[int, Ptr],
-                 pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
+                 pid: Optional[int] = None,
+                 required: bool = False) -> Generator[Any, Any, Optional[int]]:
         """
         Read a 4-byte integer from guest memory.
 
@@ -447,26 +544,33 @@ class Mem(Plugin):
             Address to read from.
         pid : int, optional
             Process ID for context.
+        required : bool, optional
+            Whether the caller needs to know that the read failed. Default
+            False: unreadable memory reads as zero and ``None`` is never
+            returned. Pass True to get ``None`` instead.
 
         Returns
         -------
         int or None
-            Integer value read, or None on failure.
+            Integer value read. ``None`` only when ``required`` is set and the
+            read failed; otherwise unreadable memory reads as 0.
         """
         if isinstance(addr, Ptr):
             addr = addr.address
 
         self.logger.debug(f"read_int called: addr={addr:#x}")
-        data = yield from self.read_bytes(addr, 4, pid)
-        if len(data) != 4:
+        data = yield from self.read_bytes(addr, 4, pid, required=required)
+        if data is None or len(data) != 4:
             self.logger.error(
-                f"Failed to read int at addr={addr:#x}, data_len={len(data)}")
+                f"Failed to read int at addr={addr:#x}, "
+                f"data_len={'none' if data is None else len(data)}")
             return None
         value = int.from_bytes(data, self.endian_str)
         return value
 
     def read_long(
-            self, addr: Union[int, Ptr], pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
+            self, addr: Union[int, Ptr], pid: Optional[int] = None,
+            required: bool = False) -> Generator[Any, Any, Optional[int]]:
         """
         Read an 8-byte long integer from guest memory.
 
@@ -478,26 +582,33 @@ class Mem(Plugin):
             Address to read from.
         pid : int, optional
             Process ID for context.
+        required : bool, optional
+            Whether the caller needs to know that the read failed. Default
+            False: unreadable memory reads as zero and ``None`` is never
+            returned. Pass True to get ``None`` instead.
 
         Returns
         -------
         int or None
-            Long value read, or None on failure.
+            Long value read. ``None`` only when ``required`` is set and the
+            read failed; otherwise unreadable memory reads as 0.
         """
         if isinstance(addr, Ptr):
             addr = addr.address
 
         self.logger.debug(f"read_long called: addr={addr:#x}")
-        data = yield from self.read_bytes(addr, 8, pid)
-        if len(data) != 8:
+        data = yield from self.read_bytes(addr, 8, pid, required=required)
+        if data is None or len(data) != 8:
             self.logger.error(
-                f"Failed to read long at addr={addr:#x}, data_len={len(data)}")
+                f"Failed to read long at addr={addr:#x}, "
+                f"data_len={'none' if data is None else len(data)}")
             return None
         value = int.from_bytes(data, self.endian_str)
         return value
 
     def read_ptr(self, addr: Union[int, Ptr],
-                 pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
+                 pid: Optional[int] = None,
+                 required: bool = False) -> Generator[Any, Any, Optional[int]]:
         """
         Read a pointer-sized value from guest memory.
 
@@ -513,9 +624,11 @@ class Mem(Plugin):
         Returns
         -------
         int or None
-            Pointer value read, or None on failure.
+            Pointer value read. ``None`` only when ``required`` is set and the
+            read failed; otherwise an unreadable pointer reads as 0, which is
+            indistinguishable from a genuine NULL.
         """
-        # this function is bound in __init__
+        # this function is bound in __init__ to read_int or read_long
         pass
 
     def write_int(self, addr: Union[int, Ptr], value: int,
@@ -642,7 +755,8 @@ class Mem(Plugin):
         return bytes_written
 
     def read_ptrlist(self, addr: Union[int, Ptr], length: int,
-                     pid: Optional[int] = None) -> Generator[Any, Any, List[int]]:
+                     pid: Optional[int] = None,
+                     required: bool = False) -> Generator[Any, Any, Optional[List[int]]]:
         """
         Read a list of pointer values from guest memory.
 
@@ -668,14 +782,22 @@ class Mem(Plugin):
         ptrs = []
         ptrsize = self.ptr_size
         for start in range(length):
-            ptr = yield from self.read_ptr(addr + (start * ptrsize), pid)
+            ptr = yield from self.read_ptr(addr + (start * ptrsize), pid,
+                                           required=required)
+            if ptr is None:
+                # `required` only. An unreadable slot is not the end of the
+                # list, and the zero-fill makes the two identical -- so by
+                # default a list walk stops at the first unmapped page and
+                # reports a short list as a complete one.
+                return None
             if ptr == 0:
                 break
             ptrs.append(ptr)
         return ptrs
 
     def read_char_ptrlist(self, addr: Union[int, Ptr], length: int,
-                          pid: Optional[int] = None) -> Generator[Any, Any, List[str]]:
+                          pid: Optional[int] = None,
+                          required: bool = False) -> Generator[Any, Any, Optional[List[str]]]:
         """
         Read a list of null-terminated strings from a list of pointers.
 
@@ -698,15 +820,22 @@ class Mem(Plugin):
         if isinstance(addr, Ptr):
             addr = addr.address
 
-        ptrlist = yield from self.read_ptrlist(addr, length, pid)
+        ptrlist = yield from self.read_ptrlist(addr, length, pid,
+                                               required=required)
+        if ptrlist is None:
+            return None
         vals = []
         for start in range(len(ptrlist)):
-            strs = yield from self.read_str(ptrlist[start], pid)
+            strs = yield from self.read_str(ptrlist[start], pid,
+                                            required=required)
+            if strs is None:
+                return None
             vals.append(strs)
         return vals
 
     def read_int_array(self, addr: Union[int, Ptr], count: int,
-                       pid: Optional[int] = None) -> Generator[Any, Any, List[int]]:
+                       pid: Optional[int] = None,
+                       required: bool = False) -> Generator[Any, Any, Optional[List[int]]]:
         """
         Read an array of 4-byte integers from guest memory.
 
@@ -729,11 +858,14 @@ class Mem(Plugin):
         if isinstance(addr, Ptr):
             addr = addr.address
 
-        data = yield from self.read_bytes(addr, 4 * count, pid)
-        if len(data) != 4 * count:
+        data = yield from self.read_bytes(addr, 4 * count, pid,
+                                          required=required)
+        if data is None or len(data) != 4 * count:
             self.logger.error(
-                f"Failed to read int array at addr={addr:#x}, expected {4*count} bytes, got {len(data)}")
-            return []
+                f"Failed to read int array at addr={addr:#x}, expected "
+                f"{4*count} bytes, got "
+                f"{'none' if data is None else len(data)}")
+            return None if required else []
         return list(unpack(f"{self.endian_format}{count}I", data))
 
     def write_int_array(
@@ -764,7 +896,8 @@ class Mem(Plugin):
         return (yield from self.write_bytes(addr, data, pid))
 
     def read_long_array(self, addr: Union[int, Ptr], count: int,
-                        pid: Optional[int] = None) -> Generator[Any, Any, List[int]]:
+                        pid: Optional[int] = None,
+                        required: bool = False) -> Generator[Any, Any, Optional[List[int]]]:
         """
         Read an array of 8-byte long integers from guest memory.
 
@@ -787,14 +920,19 @@ class Mem(Plugin):
         if isinstance(addr, Ptr):
             addr = addr.address
 
-        data = yield from self.read_bytes(addr, 8 * count, pid)
-        if len(data) != 8 * count:
+        data = yield from self.read_bytes(addr, 8 * count, pid,
+                                          required=required)
+        if data is None or len(data) != 8 * count:
             self.logger.error(
-                f"Failed to read long array at addr={addr:#x}, expected {8*count} bytes, got {len(data)}")
-            return []
+                f"Failed to read long array at addr={addr:#x}, expected "
+                f"{8*count} bytes, got "
+                f"{'none' if data is None else len(data)}")
+            return None if required else []
         return list(unpack(f"{self.endian_format}{count}Q", data))
 
-    def read_uint64_array(self, addr: Union[int, Ptr], count: int, pid: Optional[int] = None) -> Generator[Any, Any, List[int]]:
+    def read_uint64_array(self, addr: Union[int, Ptr], count: int,
+                          pid: Optional[int] = None,
+                          required: bool = False) -> Generator[Any, Any, Optional[List[int]]]:
         """
         Read an array of 8-byte unsigned integers from guest memory.
 
@@ -817,10 +955,12 @@ class Mem(Plugin):
         if isinstance(addr, Ptr):
             addr = addr.address
 
-        return (yield from self.read_long_array(addr, count, pid))
+        return (yield from self.read_long_array(addr, count, pid,
+                                                required=required))
 
     def read_utf8_str(
-            self, addr: Union[int, Ptr], pid: Optional[int] = None) -> Generator[Any, Any, str]:
+            self, addr: Union[int, Ptr], pid: Optional[int] = None,
+            required: bool = False) -> Generator[Any, Any, Optional[str]]:
         """
         Read a null-terminated UTF-8 string from guest memory.
 
@@ -842,14 +982,17 @@ class Mem(Plugin):
             addr = addr.address
 
         if addr != 0:
-            chunk = yield from self.read_str(addr, pid)
+            chunk = yield from self.read_str(addr, pid, required=required)
+            if chunk is None:
+                return None
             if chunk:
                 self.logger.debug(f"Received response from queue: {chunk}")
                 return chunk.encode('latin-1').decode('utf-8', errors='replace')
-        return ""
+        return None if required else ""
 
     def read_byte(
-            self, addr: Union[int, Ptr], pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
+            self, addr: Union[int, Ptr], pid: Optional[int] = None,
+            required: bool = False) -> Generator[Any, Any, Optional[int]]:
         """
         Read a single byte from guest memory.
 
@@ -861,17 +1004,22 @@ class Mem(Plugin):
             Address to read from.
         pid : int, optional
             Process ID for context.
+        required : bool, optional
+            Whether the caller needs to know that the read failed. Default
+            False: unreadable memory reads as zero and ``None`` is never
+            returned. Pass True to get ``None`` instead.
 
         Returns
         -------
         int or None
-            Byte value read (0-255), or None on failure.
+            Byte value read (0-255). ``None`` only when ``required`` is set and the
+            read failed; otherwise unreadable memory reads as 0.
         """
         if isinstance(addr, Ptr):
             addr = addr.address
 
-        data = yield from self.read_bytes(addr, 1, pid)
-        if len(data) != 1:
+        data = yield from self.read_bytes(addr, 1, pid, required=required)
+        if data is None or len(data) != 1:
             self.logger.error(f"Failed to read byte at addr={addr:#x}")
             return None
         return data[0]
@@ -904,7 +1052,8 @@ class Mem(Plugin):
         return (yield from self.write_bytes(addr, data, pid))
 
     def read_word(
-            self, addr: Union[int, Ptr], pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
+            self, addr: Union[int, Ptr], pid: Optional[int] = None,
+            required: bool = False) -> Generator[Any, Any, Optional[int]]:
         """
         Read a 2-byte word from guest memory.
 
@@ -916,17 +1065,22 @@ class Mem(Plugin):
             Address to read from.
         pid : int, optional
             Process ID for context.
+        required : bool, optional
+            Whether the caller needs to know that the read failed. Default
+            False: unreadable memory reads as zero and ``None`` is never
+            returned. Pass True to get ``None`` instead.
 
         Returns
         -------
         int or None
-            Word value read, or None on failure.
+            Word value read. ``None`` only when ``required`` is set and the
+            read failed; otherwise unreadable memory reads as 0.
         """
         if isinstance(addr, Ptr):
             addr = addr.address
 
-        data = yield from self.read_bytes(addr, 2, pid)
-        if len(data) != 2:
+        data = yield from self.read_bytes(addr, 2, pid, required=required)
+        if data is None or len(data) != 2:
             self.logger.error(f"Failed to read word at addr={addr:#x}")
             return None
         return int.from_bytes(data, self.endian_str)
@@ -988,7 +1142,8 @@ class Mem(Plugin):
         return (yield from self.write_bytes(addr, data, pid))
 
     def memcmp(self, addr1: Union[int, Ptr], addr2: Union[int, Ptr], size: int,
-               pid: Optional[int] = None) -> Generator[Any, Any, bool]:
+               pid: Optional[int] = None,
+               required: bool = False) -> Generator[Any, Any, Optional[bool]]:
         """
         Compare two regions of guest memory for equality.
 
@@ -1015,8 +1170,15 @@ class Mem(Plugin):
         if isinstance(addr2, Ptr):
             addr2 = addr2.address
 
-        data1 = yield from self.read_bytes(addr1, size, pid)
-        data2 = yield from self.read_bytes(addr2, size, pid)
+        data1 = yield from self.read_bytes(addr1, size, pid,
+                                           required=required)
+        data2 = yield from self.read_bytes(addr2, size, pid,
+                                           required=required)
+        if data1 is None or data2 is None:
+            # `required` only. By default two unreadable regions both come back
+            # as zeros and compare *equal*, which is the one answer that is
+            # certainly wrong.
+            return None
         return data1 == data2
 
     def read_ptr_array(self, addr: Union[int, Ptr], pid: Optional[int] = None) -> Generator[Any, Any, List[str]]:
@@ -1194,7 +1356,8 @@ class Mem(Plugin):
                 f"Cannot dispatch write for unsupported data type: {type(data)}")
 
     def read(self, addr: Union[int, Ptr], size: Optional[int] = None,
-             fmt: Union[type, str, None] = None, pid: Optional[int] = None) -> Generator[Any, Any, Any]:
+             fmt: Union[type, str, None] = None, pid: Optional[int] = None,
+             required: bool = False) -> Generator[Any, Any, Any]:
         """
         Smart dispatcher for memory reads. Automatically infers sizes and types
         if a dwarffi Ptr is provided.
@@ -1209,11 +1372,16 @@ class Mem(Plugin):
             The requested return format (bytes, str, int, list, 'ptr'). Default is bytes.
         pid : int, optional
             Process ID for context.
+        required : bool, optional
+            Forwarded to whichever reader this dispatches to. Default False:
+            unreadable memory is reported as zeros/an empty string. Pass True
+            to get ``None`` instead. See the class docstring.
 
         Returns
         -------
         Any
-            The read data in the requested format.
+            The read data in the requested format, or ``None`` when
+            ``required`` is set and the read could not be satisfied.
         """
         actual_fmt = fmt
 
@@ -1246,23 +1414,29 @@ class Mem(Plugin):
         if actual_fmt is bytes or actual_fmt == "bytes":
             if size is None:
                 raise ValueError("Size required for bytes read.")
-            return (yield from self.read_bytes(addr, size, pid))
+            return (yield from self.read_bytes(addr, size, pid,
+                                               required=required))
         elif actual_fmt is str or actual_fmt == "str":
-            return (yield from self.read_str(addr, pid))
+            return (yield from self.read_str(addr, pid, required=required))
         elif actual_fmt is int or actual_fmt == "int":
             if size == 1:
-                return (yield from self.read_byte(addr, pid))
+                return (yield from self.read_byte(addr, pid,
+                                                  required=required))
             if size == 2:
-                return (yield from self.read_word(addr, pid))
+                return (yield from self.read_word(addr, pid,
+                                                  required=required))
             if size == 8:
-                return (yield from self.read_long(addr, pid))
+                return (yield from self.read_long(addr, pid,
+                                                  required=required))
             if size == 4:
-                return (yield from self.read_int(addr, pid))
-            return (yield from self.read_ptr(addr, pid))
+                return (yield from self.read_int(addr, pid,
+                                                 required=required))
+            return (yield from self.read_ptr(addr, pid, required=required))
         elif actual_fmt == "ptr":
-            return (yield from self.read_ptr(addr, pid))
+            return (yield from self.read_ptr(addr, pid, required=required))
         elif actual_fmt is list or actual_fmt == "list":
             if size is None:
                 raise ValueError("Count required for list read.")
-            return (yield from self.read_int_array(addr, size, pid))
+            return (yield from self.read_int_array(addr, size, pid,
+                                                   required=required))
         raise ValueError(f"Unknown read format: {actual_fmt}")

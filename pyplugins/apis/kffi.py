@@ -884,8 +884,16 @@ class KFFI(Plugin):
         offset = field_info.offset
         size = self.ffi.sizeof(field_info.type_info)
 
-        # Read the current memory for this field's width to safely handle bitfields
-        existing_bytes = yield from plugins.mem.read_bytes(addr + offset, size)
+        # Read the current memory for this field's width to safely handle
+        # bitfields. This is required=True because it is a read-modify-write:
+        # the bytes read here are written back, so for a bitfield the zeros a
+        # failed read would fabricate land on top of whichever neighbouring
+        # bitfields share this storage unit. Everywhere else a bad read costs a
+        # wrong answer; here it corrupts the guest. The RuntimeError below was
+        # always the intent -- read_bytes just never returned anything falsy
+        # for it to fire on.
+        existing_bytes = yield from plugins.mem.read_bytes(
+            addr + offset, size, required=True)
         if not existing_bytes:
             raise RuntimeError(f"Failed to read memory at {addr + offset:#x}")
 
@@ -915,7 +923,10 @@ class KFFI(Plugin):
         offset = field_info.offset
         size = self.ffi.sizeof(field_info.type_info)
 
-        raw_bytes = yield from plugins.mem.read_bytes(addr + offset, size)
+        # required=True so the RuntimeError below is reachable: without it a
+        # failed read arrives as NUL bytes and this returns a confident 0.
+        raw_bytes = yield from plugins.mem.read_bytes(
+            addr + offset, size, required=True)
         if not raw_bytes:
             raise RuntimeError(f"Failed to read memory at {addr + offset:#x}")
 
