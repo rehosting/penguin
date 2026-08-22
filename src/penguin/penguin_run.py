@@ -394,16 +394,31 @@ def _launch_gateway(kind, gateway_py, listen_port, uds_path, vsock_port):
     leave a live-looking Popen handle and a logged "front door up" that lies. On
     early death we log a warning and return None so the caller doesn't treat a
     dead door as running.
+
+    We spawn `sys.executable` (the very interpreter running penguin) with an
+    explicit PYTHONPATH built from penguin's own `sys.path`. This matters on the
+    nix image: the interpreter consumes NIX_PYTHONPATH at startup and unsets it,
+    so a bare child `python3` no longer sees penguin's site-packages and the SSH
+    gateway's `import asyncssh` fails (telnet survives -- it needs only stdlib +
+    the script-dir guest_cmd). Re-exposing sys.path makes the child import the
+    exact libraries penguin itself uses; harmless off-nix (site-packages already
+    on the child's default path).
     """
     global _gateway_atexit_registered
+    env = dict(os.environ)
+    child_pythonpath = os.pathsep.join(p for p in sys.path if p)
+    if env.get("PYTHONPATH"):
+        child_pythonpath = child_pythonpath + os.pathsep + env["PYTHONPATH"]
+    env["PYTHONPATH"] = child_pythonpath
     proc = subprocess.Popen(
         [
-            "python3", gateway_py,
+            sys.executable, gateway_py,
             "--listen-host", "0.0.0.0",
             "--listen-port", str(listen_port),
             "--socket", str(uds_path),
             "--port", str(vsock_port),
-        ]
+        ],
+        env=env,
     )
     _gateway_procs.append(proc)
     if not _gateway_atexit_registered:
