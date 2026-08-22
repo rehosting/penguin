@@ -116,6 +116,23 @@ false
 true
 ```
 
+### `core.root_shell_backend` Root shell backend
+
+|||
+|-|-|
+|__Type__|`"telnet"` or `"vsock"`|
+|__Default__|`vsock`|
+
+Which console backend serves core.root_shell. 'vsock' (default) runs an on-demand pty over the guest command channel (guesthopper), freeing the ttyS1 serial line; it requires the vsock transport, so core.guest_cmd is enabled automatically and the VPN transport must be available (with vpn disabled, this falls back to 'telnet'). 'telnet' uses the legacy QEMU -serial telnet console on ttyS1.
+
+```yaml
+vsock
+```
+
+```yaml
+telnet
+```
+
 ### `core.analysis_scope` Scope of per-process analysis
 
 |||

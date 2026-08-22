@@ -219,7 +219,11 @@ jobs:
       enable-kvm: false
       # Inject the computed version (flake reads PENGUIN_OVERRIDE_VERSION via
       # builtins.getEnv, which needs --impure).
-      extra-build-args: --impure
+      # TEMP (revert before merge): build the image against the guesthopper
+      # workspace/gcmd branch (the framed channel + keepalive, guesthopper#22)
+      # so run_tests exercises the new command channel end-to-end. At landing
+      # this is dropped and flake.lock is bumped to the guesthopper release tag.
+      extra-build-args: --impure --override-input guesthopper github:rehosting/guesthopper/workspace/gcmd
       build-env: |
         PENGUIN_OVERRIDE_VERSION=${{ needs.version.outputs.v }}
     secrets:
@@ -407,6 +411,48 @@ jobs:
       - name: QMP hook test
         run: timeout 10m python3 $GITHUB_WORKSPACE/tests/integration/qmp_hook/test.py --image rehosting/penguin:${{ github.sha }}
 
+  run_frontdoor:
+    # The telnet + SSH front doors of the vsock root-shell console are host-side
+    # gateways (in the penguin container), so this is arch-independent and runs
+    # once on x86_64 like run_compose / run_qmp_hook rather than across the arch
+    # matrix. It boots a guest with the vsock console enabled and drives both
+    # doors from a host thread, which also exercises the Rust guest agent's
+    # open-pty path over real vsock (the exec-only run_tests never reach it) and
+    # confirms the gateways bind their privileged standard ports and that the SSH
+    # gateway's asyncssh import works on the image.
+    needs: [changes, build_container]
+    runs-on: rehosting-arc
+    if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Set up penguin image
+        uses: rehosting/ci/actions/pull-image@v1
+        with:
+          registry: ${{ env.REGISTRY }}
+          target: ${{ env.TARGET }}
+          image: rehosting/penguin
+          tag: ${{ github.sha }}
+          local-tag: rehosting/penguin:${{ github.sha }}
+          username: ${{ env.USER }}
+          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
+          install-python: "true"
+          install-cert: "false"
+
+      - name: Front door test
+        run: timeout 15m python3 $GITHUB_WORKSPACE/tests/integration/frontdoor/test.py --image rehosting/penguin:${{ github.sha }}
+
+      - name: Front door debug info
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontdoor-artifacts
+          if-no-files-found: ignore
+          path: ${{ github.workspace }}/tests/integration/frontdoor/projects/frontdoor_fs/results/latest/
+
   # Single required status check for branch protection + the merge queue.
   #
   # The per-arch run_tests matrix and build_container are conditionally skipped
@@ -420,7 +466,7 @@ jobs:
   ci_gate:
     if: ${{ always() }}
     runs-on: ubuntu-latest
-    needs: [changes, lint, unit_tests, build_container, run_tests, run_compose, run_qmp_hook]
+    needs: [changes, lint, unit_tests, build_container, run_tests, run_compose, run_qmp_hook, run_frontdoor]
     steps:
       - name: Require no gated job to have failed
         run: |
@@ -432,6 +478,7 @@ jobs:
             [run_tests]='${{ needs.run_tests.result }}'
             [run_compose]='${{ needs.run_compose.result }}'
             [run_qmp_hook]='${{ needs.run_qmp_hook.result }}'
+            [run_frontdoor]='${{ needs.run_frontdoor.result }}'
           )
           ok=true
           for job in "${!r[@]}"; do

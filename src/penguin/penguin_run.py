@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import socket
+import atexit
 from contextlib import contextmanager, closing
 from pathlib import Path
 from time import sleep
@@ -15,12 +16,16 @@ from penguin import getColoredLogger, plugins
 from .common import yaml, style_config_for_dump, get_inits_from_proj
 from yamlcore import CoreDumper, CoreLoader
 from .defaults import default_plugin_path, vnc_password
-from penguin.penguin_config import load_config
+from penguin.penguin_config import _vpn_enabled, load_config
 from .plugin_manager import ArgsBox
 from .utils import hash_image_inputs, get_penguin_kernel_version, boot_fingerprint
 from .q_config import load_q_config, ROOTFS
 from .boot_env import partition_boot_env
 from . import arch_registry
+
+# Module-level logger for module-scope helpers (the front-door launchers). The
+# run functions create their own scoped loggers locally.
+logger = getColoredLogger("penguin.runner")
 
 
 def _env_int(name: str, default: int, min_value: int = 0) -> int:
@@ -262,14 +267,191 @@ exit 0
             .replace("@@GUEST_CMD_HINT@@", guest_cmd_hint))
 
 
+def _render_connect_script_vsock(container_name, telnet_port, ssh_port=None) -> str:
+    """Render results/<n>/connect.sh for the vsock console backend.
+
+    Instead of telnetting a serial port, it drives the guest command channel
+    (guesthopper) inside the container -- ttyS1 is free:
+
+    - no args  -> interactive pty shell (``guest_cmd.py --shell`` over an -it exec).
+    - ``connect.sh CMD...`` -> run CMD once over vsock; guest_cmd streams
+      stdout/stderr and exits with the command's return code.
+
+    A telnet front door on localhost:<telnet_port> is also up by default (see
+    _launch_telnet_gateway), so the familiar ``<engine> exec -it <container>
+    telnet localhost <telnet_port>`` still works -- both land on the same clean
+    vsock channel.
+    """
+    guest_cmd_py = "/igloo_static/guesthopper/guest_cmd.py"
+    tmpl = r'''#!/bin/sh
+# Connect to this penguin run's guest over the vsock command channel. GENERATED
+# by penguin -- re-run the project to refresh it. No serial console is used.
+#
+@@FRONTDOOR_HINT@@set -u
+
+CONTAINER="@@CONTAINER@@"
+GUEST_CMD="@@GUEST_CMD@@"
+
+ENGINE=""
+for e in docker podman; do
+  if command -v "$e" >/dev/null 2>&1; then ENGINE="$e"; break; fi
+done
+if [ -z "$ENGINE" ]; then
+  echo "connect.sh needs docker or podman on PATH." >&2
+  exit 1
+fi
+
+if [ -z "$CONTAINER" ] || ! "$ENGINE" ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
+  echo "Container '$CONTAINER' is not running -- start the run first." >&2
+  exit 1
+fi
+
+if [ "$#" -eq 0 ]; then
+  # Interactive pty shell over vsock (-it gives guest_cmd.py a real terminal).
+  exec "$ENGINE" exec -it "$CONTAINER" python3 "$GUEST_CMD" --shell
+fi
+
+# Command mode: run "$@" once over vsock.
+exec "$ENGINE" exec -i "$CONTAINER" python3 "$GUEST_CMD" "$@"
+'''
+    # Telnet/SSH front doors ride the same vsock session and are bound to the
+    # container's network on the standard ports (open auth), so the rehosted
+    # device answers on its container IP like a real one. Build the hint from
+    # this run's container IP when known.
+    cname = str(container_name or "")
+    container_ip = os.environ.get("CONTAINER_IP") or ""
+    host = container_ip or "<container-ip>"
+    hint = ["# Front doors onto the SAME session (guest speaks only vsock):"]
+    tport = "" if telnet_port == 23 else f" {telnet_port}"
+    hint.append(f"#   telnet {host}{tport}")
+    if ssh_port is not None:
+        sport = "" if ssh_port == 22 else f" -p {ssh_port}"
+        hint.append(f"#   ssh root@{host}{sport}")
+    if not container_ip:
+        hint.append("#   (container IP is in runtime.yaml; or from the host: "
+                    f"'<engine> exec -it {cname} telnet localhost {telnet_port}')")
+    frontdoor_hint = "\n".join(hint) + "\n"
+    return (tmpl
+            .replace("@@CONTAINER@@", cname)
+            .replace("@@FRONTDOOR_HINT@@", frontdoor_hint)
+            .replace("@@GUEST_CMD@@", guest_cmd_py))
+
+
 def _write_connect_script(out_dir, container_name, telnet_port, root_shell,
-                          guest_cmd) -> None:
+                          guest_cmd, backend="vsock", ssh_port=None) -> None:
     """Write results/<n>/connect.sh (executable) for this run."""
     path = os.path.join(out_dir, "connect.sh")
     with open(path, "w") as f:
-        f.write(_render_connect_script(container_name, telnet_port, root_shell,
-                                       guest_cmd))
+        if root_shell and backend == "vsock":
+            f.write(_render_connect_script_vsock(container_name, telnet_port, ssh_port))
+        else:
+            f.write(_render_connect_script(container_name, telnet_port, root_shell,
+                                           guest_cmd))
     os.chmod(path, 0o755)
+
+
+# Front-door gateway subprocesses, tracked so an abnormal exit that bypasses
+# _run()'s finally (a hard crash between launch and the run, a SIGKILL of the
+# runner) still reaps them instead of leaving them holding the listen ports --
+# the same atexit-backed safety net the vpn subprocesses have.
+_gateway_procs = []
+_gateway_atexit_registered = False
+
+
+def _terminate_gateway(proc) -> None:
+    """Best-effort stop of one gateway subprocess (idempotent, never raises)."""
+    if proc is None:
+        return
+    try:
+        if proc.poll() is not None:
+            return  # already gone
+        proc.terminate()
+        try:
+            proc.wait(timeout=2)
+        except Exception:
+            proc.kill()
+    except Exception:
+        pass
+
+
+def _kill_gateways() -> None:
+    for proc in _gateway_procs:
+        _terminate_gateway(proc)
+
+
+def _launch_gateway(kind, gateway_py, listen_port, uds_path, vsock_port):
+    """Start one host-side front-door gateway and confirm it actually came up.
+
+    Runs inside the container, bridging TCP clients (telnet or ssh) to the
+    guest's vsock pty via `gateway_py`, while the guest speaks only the clean
+    vsock command channel (ttyS1 stays free). Bound to 0.0.0.0 on `listen_port`
+    so the rehosted device answers on its container IP like a real one; nothing
+    is published to the host unless the run adds -p (--extra_docker_args).
+
+    The gateway's stderr is inherited (its startup line and any bind/import error
+    land in the run log). After launch we briefly poll: a gateway that dies
+    immediately (port unbindable, `asyncssh` missing, bad script) would otherwise
+    leave a live-looking Popen handle and a logged "front door up" that lies. On
+    early death we log a warning and return None so the caller doesn't treat a
+    dead door as running.
+
+    We spawn `sys.executable` (the very interpreter running penguin) with an
+    explicit PYTHONPATH built from penguin's own `sys.path`. This matters on the
+    nix image: the interpreter consumes NIX_PYTHONPATH at startup and unsets it,
+    so a bare child `python3` no longer sees penguin's site-packages and the SSH
+    gateway's `import asyncssh` fails (telnet survives -- it needs only stdlib +
+    the script-dir guest_cmd). Re-exposing sys.path makes the child import the
+    exact libraries penguin itself uses; harmless off-nix (site-packages already
+    on the child's default path).
+    """
+    global _gateway_atexit_registered
+    env = dict(os.environ)
+    child_pythonpath = os.pathsep.join(p for p in sys.path if p)
+    if env.get("PYTHONPATH"):
+        child_pythonpath = child_pythonpath + os.pathsep + env["PYTHONPATH"]
+    env["PYTHONPATH"] = child_pythonpath
+    proc = subprocess.Popen(
+        [
+            sys.executable, gateway_py,
+            "--listen-host", "0.0.0.0",
+            "--listen-port", str(listen_port),
+            "--socket", str(uds_path),
+            "--port", str(vsock_port),
+        ],
+        env=env,
+    )
+    _gateway_procs.append(proc)
+    if not _gateway_atexit_registered:
+        atexit.register(_kill_gateways)
+        _gateway_atexit_registered = True
+
+    # Give it a moment to bind (or fail fast) before declaring it up.
+    sleep(0.5)
+    if proc.poll() is not None:
+        logger.warning(
+            f"{kind} front door failed to start on 0.0.0.0:{listen_port} "
+            f"(exit {proc.returncode}); see run stderr. Other consoles are "
+            f"unaffected (guest_cmd over `<engine> exec` still works)."
+        )
+        return None
+    logger.info(f"{kind} front door: 0.0.0.0:{listen_port} -> guest vsock pty")
+    return proc
+
+
+def _launch_ssh_gateway(uds_path, vsock_port, ssh_port):
+    """Start the host-side SSH front door (asyncssh, open auth) for the vsock
+    console -- `ssh root@<container-ip>`. See _launch_gateway."""
+    return _launch_gateway(
+        "ssh", "/igloo_static/guesthopper/ssh_gateway.py", ssh_port, uds_path, vsock_port
+    )
+
+
+def _launch_telnet_gateway(uds_path, vsock_port, telnet_port):
+    """Start the host-side telnet front door for the vsock console --
+    `telnet <container-ip>`. See _launch_gateway."""
+    return _launch_gateway(
+        "telnet", "/igloo_static/guesthopper/telnet_gateway.py", telnet_port, uds_path, vsock_port
+    )
 
 
 def _write_root_shell_port(telnet_port) -> None:
@@ -508,7 +690,10 @@ def run_config(
 
     # We have to set up vsock args for qemu CLI arguments if we're using the vpn. We
     # special case this here and add the arguments to the plugin later
-    vpn_enabled = conf_plugins.get("vpn", {"enabled": False}).get("enabled", True)
+    # Shared with _resolve_console_backend so the console backend decision and
+    # the vsock transport setup can't disagree (and this no longer crashes on a
+    # present-but-null vpn value).
+    vpn_enabled = _vpn_enabled(conf_plugins)
     vsock_args = []
     vpn_args = {}
 
@@ -722,6 +907,47 @@ def run_config(
     ldpreload_enabled = conf.get("lib_inject", dict()).get("enabled", True)
     if not ldpreload_enabled:
         conf["env"].pop("LD_PRELOAD", None)
+    # Backend is already resolved at config load (vsock may have fallen back to
+    # telnet if the VPN transport was unavailable). The telnet console is the
+    # only one that consumes ttyS1 / a telnet port.
+    root_shell_backend = conf["core"].get("root_shell_backend", "vsock")
+    telnet_console = root_shell_enabled and root_shell_backend == "telnet"
+
+    if graphics and show_output_bool:
+        logger.warning("Graphics and show_output are mutually exclusive. Using graphics")
+        conf["core"]["show_output"] = False
+        show_output_bool = False
+
+    # Resolve the graphics<->telnet conflict BEFORE writing connect.sh / runtime
+    # metadata / the root-shell port, so those artifacts reflect the real end
+    # state rather than advertising a shell this run won't have. Only the telnet
+    # console conflicts with graphics (both are display/serial backends); a vsock
+    # console rides the command channel and coexists. Disabling telnet here for
+    # graphics leaves no shell, so mark the run shell-less too.
+    if graphics and telnet_console:
+        logger.warning("Graphics and the telnet root_shell are mutually exclusive. Using graphics")
+        telnet_console = False
+        root_shell_enabled = False
+        conf["core"]["root_shell"] = False
+
+    # The vsock console's telnet/SSH front doors ride the guest command channel.
+    # Allocate the SSH port here (localhost, unpublished by default) so it lands
+    # in runtime.yaml and connect.sh; the gateways themselves are launched once
+    # the transport socket exists.
+    vsock_console = vpn_enabled and root_shell_enabled and root_shell_backend == "vsock"
+    # SSH front door on the standard SSH port by default (override with
+    # PENGUIN_SSH_PORT). Bound wide (see _launch_ssh_gateway) so the rehosted
+    # device is reachable on its container IP like a real device. The container
+    # runs with --cap-add=NET_BIND_SERVICE so binding 22 is allowed -- but that
+    # cap is only *effective* for a root container process; on the non-rootless
+    # path the run drops to a non-root user, where the bind can fail. So probe
+    # the port (exactly as find_free_port() does for telnet) and fall back to a
+    # free high port rather than launching a gateway that silently can't bind.
+    ssh_port = (
+        _pick_gateway_port(_env_int("PENGUIN_SSH_PORT", 22, min_value=1))
+        if vsock_console
+        else None
+    )
 
     _write_runtime_metadata(out_dir, {
         "pid": os.getpid(),
@@ -739,6 +965,7 @@ def run_config(
         "vsock_cid": vpn_args.get("CID"),
         "vsock_socket_path": _runtime_path(vpn_args.get("socket_path")),
         "vsock_uds_path": _runtime_path(vpn_args.get("uds_path")),
+        "ssh_port": ssh_port,
     })
 
     # A one-glance "get into the guest" helper next to runtime.yaml. Reaches the
@@ -750,23 +977,15 @@ def run_config(
         telnet_port,
         root_shell_enabled,
         conf["core"].get("guest_cmd", False),
+        root_shell_backend,
+        ssh_port,
     )
-    if root_shell_enabled:
+    if telnet_console:
         # Let the image's `rootshell` helper find the real console port.
         _write_root_shell_port(telnet_port)
 
-    if graphics and show_output_bool:
-        logger.warning("Graphics and show_output are mutually exclusive. Using graphics")
-        conf["core"]["show_output"] = False
-        show_output_bool = False
-
-    if graphics and root_shell_enabled:
-        logger.warning("Graphics and root_shell are mutually exclusive. Using graphics")
-        root_shell = False
-        conf["core"]["root_shell"] = False
-
     root_shell = []
-    if root_shell_enabled:
+    if telnet_console:
         root_shell = [
             "-serial",
             "telnet:0.0.0.0:" + str(telnet_port) + ",server,nowait",
@@ -968,9 +1187,39 @@ def run_config(
         """
         plugins.unload_all()
 
-    while vpn_enabled and not os.path.exists(socket_path):
-        logger.info(f"Waiting for socket {socket_path} to be created")
-        sleep(0.1)
+    # Wait for vhost-device-vsock to create its char0 socket before starting
+    # PANDA (closes a startup race). Bound the wait: if the transport binary is
+    # missing or crashes on startup the socket never appears, and an unbounded
+    # loop would hang the run forever with no diagnostic.
+    if vpn_enabled:
+        logger.info(f"Waiting for vsock socket {socket_path} to be created")
+        waited = 0.0
+        while not os.path.exists(socket_path):
+            if waited >= 30.0:
+                raise RuntimeError(
+                    f"vhost-device-vsock socket {socket_path} never appeared "
+                    "(waited 30s); the vsock transport failed to start -- check "
+                    "the vpn plugin and the vhost-device-vsock binary."
+                )
+            sleep(0.1)
+            waited += 0.1
+
+    # Bring up the telnet front door for the vsock console. On by default: it
+    # replicates the familiar serial-telnet UX (telnet localhost <telnet_port>
+    # inside the container) but rides the vsock channel, so ttyS1 stays free.
+    # Only when the vsock root shell is actually active and the transport is up.
+    telnet_gateway_proc = None
+    ssh_gateway_proc = None
+    if vsock_console:
+        # 12341234 is the guest agent's default vsock port (guesthopper /
+        # guest_cmd.py); keep them in lockstep.
+        telnet_gateway_proc = _launch_telnet_gateway(
+            vpn_args["uds_path"], 12341234, telnet_port
+        )
+        if ssh_port is not None:
+            ssh_gateway_proc = _launch_ssh_gateway(
+                vpn_args["uds_path"], 12341234, ssh_port
+            )
 
     logger.info("Launching rehosting")
 
@@ -982,8 +1231,16 @@ def run_config(
         except Exception as e:
             logger.exception(e)
         finally:
-            # think about this and maybe join on the thread
-            plugins.unload_all()
+            # think about this and maybe join on the thread.
+            # Guard plugin unload so a throwing uninit() (e.g. vpn's
+            # host_vpn.wait timing out) can't strand the gateway/tmpdir cleanup
+            # that follows it.
+            try:
+                plugins.unload_all()
+            except Exception as e:
+                logger.exception(e)
+            for gw in (telnet_gateway_proc, ssh_gateway_proc):
+                _terminate_gateway(gw)
             if vpn_enabled:
                 shutil.rmtree(vpn_tmpdir.name, ignore_errors=True)
 
@@ -995,7 +1252,12 @@ def run_config(
 
 
 def _port_is_free(port: int) -> bool:
+    # SO_REUSEADDR mirrors what QEMU's telnet chardev listener does, so this
+    # probe accepts a port lingering in TIME_WAIT from a prior run's accepted
+    # connection -- QEMU can rebind it. Without it the probe returns a false
+    # negative and find_free_port needlessly skips a usable port.
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind(("0.0.0.0", port))
             return True
@@ -1005,8 +1267,21 @@ def _port_is_free(port: int) -> bool:
 
 def _random_free_port() -> int:
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("0.0.0.0", 0))
         return sock.getsockname()[1]
+
+
+def _pick_gateway_port(preferred: int) -> int:
+    """Return `preferred` if this process can actually bind it, else a free high
+    port. Privileged ports (<1024) need the container's NET_BIND_SERVICE cap to
+    be *effective*, which it is not for the non-root user the run drops to on the
+    non-rootless path -- so `_port_is_free(22)` fails there and we self-heal to a
+    high port instead of launching a gateway that can never bind. Mirrors how
+    find_free_port() keeps the telnet door from silently failing to bind 23."""
+    if _port_is_free(preferred):
+        return preferred
+    return _random_free_port()
 
 
 def find_free_port():

@@ -294,6 +294,50 @@ def load_unpatched_config(path):
     return config
 
 
+def _vpn_enabled(plugins_cfg):
+    """Whether the vpn plugin (which owns the vsock transport) is enabled.
+
+    Shared by _resolve_console_backend and mirrored in penguin_run so the two
+    never disagree. Semantics: absent key or explicit null -> disabled; a
+    present dict -> enabled unless it sets ``enabled: false``.
+    """
+    vpn_cfg = plugins_cfg.get("vpn", {"enabled": False})
+    if vpn_cfg is None:
+        return False
+    return bool(vpn_cfg.get("enabled", True))
+
+
+def _resolve_console_backend(config):
+    """Resolve core.root_shell_backend and its transport dependency (in place).
+
+    The 'vsock' backend (default) serves the root shell on-demand over the guest
+    command channel (guesthopper) instead of the ttyS1 serial console, freeing
+    that UART. It needs the vsock transport (guesthopper + the VPN-owned
+    vhost-device-vsock), so core.guest_cmd is auto-enabled for it. If the vpn
+    plugin is disabled the transport is unavailable, so fall back to the telnet
+    console rather than leaving the run with no shell. No-op unless root_shell
+    is on and the backend is vsock.
+    """
+    if not config["core"].get("root_shell", False):
+        return
+    if config["core"].get("root_shell_backend", "vsock") != "vsock":
+        return
+    plugins_cfg = config.get("plugins") or {}
+    # Same vpn-enabled test as penguin_run (must agree, or the console and the
+    # vsock transport end up configured inconsistently): a present dict is
+    # enabled unless 'enabled' is explicitly false; an absent key or an explicit
+    # null is disabled. A present-but-empty dict means "enable with defaults".
+    if not _vpn_enabled(plugins_cfg):
+        logger.warning(
+            "core.root_shell_backend=vsock needs the VPN vsock transport, but the "
+            "vpn plugin is disabled; falling back to the telnet console on ttyS1 "
+            "for this run."
+        )
+        config["core"]["root_shell_backend"] = "telnet"
+    else:
+        config["core"]["guest_cmd"] = True
+
+
 def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=False):
     """Load penguin config from path"""
     with open(path, "r") as f:
@@ -390,6 +434,8 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
             )
             config["core"]["timeout"] = legacy_timeout
 
+    _resolve_console_backend(config)
+
     if config["core"].get("guest_cmd", False) is True:
         guesthopper_name = arch_registry.spec(config["core"]["arch"]).canonical
         guesthopper_dir = "/igloo_static/guesthopper"
@@ -407,7 +453,10 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
         )
         config["static_files"]["/igloo/init.d/guesthopper"] = dict(
             type="inline_file",
-            contents="RUST_LOG=info /igloo/utils/guesthopper --shell /igloo/utils/sh &",
+            # init.sh execs each init.d entry directly, so it needs a shebang --
+            # without one a direct exec is ENOEXEC and the (default) vsock root
+            # shell silently never comes up. Match zz_startup_script's shell.
+            contents="#!/igloo/utils/sh\nRUST_LOG=info /igloo/utils/guesthopper --shell /igloo/utils/sh &\n",
             mode=0o755,
         )
 
