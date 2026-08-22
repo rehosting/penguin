@@ -781,6 +781,23 @@ def run_config(
     root_shell_backend = conf["core"].get("root_shell_backend", "vsock")
     telnet_console = root_shell_enabled and root_shell_backend == "telnet"
 
+    if graphics and show_output_bool:
+        logger.warning("Graphics and show_output are mutually exclusive. Using graphics")
+        conf["core"]["show_output"] = False
+        show_output_bool = False
+
+    # Resolve the graphics<->telnet conflict BEFORE writing connect.sh / runtime
+    # metadata / the root-shell port, so those artifacts reflect the real end
+    # state rather than advertising a shell this run won't have. Only the telnet
+    # console conflicts with graphics (both are display/serial backends); a vsock
+    # console rides the command channel and coexists. Disabling telnet here for
+    # graphics leaves no shell, so mark the run shell-less too.
+    if graphics and telnet_console:
+        logger.warning("Graphics and the telnet root_shell are mutually exclusive. Using graphics")
+        telnet_console = False
+        root_shell_enabled = False
+        conf["core"]["root_shell"] = False
+
     _write_runtime_metadata(out_dir, {
         "pid": os.getpid(),
         "project": proj_dir,
@@ -813,18 +830,6 @@ def run_config(
     if telnet_console:
         # Let the image's `rootshell` helper find the real console port.
         _write_root_shell_port(telnet_port)
-
-    if graphics and show_output_bool:
-        logger.warning("Graphics and show_output are mutually exclusive. Using graphics")
-        conf["core"]["show_output"] = False
-        show_output_bool = False
-
-    # Only the telnet console conflicts with graphics (both are display/serial
-    # backends); a vsock console rides the command channel and can coexist.
-    if graphics and telnet_console:
-        logger.warning("Graphics and the telnet root_shell are mutually exclusive. Using graphics")
-        telnet_console = False
-        conf["core"]["root_shell"] = False
 
     root_shell = []
     if telnet_console:
@@ -1029,9 +1034,22 @@ def run_config(
         """
         plugins.unload_all()
 
-    while vpn_enabled and not os.path.exists(socket_path):
-        logger.info(f"Waiting for socket {socket_path} to be created")
-        sleep(0.1)
+    # Wait for vhost-device-vsock to create its char0 socket before starting
+    # PANDA (closes a startup race). Bound the wait: if the transport binary is
+    # missing or crashes on startup the socket never appears, and an unbounded
+    # loop would hang the run forever with no diagnostic.
+    if vpn_enabled:
+        logger.info(f"Waiting for vsock socket {socket_path} to be created")
+        waited = 0.0
+        while not os.path.exists(socket_path):
+            if waited >= 30.0:
+                raise RuntimeError(
+                    f"vhost-device-vsock socket {socket_path} never appeared "
+                    "(waited 30s); the vsock transport failed to start -- check "
+                    "the vpn plugin and the vhost-device-vsock binary."
+                )
+            sleep(0.1)
+            waited += 0.1
 
     logger.info("Launching rehosting")
 

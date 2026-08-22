@@ -451,7 +451,10 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
         )
         config["static_files"]["/igloo/init.d/guesthopper"] = dict(
             type="inline_file",
-            contents="RUST_LOG=info /igloo/utils/guesthopper --shell /igloo/utils/sh &",
+            # init.sh execs each init.d entry directly, so it needs a shebang --
+            # without one a direct exec is ENOEXEC and the (default) vsock root
+            # shell silently never comes up. Match zz_startup_script's shell.
+            contents="#!/igloo/utils/sh\nRUST_LOG=info /igloo/utils/guesthopper --shell /igloo/utils/sh &\n",
             mode=0o755,
         )
 
