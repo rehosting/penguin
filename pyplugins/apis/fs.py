@@ -119,14 +119,42 @@ def _encode_path(fname: str) -> bytes:
 
 
 # Just the handful worth naming; anything else prints as a bare number.
+# EBADF/EBUSY/ENFILE/EAGAIN all come from the driver's handle table or its
+# non-blocking open rather than from the file, and each means something the
+# caller can act on -- so they must not print as bare numbers.
 _ERRNO_NAMES = {2: "ENOENT", 13: "EACCES", 21: "EISDIR", 22: "EINVAL",
-                5: "EIO", 1: "EPERM", 12: "ENOMEM", 40: "ELOOP"}
+                5: "EIO", 1: "EPERM", 12: "ENOMEM", 40: "ELOOP",
+                9: "EBADF", 16: "EBUSY", 23: "ENFILE", 11: "EAGAIN"}
+
+# Errno -> what the caller should do about it. These are the answers that used
+# to require reading portal_vfs.c.
+_ERRNO_HINTS = {
+    9: (" -- EBADF is the driver's handle table, not the file: the handle was "
+        "never valid, was already closed, or was reclaimed because the host "
+        "leaked 16 handles. It is deliberately distinct from EINVAL, which is "
+        "what the kernel's own read path returns for a file it will not serve."),
+    16: (" -- EBUSY means another read is in flight on this same handle. A "
+         "handle is single-reader by design (two readers would interleave "
+         "chunks of one seq_file and corrupt both), so retry rather than "
+         "treating this as a property of the file."),
+    23: (" -- ENFILE means all of the driver's 16 handle slots have a read in "
+         "flight, so none could be reclaimed. Transient: retry. If it persists, "
+         "some caller is holding handles across a yield it never returns from."),
+    11: (" -- EAGAIN: the file would block and the driver opens O_NONBLOCK on "
+         "purpose (a FIFO with no writer, /proc/kmsg with an empty buffer). "
+         "This is a file that has no data right now, not an unreadable one; "
+         "before O_NONBLOCK it hung the portal instead of telling you."),
+}
 _FS_MAGIC_NAMES = {0x9fa0: "procfs", 0x62656572: "sysfs", 0x64626720: "debugfs",
                    0x1cd1: "devpts", 0x01021994: "tmpfs"}
 
 
 def _errno_name(n: int) -> str:
     return _ERRNO_NAMES.get(n, f"errno {n}")
+
+
+def _errno_hint(n: int) -> str:
+    return _ERRNO_HINTS.get(n, "")
 
 
 def _fs_name(magic: int) -> str:
@@ -139,8 +167,9 @@ def _read_fail_hint(fname: str) -> str:
                 "generated on demand. For reads, a multi-chunk stateless read "
                 "cannot handle these coherently; use read_file_seq (igloo_driver "
                 "vfs_* ops), which holds the file open. Note that on kernels from "
-                "~5.10 some of these paths (/proc/<pid>/*, /proc/net/*, and every "
-                "hyperfs-modelled pseudofile) are refused by __kernel_read for "
+                "~5.10 some of these paths (/proc/<pid>/*, /proc/net/*, and any "
+                "MODELLED pseudofile whose model implements read() rather than "
+                "read_iter()) are refused by __kernel_read for "
                 "BOTH read ops because of their f_op, even though the guest "
                 "itself can read them -- so a failure here is not necessarily "
                 "fixed by switching ops. There is no sequential WRITE op at all. "
@@ -240,7 +269,8 @@ class FS(Plugin):
         if err:
             raise PortalFileError(
                 f"vfs_open({fname!r}) failed: errno {-err} "
-                f"({_errno_name(-err)}){_read_fail_hint(fname)}")
+                f"({_errno_name(-err)}){_errno_hint(-err)}"
+                f"{_read_fail_hint(fname)}")
         if not handle:
             # Reported success and gave us nothing to read from. Said plainly
             # rather than dressed up as "errno 0", which is what it used to
@@ -280,7 +310,8 @@ class FS(Plugin):
                 if rerr:
                     raise PortalFileError(
                         f"vfs_read({fname!r}) failed after {len(out)} bytes: "
-                        f"errno {-rerr} ({_errno_name(-rerr)})")
+                        f"errno {-rerr} ({_errno_name(-rerr)})"
+                        f"{_errno_hint(-rerr)}")
                 if nbytes:
                     got = bytes(raw[hdr:hdr + nbytes])
                     if skip:

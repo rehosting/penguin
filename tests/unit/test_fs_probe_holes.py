@@ -299,3 +299,84 @@ def test_bogus_nbytes_cannot_overread_the_region(fs):
                   [_open_res(), struct.pack("<iIB7x", 0, 100000, 0) + b"tiny",
                    _read_res(b"", eof=1), _close_res()])
     assert r == b"tiny", f"got {r!r}"
+
+
+# --------------------------------------------------------------------------- #
+# Diagnosability of the driver's own errnos.
+#
+# EBADF, EBUSY, ENFILE and EAGAIN do not come from the file -- they come from
+# the driver's handle table and its non-blocking open. Each says something
+# different about what the caller should do, and each used to print as a bare
+# number next to a synthetic-filesystem hint that pointed somewhere else
+# entirely. Naming them is the difference between "retry" and "this file is
+# unreadable".
+# --------------------------------------------------------------------------- #
+
+def _fails_with(fs, errno, path="/proc/version"):
+    r, _ = _drive(fs.read_file_seq(path), [_open_res(error=-errno, handle=0)])
+    assert r[0] == "RAISED", f"errno {errno} did not raise: {r!r}"
+    return r[2]
+
+
+def test_ebadf_is_named_and_blamed_on_the_handle_table(fs):
+    """EBADF must not read as "the kernel refused this file".
+
+    That is EINVAL's meaning, and the two were the same errno until the driver
+    split them. Printing EBADF as a bare 9 next to a hint about synthetic
+    filesystems sent the last diagnosis of this to entirely the wrong file.
+    """
+    msg = _fails_with(fs, 9)
+    assert "EBADF" in msg
+    assert "handle table" in msg
+    assert "already closed" in msg or "reclaimed" in msg
+
+
+def test_ebusy_says_retry_rather_than_unreadable(fs):
+    """EBUSY is a property of the moment, not of the file.
+
+    A caller that treats it as "this path cannot be read" would give up on a
+    file that is perfectly readable a millisecond later.
+    """
+    msg = _fails_with(fs, 16)
+    assert "EBUSY" in msg
+    assert "retry" in msg
+    assert "single-reader" in msg
+
+
+def test_enfile_points_at_handle_leaks_not_at_the_file(fs):
+    msg = _fails_with(fs, 23)
+    assert "ENFILE" in msg
+    assert "16 handle slots" in msg
+    assert "retry" in msg
+
+
+def test_eagain_distinguishes_no_data_now_from_unreadable(fs):
+    """EAGAIN is the visible half of the O_NONBLOCK fix.
+
+    Before the driver opened O_NONBLOCK this case did not produce an errno at
+    all -- it hung the portal -- so a message that explains where EAGAIN comes
+    from is what stops the next person reading it as a new bug.
+    """
+    msg = _fails_with(fs, 11)
+    assert "EAGAIN" in msg
+    assert "O_NONBLOCK" in msg
+    assert "no data right now" in msg
+
+
+def test_a_midread_errno_is_explained_too(fs):
+    """The hint has to reach the mid-read path, not just the open.
+
+    EBUSY and EBADF are far likelier partway through a long read than at open
+    -- that is when another caller has had time to exhaust the table -- so a
+    hint attached only to vfs_open would miss the case it is for.
+    """
+    r, _ = _drive(fs.read_file_seq("/proc/version"),
+                  [_open_res(), _read_res(b"abc"), _read_res(error=-9)])
+    assert r[0] == "RAISED"
+    assert "EBADF" in r[2] and "handle table" in r[2]
+
+
+def test_an_unknown_errno_still_prints_its_number(fs):
+    """No hint is fine; a swallowed errno is not."""
+    msg = _fails_with(fs, 99)
+    assert "99" in msg

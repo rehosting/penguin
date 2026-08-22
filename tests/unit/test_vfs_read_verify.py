@@ -36,6 +36,9 @@ GUEST_FILES = {
                           b"Tgid:\t%d\nPid:\t%d\n" % (CALLER_PID, CALLER_PID)),
     "/proc/uptime": b"113.55 98.20\n",
     "/proc/cmdline": b"console=ttyS0 igloo\n",
+    # Not a synthetic path: the sequential op should work on an ordinary file
+    # too, and had never been pointed at one.
+    "/igloo/utils/send_syscall": b"\x7fELF\x01\x01\x01" + b"\0" * 57,
 }
 
 
@@ -133,6 +136,62 @@ def _windowed_ok(window=None, data=VERSION):
     return out
 
 
+EBADF, EISDIR, ENFILE = 9, 21, 23
+SLOTS = 16          # must match VFS_SLOTS in the driver
+OVERSHOOT = 4       # how many opens past the table the check makes
+
+
+def _bad_handle_responses(read_after_close=-EBADF, unissued=-EBADF,
+                          zero=-EBADF, double_close=-EBADF):
+    """Driver responses for _check_bad_handles, in the order it issues them.
+
+    Defaults are a healthy driver. Each errno is a parameter so a test can
+    single out one regression -- notably read-after-close answering EINVAL,
+    which is what the driver used to do and which made a handle-table failure
+    indistinguishable from the kernel refusing the file.
+    """
+    return [_open_res(handle=7), _close_res(0), _read_res(error=read_after_close),
+            _close_res(error=double_close), _read_res(error=unissued),
+            _read_res(error=zero)]
+
+
+def _handle_table_responses(opens=SLOTS + OVERSHOOT, reclaimed=None,
+                            open_fails_at=None):
+    """Driver responses for _check_handle_table.
+
+    `reclaimed` is the set of 0-based OPEN indices whose later read reports
+    EBADF, i.e. the slots the driver chose to reclaim; the default is the oldest
+    OVERSHOOT, which is the documented policy. `open_fails_at` makes that open
+    fail with ENFILE, modelling a table that wedges on a leak instead of
+    reclaiming -- the failure mode that would make one leaked handle break every
+    later read in the run.
+    """
+    if reclaimed is None:
+        reclaimed = set(range(OVERSHOOT))
+    out = []
+    n = opens if open_fails_at is None else open_fails_at + 1
+    for i in range(n):
+        if i == open_fails_at:
+            out.append(_open_res(error=-ENFILE, handle=0))
+            return out
+        out.append(_open_res(handle=i + 1))
+    for i in range(opens):
+        out.append(_read_res(error=-EBADF) if i in reclaimed
+                   else _read_res(b"x" * 16))
+    out += [_close_res(0)] * (opens - len(reclaimed))
+    return out
+
+
+def _directory_responses(read=_read_res(error=-EISDIR)):
+    return [_open_res(handle=99), read, _close_res(0)]
+
+
+def _handle_checks_ok():
+    """A healthy driver's answers to all of the handle-table checks."""
+    return (_bad_handle_responses() + _handle_table_responses()
+            + _directory_responses())
+
+
 def _load(tmp_path, isf, fs, osi=None):
     # Real ISF: the plugin issues raw vfs_*/READ_FILE PortalCmds and decodes the
     # driver's result structs, so both the ops and the layouts must be the real
@@ -161,7 +220,8 @@ def _marker(tmp_path):
     return (Path(tmp_path) / "vfs_read_verify.txt").read_text()
 
 
-def _trigger(lp, responses=None, windowed=None, stateless=None):
+def _trigger(lp, responses=None, windowed=None, stateless=None,
+             handles=None):
     """Fire the guest's magic ioctl once.
 
     The handler yields raw PortalCmds in a fixed order -- the windowed
@@ -171,7 +231,8 @@ def _trigger(lp, responses=None, windowed=None, stateless=None):
     """
     if responses is None:
         responses = (list(stateless if stateless is not None else [None] * 3)
-                     + (windowed if windowed is not None else _windowed_ok()))
+                     + (windowed if windowed is not None else _windowed_ok())
+                     + list(handles if handles is not None else []))
     sc = FakeSyscall()
     lp.dispatch_syscall("ioctl", None, None, sc, 0, 0x89f7,
                         0x1000, on_return=True, responses=responses)
@@ -621,3 +682,160 @@ def test_probe_reads_are_capped(tmp_path, igloo_ko_isf):
     assert "probe_cap=16384" in marker
     assert "OK(>=16384B) MULTI-CHUNK" in marker
     assert "5000000" not in marker, "the probe read was not capped"
+
+
+# --------------------------------------------------------------------------- #
+# Handle-table checks
+#
+# These cover the part of the driver that is not about file contents at all:
+# what happens to a handle that was closed, never issued, or evicted because
+# the host leaked all 16 slots. None of it had ever run on a guest, and none of
+# it can be reached through read_file_seq, which never exposes a handle.
+# --------------------------------------------------------------------------- #
+def test_handle_checks_pass_on_a_healthy_driver(tmp_path, igloo_ko_isf):
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
+    _trigger(lp, handles=_handle_checks_ok())
+
+    marker = _marker(tmp_path)
+    assert "VFS_READ_VERIFY=PASS" in marker
+    assert "handle_checks=4/4" in marker
+    assert "bad_handles=OK" in marker
+    assert "handle_table=OK" in marker
+    assert "directory=OK" in marker
+    assert "regular_file=OK" in marker
+
+
+def test_read_after_close_answering_einval_fails(tmp_path, igloo_ko_isf):
+    """The EBADF/EINVAL distinction is load-bearing, so assert it.
+
+    EINVAL is what __kernel_read returns for a file it will not serve, so a
+    driver that also uses it for a bad handle makes those two indistinguishable
+    on a live guest -- which is exactly the ambiguity that cost a debugging pass
+    on /proc/self/status. Reverting that must fail here, not in a person's head.
+    """
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
+    _trigger(lp, handles=(_bad_handle_responses(read_after_close=-22)
+                          + _handle_table_responses() + _directory_responses()))
+
+    marker = _marker(tmp_path)
+    assert "VFS_READ_VERIFY=FAIL" in marker
+    assert "bad_handles=FAIL" in marker
+    assert "want EBADF" in marker
+
+
+def test_unissued_handle_that_reads_successfully_fails(tmp_path, igloo_ko_isf):
+    """A handle we never issued must not read anything.
+
+    Same slot, wrong generation: if the generation check were dropped this
+    returns another file's bytes with no error at all, which is the worst shape
+    of bug in the whole bridge.
+    """
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
+    _trigger(lp, handles=(_bad_handle_responses(unissued=0)
+                          + _handle_table_responses() + _directory_responses()))
+
+    marker = _marker(tmp_path)
+    assert "VFS_READ_VERIFY=FAIL" in marker
+    assert "unissued handle" in marker
+
+
+def test_a_wedged_handle_table_fails(tmp_path, igloo_ko_isf):
+    """Leaking every slot must cost one reader an EBADF, not break the portal.
+
+    A driver that refuses the 17th open instead of reclaiming turns a single
+    leaked handle into "penguin can no longer read any file for the rest of the
+    run" -- so this asserts the open SUCCEEDS, which reads backwards until you
+    remember the failure it prevents.
+    """
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
+    _trigger(lp, handles=(_bad_handle_responses()
+                          + _handle_table_responses(open_fails_at=SLOTS)
+                          + _directory_responses()))
+
+    marker = _marker(tmp_path)
+    assert "VFS_READ_VERIFY=FAIL" in marker
+    assert "handle_table=FAIL" in marker
+    assert "wedges" in marker
+
+
+def test_reclaiming_a_recent_handle_instead_of_the_oldest_fails(
+        tmp_path, igloo_ko_isf):
+    """Reclaim has to take the oldest, or a long read loses to a short one.
+
+    Evicting recent handles is not merely unfair: the newest handle is the one
+    most likely to have a read in flight, and reclaiming that is a use-after-free
+    on the struct file it is reading from.
+    """
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
+    _trigger(lp, handles=(
+        _bad_handle_responses()
+        + _handle_table_responses(reclaimed={4, 5, 6, 7})
+        + _directory_responses()))
+
+    marker = _marker(tmp_path)
+    assert "VFS_READ_VERIFY=FAIL" in marker
+    assert "oldest" in marker
+
+
+def test_a_directory_reading_as_empty_fails(tmp_path, igloo_ko_isf):
+    """Opening a directory succeeds, so a silent empty read is the danger.
+
+    A caller that read /proc as b"" would conclude there are no processes. The
+    errno rework exists to make that impossible, and this is the check that
+    proves it on a guest instead of by inspection.
+    """
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
+    _trigger(lp, handles=(
+        _bad_handle_responses() + _handle_table_responses()
+        + _directory_responses(read=_read_res(b"", error=0, eof=1))))
+
+    marker = _marker(tmp_path)
+    assert "VFS_READ_VERIFY=FAIL" in marker
+    assert "directory=FAIL" in marker
+    assert "indistinguishable from an empty file" in marker
+
+
+def test_regular_file_wrong_content_fails(tmp_path, igloo_ko_isf):
+    """The sequential op on an ordinary file must return that file's bytes."""
+    files = dict(GUEST_FILES)
+    files["/igloo/utils/send_syscall"] = b"#!/bin/sh\n"
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(files))
+    _trigger(lp, handles=_handle_checks_ok())
+
+    marker = _marker(tmp_path)
+    assert "VFS_READ_VERIFY=FAIL" in marker
+    assert "regular_file=FAIL" in marker
+
+
+def test_no_portal_response_is_not_a_pass_and_not_a_wedged_table(
+        tmp_path, igloo_ko_isf):
+    """A portal that answers nothing must read as unexercised, not as either.
+
+    Reported as a pass it would hide a dead portal; reported as a failure it
+    would blame the handle table for a plumbing problem. n/a is the only honest
+    verdict, and it must not count toward handle_checks.
+    """
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
+    _trigger(lp)   # no handle responses at all
+
+    marker = _marker(tmp_path)
+    assert "handle_table=n/a" in marker
+    assert "bad_handles=n/a" in marker
+    assert "handle_checks=1/4" in marker, \
+        "only regular_file runs without the portal; n/a must not be counted"
+    # and the run does not fail on account of the unexercised checks
+    assert "VFS_READ_VERIFY=PASS" in marker
+
+
+def test_the_unexercised_blocking_open_is_stated(tmp_path, igloo_ko_isf):
+    """No silent gaps: what the check cannot prove has to say so.
+
+    O_NONBLOCK cannot be demonstrated here -- showing it needs a file that
+    blocks forever, and reading one against a driver that lacks the fix hangs
+    the run rather than failing it, producing no marker at all. That is a real
+    hole in the coverage, so it is written into every marker instead of being
+    absent from it.
+    """
+    lp = _load(tmp_path, igloo_ko_isf, FakeFS(GUEST_FILES))
+    _trigger(lp, handles=_handle_checks_ok())
+    assert "blocking_open=unexercised" in _marker(tmp_path)

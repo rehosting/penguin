@@ -107,12 +107,19 @@ KNOWN_GAPS = {
     # modelled pseudofiles from the host on a modern kernel.
     "/proc/large_file": (
         (5, 10),
-        "hyperfs (a penguin-MODELLED pseudofile). hyperfs_file_operations sets "
-        ".read = hyperfs_read with no .read_iter, so every modelled pseudofile "
-        "is in the class __kernel_read refuses. Not fixed by the seq_read_iter "
-        "fallback either, which keys on ->read == seq_read. Fixing it means "
-        "giving hyperfs a .read_iter, which is a driver change with a much wider "
-        "blast radius than this check."),
+        "a penguin-MODELLED pseudofile, so its f_op comes from the HOST: "
+        "hyperfile/procfs.py builds igloo_proc_ops from whichever methods the "
+        "model overrides, and handle_op_procfs_create_file installs them. A "
+        "model that defines read() therefore produces .read with no .read_iter, "
+        "which is the class __kernel_read refuses -- and the seq_read_iter "
+        "fallback does not help, since it keys on ->read == seq_read. (An "
+        "earlier version of this note blamed hyperfs_file_operations. That is "
+        "the wrong file: hyperfs backs the passthrough tree, not procfs "
+        "models.) Fixable per model rather than in the driver: igloo_proc_ops "
+        "already carries read_iter and the driver already wires it to "
+        "proc_read_iter/.read_iter, so a model implementing ONLY read_iter is "
+        "readable from the guest (via new_sync_read) AND from the host. Only -- "
+        "__kernel_read refuses any file with .read set, whatever else it has."),
     # Same class, reached a different way: proc_ops.proc_read = seq_read.
     "/proc/kallsyms": (
         (5, 10),
@@ -157,7 +164,8 @@ PROBES = [
     # working one.
     "/sys/kernel/debug",
     "/sys/kernel/debug/sched/debug",
-    # /proc/large_file (hyperfs) and /proc/kallsyms moved to KNOWN_GAPS: both are
+    # /proc/large_file (a modelled pseudofile) and /proc/kallsyms moved to
+    # KNOWN_GAPS: both are
     # now measured facts with a mechanism, not open questions, so they belong
     # where the canary watches them.
 ]
@@ -167,6 +175,11 @@ PROBES = [
 # still comfortably over a chunk, so it can prove MULTI-CHUNK; sizes at or above
 # it are reported as ">=" rather than as the file's real length.
 PROBE_CAP = 16384
+
+# An ordinary file present on every target, used to point the sequential op at
+# something that is not a synthetic filesystem. /igloo/utils is injected by
+# penguin itself, so it exists regardless of what the firmware ships.
+REGULAR_FILE = "/igloo/utils/send_syscall"
 
 MARKER = "vfs_read_verify.txt"
 
@@ -223,6 +236,40 @@ class VfsReadVerify(Plugin):
     # The check
     # ------------------------------------------------------------------ #
 
+    # ------------------------------------------------------------------ #
+    # Raw handle primitives
+    #
+    # The checks below are about the HANDLE TABLE rather than about file
+    # contents, so they need open/read/close separately instead of as one read.
+    # read_file_seq deliberately never hands a handle to a caller, which is
+    # right for the API and useless for testing what happens to a handle after
+    # it is closed, reclaimed, or never existed.
+    # ------------------------------------------------------------------ #
+    def _vfs_open(self, path):
+        """Return ``(handle, errno, fs_magic)``; handle is 0 on failure."""
+        name = path.encode("latin-1")[:255] + b"\0"
+        raw = yield PortalCmd(hop.HYPER_OP_VFS_OPEN, 0, 0, None, name)
+        if not raw:
+            return 0, None, 0
+        res = kffi.from_buffer("vfs_open_result", raw)
+        return int(res.handle), -int(res.error), int(res.fs_magic)
+
+    def _vfs_read(self, handle, want):
+        """Return ``(data, errno, eof)``. errno is 0 on success."""
+        raw = yield PortalCmd(hop.HYPER_OP_VFS_READ, handle, want, None)
+        if not raw:
+            return None, None, False
+        hdr = kffi.sizeof("vfs_read_result")
+        r = kffi.from_buffer("vfs_read_result", raw)
+        n = int(r.nbytes)
+        return bytes(raw[hdr:hdr + n]), -int(r.error), bool(r.eof)
+
+    def _vfs_close(self, handle):
+        raw = yield PortalCmd(hop.HYPER_OP_VFS_CLOSE, handle, 0, None)
+        if not raw:
+            return None
+        return -int(kffi.from_buffer("vfs_close_result", raw).error)
+
     def _read_windowed(self, path, want):
         """Read a file through raw vfs_open/read/close in small windows.
 
@@ -270,8 +317,14 @@ class VfsReadVerify(Plugin):
                     break
             else:
                 error = "vfs_read: no EOF after 512 reads"
-        finally:
+        except BaseException:
+            # NOT a finally: you cannot yield while a generator is closing, so
+            # a close in finally turns an abandoned read into "generator
+            # ignored GeneratorExit" and buries the leaked handle under it.
+            # This is the same hole that was fixed in fs.read_file_seq.
             yield PortalCmd(hop.HYPER_OP_VFS_CLOSE, handle, 0, None)
+            raise
+        yield PortalCmd(hop.HYPER_OP_VFS_CLOSE, handle, 0, None)
         return out, reads, data_reads, eof_seen, error
 
     def _pick_window(self, sizes):
@@ -345,6 +398,167 @@ class VfsReadVerify(Plugin):
         if len(data) != want:
             return False, f"size={want} returned {len(data)}B"
         return True, f"size={want} honoured"
+
+    # ------------------------------------------------------------------ #
+    # Handle-table checks
+    #
+    # None of this is about file contents. It is about the failure modes the
+    # driver has when the host misbehaves -- and every one of them was
+    # previously unexercised on a guest, so "the handle table works" rested on
+    # reading the C.
+    # ------------------------------------------------------------------ #
+    def _check_bad_handles(self, path):
+        """A handle that is closed, never existed, or is zero must be EBADF.
+
+        EBADF specifically, not EINVAL. kernel_read() also returns EINVAL for a
+        file it refuses to serve, so while the driver used EINVAL for both, a
+        live failure could not be attributed to either the handle table or the
+        kernel's read path without a debug build -- which CI does not build.
+        Asserting the distinction here is what keeps that diagnosis available.
+        """
+        EBADF = 9
+        problems = []
+
+        handle, err, _ = yield from self._vfs_open(path)
+        if not handle:
+            return None, (f"could not open {path} to get a handle "
+                          f"({_errname(err) if err else 'no response'})")
+        cerr = yield from self._vfs_close(handle)
+        if cerr:
+            problems.append(f"close of a live handle failed with errno {cerr}")
+
+        # read-after-close: the generation counter's entire purpose
+        _, err, _ = yield from self._vfs_read(handle, 64)
+        if err != EBADF:
+            problems.append(f"read after close gave errno {err}, want EBADF "
+                            f"({EBADF})")
+        cerr = yield from self._vfs_close(handle)
+        if cerr != EBADF:
+            problems.append(f"double close gave errno {cerr}, want EBADF")
+
+        # A handle we never issued. Same slot, wrong generation: this is the one
+        # that would silently read the WRONG FILE if the generation check were
+        # dropped, so it matters more than the arithmetic suggests.
+        _, err, _ = yield from self._vfs_read(handle + (1 << 8), 64)
+        if err != EBADF:
+            problems.append(f"read of an unissued handle gave errno {err}, "
+                            f"want EBADF")
+        # Handle 0 is reserved invalid so that a zeroed field cannot address
+        # slot 0 by accident.
+        _, err, _ = yield from self._vfs_read(0, 64)
+        if err != EBADF:
+            problems.append(f"read of handle 0 gave errno {err}, want EBADF")
+
+        if problems:
+            return False, "; ".join(problems)
+        return True, "read-after-close, double close, unissued handle and "\
+                     "handle 0 all EBADF"
+
+    def _check_handle_table(self, path):
+        """Leaking every slot must degrade for one reader, not wedge the table.
+
+        The driver has 16 slots. A host that leaks handles -- a crashed
+        generator, a plugin that forgot to close -- must not make the portal
+        permanently unable to read any file, so the driver reclaims the oldest
+        idle slot. The property being checked is that the (N+1)th open still
+        SUCCEEDS and that the cost lands on the oldest handle as an EBADF,
+        rather than the open failing forever.
+
+        Never run on a guest before. It also covers the case that made
+        reclaiming dangerous in the first place: a slot with a read in flight
+        must not be the victim (it cannot be reached single-threaded from here,
+        so it is called out in the marker rather than claimed).
+        """
+        SLOTS = 16
+        EBADF = 9
+        handles = []
+        for _ in range(SLOTS + 4):
+            handle, err, _ = yield from self._vfs_open(path)
+            if not handle and err is None:
+                # No response at all is a portal problem, not a table problem.
+                # Reported as unexercised so it cannot masquerade as either a
+                # pass or a wedged table.
+                for h in handles:
+                    yield from self._vfs_close(h)
+                return None, (f"no portal response opening {path}; the handle "
+                              f"table was not exercised")
+            if not handle:
+                # Refusing an open because the table is full is exactly the
+                # failure this is here to catch: a leak would become a
+                # permanent inability to read anything.
+                for h in handles:
+                    yield from self._vfs_close(h)
+                return False, (f"open {len(handles) + 1} of {SLOTS + 4} failed "
+                               f"with errno {err}: the table wedges on a leak "
+                               f"instead of reclaiming")
+            handles.append(handle)
+
+        # The 4 oldest should have been reclaimed to make room.
+        reclaimed = []
+        live = []
+        for h in handles:
+            _, err, _ = yield from self._vfs_read(h, 16)
+            (reclaimed if err == EBADF else live).append((h, err))
+
+        for h, _ in live:
+            yield from self._vfs_close(h)
+
+        if len(reclaimed) != 4:
+            return False, (f"{len(reclaimed)} of {len(handles)} handles were "
+                           f"reclaimed, expected exactly 4 (opened "
+                           f"{SLOTS + 4} into {SLOTS} slots); live errnos "
+                           f"{[e for _, e in live]}")
+        # Reclaim must take the OLDEST, or a long-lived reader loses its handle
+        # to a short-lived one.
+        if [h for h, _ in reclaimed] != handles[:4]:
+            return False, ("reclaim did not take the 4 oldest handles: "
+                           f"took {[h for h, _ in reclaimed]}, oldest are "
+                           f"{handles[:4]}")
+        return True, (f"{SLOTS + 4} opens into {SLOTS} slots: the 4 oldest "
+                      f"became EBADF, the rest stayed readable")
+
+    def _check_directory(self, path="/proc"):
+        """A directory must fail with an errno, not read as an empty file.
+
+        Opening a directory succeeds -- filp_open is happy with it -- so this is
+        the shape of bug the whole errno rework exists to prevent: something
+        that looks exactly like a file with no content. A caller reading /proc
+        as b"" would conclude there are no processes.
+        """
+        handle, err, _ = yield from self._vfs_open(path)
+        if not handle and err is None:
+            return None, f"no portal response opening {path}"
+        if not handle:
+            # Also acceptable: refusing at open. What is not acceptable is
+            # success followed by silence.
+            return True, f"{path} refused at open (errno {err})"
+        data, err, eof = yield from self._vfs_read(handle, 256)
+        yield from self._vfs_close(handle)
+        if err:
+            return True, f"{path} read gave errno {err} ({_errname(err)})"
+        if data:
+            return True, f"{path} read returned {len(data)}B of directory data"
+        return False, (f"{path} opened and read {len(data or b'')}B with errno "
+                       f"0 and eof={eof}: a directory is indistinguishable "
+                       f"from an empty file")
+
+    def _check_regular_file(self, path=REGULAR_FILE, magic=b"\x7fELF"):
+        """The sequential op on an ordinary file.
+
+        read_file routes regular files to the stateless op, so the sequential
+        op had never been pointed at one. It should work: nothing about
+        vfs_open/read/close is procfs-specific, and if it does not, then the
+        routing is load-bearing for correctness rather than only for
+        synthetic-filesystem coherence -- which is a different claim than the
+        one this plugin has been making.
+        """
+        try:
+            data = yield from plugins.fs.read_file_seq(path, size=len(magic))
+        except Exception as e:
+            return False, f"{path}: {type(e).__name__}: {e}"
+        if not data.startswith(magic):
+            return False, f"{path}: got {data!r}, want a {magic!r} prefix"
+        return True, f"{path} reads {magic!r} through the sequential op"
 
     def _verify(self):
         lines = []
@@ -426,6 +640,41 @@ class VfsReadVerify(Plugin):
             if not cap_ok:
                 failures.append(f"size cap: {cap_detail}")
 
+        # Handle-table and op-shape checks. Each returns (ok, detail), where ok
+        # is None for "could not be exercised here" -- recorded, never counted
+        # as a pass, because an unexercised check that reports green is worse
+        # than no check.
+        handle_path = wpath or "/proc/version"
+        table_checks = [
+            ("bad_handles", self._check_bad_handles(handle_path)),
+            ("handle_table", self._check_handle_table(handle_path)),
+            ("directory", self._check_directory()),
+            ("regular_file", self._check_regular_file()),
+        ]
+        table_ok = 0
+        for name, gen in table_checks:
+            try:
+                ok, detail = yield from gen
+            except Exception as e:
+                ok, detail = False, f"raised {type(e).__name__}: {e}"
+            verdict = "OK" if ok else ("n/a" if ok is None else "FAIL")
+            lines.append(f"{name}={verdict} -- {detail}")
+            if ok is False:
+                failures.append(f"{name}: {detail}")
+            elif ok:
+                table_ok += 1
+
+        # Stated rather than left absent: the O_NONBLOCK open cannot be
+        # demonstrated from here. Showing it needs a file whose ->read blocks
+        # with nothing to return (a FIFO with no writer, /proc/kmsg after its
+        # buffer is drained), and reading one of those against a driver WITHOUT
+        # the fix does not fail the test -- it hangs the emulation until the CI
+        # job times out, with no marker written at all. So the check would be
+        # safe only once the pin already carries the thing it is checking for.
+        lines.append("blocking_open=unexercised (proving O_NONBLOCK needs a "
+                     "file that blocks forever, which on an unfixed driver "
+                     "hangs the run instead of failing it)")
+
         for path in OPTIONAL:
             data, err = yield from self._read_seq(path)
             n = len(data) if data else 0
@@ -491,6 +740,7 @@ class VfsReadVerify(Plugin):
                    f"seq={seq_ok}/{len(checks)} "
                    f"stateless={stateless_ok}/{len(checks)} "
                    f"contract={'ok' if contract_ok else 'FAIL'} "
+                   f"handle_checks={table_ok}/{len(table_checks)} "
                    f"kernel={_kv(kver)} "
                    f"gaps_closed={len(closed)}/{expected_gaps} "
                    f"caller_pid={pid if pid else 'unknown'}")
@@ -541,6 +791,14 @@ def _kernel_version(version_bytes):
 
 def _kv(ver):
     return "unknown" if not ver else f"{ver[0]}.{ver[1]}"
+
+
+_ERRNAMES = {2: "ENOENT", 5: "EIO", 9: "EBADF", 11: "EAGAIN", 13: "EACCES",
+             16: "EBUSY", 21: "EISDIR", 22: "EINVAL", 23: "ENFILE"}
+
+
+def _errname(n):
+    return _ERRNAMES.get(n, f"errno {n}")
 
 
 def _n(data):
