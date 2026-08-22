@@ -294,6 +294,19 @@ def load_unpatched_config(path):
     return config
 
 
+def _vpn_enabled(plugins_cfg):
+    """Whether the vpn plugin (which owns the vsock transport) is enabled.
+
+    Shared by _resolve_console_backend and mirrored in penguin_run so the two
+    never disagree. Semantics: absent key or explicit null -> disabled; a
+    present dict -> enabled unless it sets ``enabled: false``.
+    """
+    vpn_cfg = plugins_cfg.get("vpn", {"enabled": False})
+    if vpn_cfg is None:
+        return False
+    return bool(vpn_cfg.get("enabled", True))
+
+
 def _resolve_console_backend(config):
     """Resolve core.root_shell_backend and its transport dependency (in place).
 
@@ -310,10 +323,11 @@ def _resolve_console_backend(config):
     if config["core"].get("root_shell_backend", "vsock") != "vsock":
         return
     plugins_cfg = config.get("plugins") or {}
-    # Mirror penguin_run's vpn-enabled test: present dict -> enabled unless
-    # explicitly false; absent/None -> disabled.
-    vpn_cfg = plugins_cfg.get("vpn", {"enabled": False}) or {"enabled": False}
-    if not vpn_cfg.get("enabled", True):
+    # Same vpn-enabled test as penguin_run (must agree, or the console and the
+    # vsock transport end up configured inconsistently): a present dict is
+    # enabled unless 'enabled' is explicitly false; an absent key or an explicit
+    # null is disabled. A present-but-empty dict means "enable with defaults".
+    if not _vpn_enabled(plugins_cfg):
         logger.warning(
             "core.root_shell_backend=vsock needs the VPN vsock transport, but the "
             "vpn plugin is disabled; falling back to the telnet console on ttyS1 "

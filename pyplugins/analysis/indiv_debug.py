@@ -7,9 +7,16 @@ INDIV_DEBUG_PORTALCALL_MAGIC = 0xfeedbeef
 
 
 def guest_cmd(cmd):
-    """Run a command in the guest, logging output to a file"""
+    """Run a command in the guest, logging output to a file.
 
-    subprocess.Popen(["python3", "/igloo_static/guesthopper/guest_cmd.py", cmd])
+    These debug helpers -- gdbserver, strace/ltrace, and the blocking
+    wait-for-attach loops -- run for the whole debug session, well past the
+    agent's default command timeout. Opt out of the cap with --timeout 0 so the
+    agent never kills them out from under us.
+    """
+    subprocess.Popen(
+        ["python3", "/igloo_static/guesthopper/guest_cmd.py", "--timeout", "0", cmd]
+    )
 
 
 class IndivDebug(Plugin):
