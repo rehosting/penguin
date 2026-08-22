@@ -7,14 +7,19 @@ freeing ttyS1), 'telnet' keeps the legacy QEMU -serial console. The resolver
 the connect.sh renderers produce the matching helper script.
 """
 import shutil
+import socket
 import subprocess
+from contextlib import closing
 
 import pytest
 
 from penguin.penguin_config import _resolve_console_backend
 from penguin.penguin_run import (
+    _launch_gateway,
+    _pick_gateway_port,
     _render_connect_script,
     _render_connect_script_vsock,
+    _terminate_gateway,
     _write_connect_script,
 )
 
@@ -125,3 +130,52 @@ def test_write_connect_script_off_falls_through_to_legacy(tmp_path):
     s = (tmp_path / "connect.sh").read_text()
     assert "core.root_shell is off" in _render_connect_script("c", 2323, False, True)
     assert isinstance(s, str)
+
+
+# --- front-door port selection & lifecycle --------------------------------- #
+
+def test_pick_gateway_port_returns_preferred_when_free():
+    # Grab an ephemeral port to learn a currently-free number, release it, then
+    # confirm the picker hands it back (it is bindable).
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+        s.bind(("0.0.0.0", 0))
+        free = s.getsockname()[1]
+    assert _pick_gateway_port(free) == free
+
+
+def test_pick_gateway_port_falls_back_when_preferred_taken():
+    # Hold a port so it is unbindable; the picker must self-heal to a different,
+    # free port rather than returning the occupied one.
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as held:
+        held.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+        held.bind(("0.0.0.0", 0))
+        held.listen(1)
+        taken = held.getsockname()[1]
+        picked = _pick_gateway_port(taken)
+        assert picked != taken
+        # And the fallback is itself bindable.
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            probe.bind(("0.0.0.0", picked))
+
+
+def test_terminate_gateway_is_noop_on_none():
+    _terminate_gateway(None)  # must not raise
+
+
+def test_terminate_gateway_stops_a_live_process():
+    proc = subprocess.Popen(["python3", "-c", "import time; time.sleep(30)"])
+    assert proc.poll() is None
+    _terminate_gateway(proc)
+    assert proc.poll() is not None
+    _terminate_gateway(proc)  # idempotent: already dead
+
+
+def test_launch_gateway_returns_none_when_child_dies_immediately():
+    # A gateway script that can't start (here: a path that does not exist) must
+    # be detected as dead by the liveness poll, so the launcher returns None
+    # rather than a live-looking handle for a door that isn't there.
+    proc = _launch_gateway(
+        "telnet", "/nonexistent/gateway_script.py", 2323, "/tmp/no-such-vsock", 12341234
+    )
+    assert proc is None
