@@ -262,21 +262,28 @@ exit 0
             .replace("@@GUEST_CMD_HINT@@", guest_cmd_hint))
 
 
-def _render_connect_script_vsock(container_name) -> str:
+def _render_connect_script_vsock(container_name, telnet_port) -> str:
     """Render results/<n>/connect.sh for the vsock console backend.
 
     Instead of telnetting a serial port, it drives the guest command channel
-    (guesthopper) inside the container -- no telnet port / serial console, so
-    ttyS1 is free:
+    (guesthopper) inside the container -- ttyS1 is free:
 
     - no args  -> interactive pty shell (``guest_cmd.py --shell`` over an -it exec).
     - ``connect.sh CMD...`` -> run CMD once over vsock; guest_cmd streams
       stdout/stderr and exits with the command's return code.
+
+    A telnet front door on localhost:<telnet_port> is also up by default (see
+    _launch_telnet_gateway), so the familiar ``<engine> exec -it <container>
+    telnet localhost <telnet_port>`` still works -- both land on the same clean
+    vsock channel.
     """
     guest_cmd_py = "/igloo_static/guesthopper/guest_cmd.py"
     tmpl = r'''#!/bin/sh
 # Connect to this penguin run's guest over the vsock command channel. GENERATED
-# by penguin -- re-run the project to refresh it. No serial/telnet port is used.
+# by penguin -- re-run the project to refresh it. No serial console is used.
+#
+# A telnet front door is also available (same vsock session under the hood):
+#   <docker|podman> exec -it @@CONTAINER@@ telnet localhost @@TELNET_PORT@@
 set -u
 
 CONTAINER="@@CONTAINER@@"
@@ -306,6 +313,7 @@ exec "$ENGINE" exec -i "$CONTAINER" python3 "$GUEST_CMD" "$@"
 '''
     return (tmpl
             .replace("@@CONTAINER@@", str(container_name or ""))
+            .replace("@@TELNET_PORT@@", str(telnet_port))
             .replace("@@GUEST_CMD@@", guest_cmd_py))
 
 
@@ -315,11 +323,38 @@ def _write_connect_script(out_dir, container_name, telnet_port, root_shell,
     path = os.path.join(out_dir, "connect.sh")
     with open(path, "w") as f:
         if root_shell and backend == "vsock":
-            f.write(_render_connect_script_vsock(container_name))
+            f.write(_render_connect_script_vsock(container_name, telnet_port))
         else:
             f.write(_render_connect_script(container_name, telnet_port, root_shell,
                                            guest_cmd))
     os.chmod(path, 0o755)
+
+
+def _launch_telnet_gateway(uds_path, vsock_port, telnet_port):
+    """Start the host-side telnet front door for the vsock console.
+
+    Runs inside the container, listening on localhost:<telnet_port> and bridging
+    telnet clients to the guest's vsock pty session. This preserves the familiar
+    ``<engine> exec -it <container> telnet localhost <telnet_port>`` experience
+    of the old serial console while the guest speaks only the clean vsock command
+    channel (ttyS1 stays free). Bound to localhost -- reach it via docker/podman
+    exec, exactly as the serial telnet console was reached.
+    """
+    gateway_py = "/igloo_static/guesthopper/telnet_gateway.py"
+    proc = subprocess.Popen(
+        [
+            "python3", gateway_py,
+            "--listen-host", "127.0.0.1",
+            "--listen-port", str(telnet_port),
+            "--socket", str(uds_path),
+            "--port", str(vsock_port),
+        ]
+    )
+    logger.info(
+        f"telnet front door: localhost:{telnet_port} -> guest vsock pty "
+        f"(reach it with: <engine> exec -it <container> telnet localhost {telnet_port})"
+    )
+    return proc
 
 
 def _write_root_shell_port(telnet_port) -> None:
@@ -1051,6 +1086,18 @@ def run_config(
             sleep(0.1)
             waited += 0.1
 
+    # Bring up the telnet front door for the vsock console. On by default: it
+    # replicates the familiar serial-telnet UX (telnet localhost <telnet_port>
+    # inside the container) but rides the vsock channel, so ttyS1 stays free.
+    # Only when the vsock root shell is actually active and the transport is up.
+    telnet_gateway_proc = None
+    if vpn_enabled and root_shell_enabled and root_shell_backend == "vsock":
+        # 12341234 is the guest agent's default vsock port (guesthopper /
+        # guest_cmd.py); keep them in lockstep.
+        telnet_gateway_proc = _launch_telnet_gateway(
+            vpn_args["uds_path"], 12341234, telnet_port
+        )
+
     logger.info("Launching rehosting")
 
     def _run():
@@ -1063,6 +1110,12 @@ def run_config(
         finally:
             # think about this and maybe join on the thread
             plugins.unload_all()
+            if telnet_gateway_proc is not None:
+                telnet_gateway_proc.terminate()
+                try:
+                    telnet_gateway_proc.wait(timeout=2)
+                except Exception:
+                    telnet_gateway_proc.kill()
             if vpn_enabled:
                 shutil.rmtree(vpn_tmpdir.name, ignore_errors=True)
 
