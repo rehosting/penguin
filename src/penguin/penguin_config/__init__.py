@@ -454,7 +454,22 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
             # init.sh execs each init.d entry directly, so it needs a shebang --
             # without one a direct exec is ENOEXEC and the (default) vsock root
             # shell silently never comes up. Match zz_startup_script's shell.
-            contents="#!/igloo/utils/sh\nRUST_LOG=info /igloo/utils/guesthopper --shell /igloo/utils/sh &\n",
+            #
+            # Respawn loop, not a one-shot: the guest command agent is the *only*
+            # path to the console/command channel on the vsock backend, so if it
+            # ever exits (a crash, a panic, an OOM-kill) a one-shot launch would
+            # leave the rehosted device unreachable for the rest of the run. The
+            # loop brings it straight back; `sleep 1` throttles a hard crash-loop
+            # so a persistently-failing agent can't peg the emulated CPU. `sleep`
+            # resolves via busybox's standalone-shell applet even with no PATH.
+            # The whole loop is backgrounded (`&`) so init.sh continues past it.
+            contents=(
+                "#!/igloo/utils/sh\n"
+                "while true; do\n"
+                "  RUST_LOG=info /igloo/utils/guesthopper --shell /igloo/utils/sh\n"
+                "  sleep 1\n"
+                "done &\n"
+            ),
             mode=0o755,
         )
 
