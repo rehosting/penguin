@@ -75,8 +75,12 @@ def kill_vpn() -> None:
     Kill all running VPN processes registered in running_vpns.
     """
     for p in running_vpns:
-        p.kill()
-        p.wait()
+        # Tolerate a process already reaped by uninit(): atexit must not raise.
+        try:
+            p.kill()
+            p.wait()
+        except (ProcessLookupError, OSError):
+            pass
 
 
 def guest_cmd(cmd: str) -> subprocess.CompletedProcess:
@@ -329,6 +333,10 @@ class VPN(Plugin):
                 uds_path,
             ]
         )
+        # Register for atexit cleanup immediately: __init__ validations below
+        # (spoof/routes) can raise *after* this spawn, and uninit() does not run
+        # when __init__ fails, so without this the bridge would be orphaned.
+        running_vpns.append(self.host_vsock_bridge)
 
         # Launch VPN on host as panda starts. Init in the guest will launch the VPN in the guest
         self.event_file = tempfile.NamedTemporaryFile(prefix=f"/tmp/vpn_events_{CID}_")
@@ -738,5 +746,8 @@ class VPN(Plugin):
             self.host_vpn.terminate()
             self.host_vpn.wait(timeout=2)  # Wait for logged packets to flush
             self.host_vpn.kill()
-            running_vpns[:] = [x for x in running_vpns if x != self.host_vpn]
+        # Drop both from the atexit registry now that they're handled here (both
+        # were registered at launch); kill_vpn tolerates already-dead procs.
+        handled = {id(getattr(self, "host_vsock_bridge", None)), id(getattr(self, "host_vpn", None))}
+        running_vpns[:] = [x for x in running_vpns if id(x) not in handled]
         self.logger.debug("Killed VPN")

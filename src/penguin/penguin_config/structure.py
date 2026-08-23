@@ -380,6 +380,22 @@ class Core(PartialModelMixin, BaseModel):
             examples=[False, True],
         ),
     ]
+    root_shell_backend: Annotated[
+        Literal["telnet", "vsock"],
+        Field(
+            "vsock",
+            title="Root shell backend",
+            description=" ".join((
+                "Which console backend serves core.root_shell. 'vsock' (default)",
+                "runs an on-demand pty over the guest command channel (guesthopper),",
+                "freeing the ttyS1 serial line; it requires the vsock transport, so",
+                "core.guest_cmd is enabled automatically and the VPN transport must",
+                "be available (with vpn disabled, this falls back to 'telnet').",
+                "'telnet' uses the legacy QEMU -serial telnet console on ttyS1.",
+            )),
+            examples=["vsock", "telnet"],
+        ),
+    ]
     analysis_scope: Annotated[
         Union[bool, str],
         Field(

@@ -1,0 +1,34 @@
+core:
+  # Serve the root shell over the vsock command channel; that (with the vpn
+  # transport) is what launches the telnet + ssh front doors the probe drives.
+  root_shell: true
+  root_shell_backend: vsock
+  # Bound the run: the host-side probe drives both doors and writes the marker;
+  # verifier.continuous_eval ends the run on success, this is the backstop
+  # (guest boot under emulation is slow, so allow generous headroom).
+  timeout: 360
+
+env:
+  # Empty busybox rootfs has no init: idle so the guest stays up long enough for
+  # the guest agent to serve the doors. The probe is entirely host-side.
+  igloo_init: /init.sh
+
+static_files:
+  /init.sh:
+    type: inline_file
+    mode: 73  # 0o111 (as in basic_target's init.sh)
+    contents: |
+      #!/igloo/utils/sh
+      /busybox sleep 300
+
+plugins:
+  # vsock transport for the console (vhost-device-vsock); required for the doors.
+  vpn: {}
+  frontdoor_probe: {}
+  verifier:
+    continuous_eval: true
+    conditions:
+      frontdoor_ok:
+        type: file_contains
+        file: frontdoor_result
+        string: "frontdoor-ok"

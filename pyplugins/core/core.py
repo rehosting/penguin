@@ -141,35 +141,43 @@ class Core(Plugin):
                 p.ensure_init()
 
         # If we have an option of root_shell we need to add ROOT_SHELL=1 into env
-        # so that the init script knows to start a root shell
+        # so that the init script knows to start a serial root shell. This only
+        # applies to the telnet backend; the vsock backend serves the shell
+        # on-demand over the guest command channel (no serial bring-up).
         if conf["core"].get("root_shell", False):
-            conf["env"]["ROOT_SHELL"] = "1"
-            # Print port info
-            if container_ip := os.environ.get("CONTAINER_IP", None):
-                self.logger.info(
-                    f"Root shell will be available at: {container_ip}:{telnet_port}"
-                )
-                if telnet_port == 23:
-                    self.logger.info(f"Connect with: telnet {container_ip}")
+            if conf["core"].get("root_shell_backend", "vsock") == "telnet":
+                conf["env"]["ROOT_SHELL"] = "1"
+                # Print port info
+                if container_ip := os.environ.get("CONTAINER_IP", None):
+                    self.logger.info(
+                        f"Root shell will be available at: {container_ip}:{telnet_port}"
+                    )
+                    if telnet_port == 23:
+                        self.logger.info(f"Connect with: telnet {container_ip}")
+                    else:
+                        self.logger.info(
+                            f"Connect with: telnet {container_ip} {telnet_port}"
+                        )
+                elif container_name := os.environ.get("CONTAINER_NAME", None):
+                    self.logger.info(
+                        f"Root shell will be available in container {container_name} on port {telnet_port}"
+                    )
+                    if telnet_port == 23:
+                        self.logger.info(
+                            f"Connect with: docker exec -it {container_name} telnet localhost"
+                        )
+                    else:
+                        self.logger.info(
+                            f"Connect with: docker exec -it {container_name} telnet localhost {telnet_port}"
+                        )
                 else:
                     self.logger.info(
-                        f"Connect with: telnet {container_ip} {telnet_port}"
-                    )
-            elif container_name := os.environ.get("CONTAINER_NAME", None):
-                self.logger.info(
-                    f"Root shell will be available in container {container_name} on port {telnet_port}"
-                )
-                if telnet_port == 23:
-                    self.logger.info(
-                        f"Connect with: docker exec -it {container_name} telnet localhost"
-                    )
-                else:
-                    self.logger.info(
-                        f"Connect with: docker exec -it {container_name} telnet localhost {telnet_port}"
+                        f"Root shell enabled. Connect with docker exec -it [your_container_name] telnet localhost {telnet_port}"
                     )
             else:
                 self.logger.info(
-                    f"Root shell enabled. Connect with docker exec -it [your_container_name] telnet localhost {telnet_port}"
+                    "Root shell enabled over vsock (ttyS1 free); connect with "
+                    "results/<n>/connect.sh or 'penguin guest_cmd --shell'."
                 )
 
         if conf["core"].get("graphics", False):

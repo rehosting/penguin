@@ -1,0 +1,34 @@
+core:
+  # Serve the root shell over the vsock command channel (guesthopper agent). The
+  # probe abuses that channel directly to prove the agent never falls over.
+  root_shell: true
+  root_shell_backend: vsock
+  # Bound the run: the host-side probe drives the fault scenarios and writes the
+  # marker; verifier.continuous_eval ends the run on success, this is the backstop
+  # (guest boot under emulation is slow + the churn scenario opens many sessions).
+  timeout: 420
+
+env:
+  # Empty busybox rootfs has no init: idle so the guest stays up long enough for
+  # the guest agent to serve. The probe is entirely host-side.
+  igloo_init: /init.sh
+
+static_files:
+  /init.sh:
+    type: inline_file
+    mode: 73  # 0o111 (as in basic_target's init.sh)
+    contents: |
+      #!/igloo/utils/sh
+      /busybox sleep 360
+
+plugins:
+  # vsock transport for the console (vhost-device-vsock); required for the agent.
+  vpn: {}
+  resilience_probe: {}
+  verifier:
+    continuous_eval: true
+    conditions:
+      resilience_ok:
+        type: file_contains
+        file: resilience_result
+        string: "resilience-ok"
