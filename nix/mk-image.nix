@@ -592,6 +592,23 @@ let
     includeStorePaths = false;
     extraCommands = ''
       cp -a ${portableRoot}/. ./
+
+      # Restore the writable dirs. portableRoot ran ${"$"}{extraCommands} itself, but
+      # nix strips write bits from a store path once its builder finishes, and
+      # `cp -a` faithfully carries those read-only modes into the layer -- the
+      # same trap noted for `var` above. /tmp and /var/tmp are the ones that
+      # bite: the wrapper runs the container as the invoking user (`-u`), so a
+      # 0555 /tmp means no temp dir for the image build and nowhere for qemu's
+      # snapshot overlay.
+      #
+      # State the rule rather than list the paths -- an enumeration drifts the
+      # moment a writable dir is added, which is the failure mode this whole
+      # file is a fix for. Everything OUTSIDE the relocated store is content
+      # the layered image would have made 0755; the store itself stays read-only
+      # there, so it stays read-only here.
+      find . -path ".${portablePrefix}" -prune -o -type d -exec chmod u+w {} +
+      chmod 1777 tmp var/tmp
+      chmod 0777 root
     '';
   };
 in
