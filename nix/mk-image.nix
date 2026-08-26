@@ -532,6 +532,10 @@ let
   # shebangs and .pyc paths all stay valid with no patchelf and no per-format
   # knowledge. See nix/relocate-store.py.
   #
+  # Only OUR store moves: the tool closure baked into the guest at
+  # /igloo/nix/store is a different store, and the rewrite skips it. Rewriting
+  # it shipped portable images whose guests would not build at all.
+  #
   # This is the same class of surgery `clang20Slim` above already does (copy out
   # of the store, then fix up the references), just applied to the whole closure.
   #

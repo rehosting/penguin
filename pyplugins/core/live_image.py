@@ -131,7 +131,7 @@ class LiveImage(Plugin):
         gdbserver, ltrace, iptables).
 
         penguin-tools ships, per arch:
-          <STATIC_DIR>/closures/<arch>/closure.tar.gz  -- /nix/store/... closure
+          <STATIC_DIR>/closures/<arch>/closure.tar.gz  -- nix/store/... closure
           <STATIC_DIR>/closures/<arch>/manifest.json   -- {tool: in-store exe}
 
         The closure itself (~150-300MB, ~8.4k files) is large, image-level, and
@@ -140,7 +140,7 @@ class LiveImage(Plugin):
         across configs/runs -- NOT re-shipped here every boot. This method only
         stages the tiny per-tool /igloo/utils/<tool> wrappers, which run the
         pristine binary inside a private mount namespace with /igloo/nix
-        bind-mounted onto /nix so the binary's own absolute /nix/store
+        bind-mounted onto /nix so the binary's own absolute, store-rooted
         interpreter/rpath resolve unchanged. (Pristine binaries instead of the
         old ELF-rewritten musl bundles fix intermittent wrong-mm SIGSEGVs on
         MIPS -- penguin #823.)
