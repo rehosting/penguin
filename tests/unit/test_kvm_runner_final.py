@@ -23,11 +23,16 @@ from unittest.mock import MagicMock, patch
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../src")))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../pyplugins")))
 
-# gen_image pulls in image-build machinery irrelevant here; stub it before import.
+# gen_image pulls in image-build machinery irrelevant here; stub it for the
+# import below, then put the real module back -- left in place, the stub hands
+# every module collected after this one a MagicMock instead of penguin.gen_image.
 sys.modules["penguin.gen_image"] = MagicMock()
 sys.modules["penguin.gen_image"].make_image = MagicMock()
 
 from penguin.penguin_run import run_config  # noqa: E402
+
+del sys.modules["penguin.gen_image"]
+import penguin.gen_image  # noqa: E402,F401  (also restores the package attribute)
 
 
 class _StopAfterSelection(Exception):
