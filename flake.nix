@@ -604,6 +604,10 @@
               ./tests/unit
               ./pengutils
               ./pyplugins
+              # test_portable_relocate.py runs this script as a subprocess, the
+              # way mk-image.nix runs it. Without it the tests see python's
+              # "can't open file" exit 2, not a relocation result.
+              ./nix/relocate-store.py
             ];
           };
         in
