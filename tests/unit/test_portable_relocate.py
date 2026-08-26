@@ -142,6 +142,39 @@ def test_a_corrupted_guest_literal_fails_the_build(root):
     assert "already_broken.py" in proc.stderr
 
 
+def test_other_json_in_a_guest_subtree_is_not_a_manifest(root):
+    """Only the tool manifest is asserted on, by name.
+
+    Anything else that lands beside it -- an index, per-arch metadata -- carries
+    no store path to check, so failing the build over it would be a false
+    positive on a file the relocation never had an opinion about.
+    """
+    closures = (root / "opt" / "store" / "hhhh-igloo-static" / "igloo_static"
+                / "closures" / "armel")
+    (closures / "index.json").write_text(json.dumps({"arches": ["armel"]}))
+
+    proc = relocate(root)
+
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_a_store_pathless_guest_manifest_is_not_a_failure(root):
+    """The manifest is checked for the host prefix, not for the guest one.
+
+    An arch that ships no tools, or a future format that locates them some
+    other way, names no store path at all. That is not a relocation defect,
+    and a guard that exists to stop a bad release is the worst place to fail
+    on a file it has no opinion about.
+    """
+    manifest = (root / "opt" / "store" / "hhhh-igloo-static" / "igloo_static"
+                / "closures" / "armel" / "manifest.json")
+    manifest.write_text(json.dumps({}))
+
+    proc = relocate(root)
+
+    assert proc.returncode == 0, proc.stderr
+
+
 def test_a_relocated_guest_manifest_fails_the_build(root):
     """Guest subtrees are skipped wholesale, so assert on them positively.
 
