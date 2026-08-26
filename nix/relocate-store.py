@@ -38,6 +38,12 @@ from typing import Iterator
 # a path fragment -- the walk starts above the igloo-static store path.
 GUEST_SUBTREES = ("igloo_static/closures",)
 
+# The files in those subtrees whose contents are checked positively (below).
+# Named exactly, not by extension: anything else that lands there -- an index,
+# per-arch metadata -- carries no store path to assert on, and failing the
+# build over it would be a false positive.
+GUEST_MANIFESTS = ("manifest.json",)
+
 # Glued straight on, this marks the guest's store: "igloo/nix/store" is the
 # guest's copy, "/igloo:/nix/store" a host search path.
 GUEST_PREFIX = "igloo"
@@ -209,13 +215,18 @@ def main() -> int:
         return 1
 
     # The pruned subtrees are skipped wholesale, so nothing above would notice
-    # if one arrived already-relocated. Assert positively that the guest's exec
-    # targets still name the guest's store -- the defect that made every
+    # if one arrived already-relocated -- naming the host prefix for exec
+    # targets that only ever exist in the guest, the defect that made every
     # /igloo/utils/<tool> wrapper exec a path that exists nowhere.
+    #
+    # Only that. Demanding the manifest also *contain* the old prefix would
+    # fail the build on one that names no store path at all -- an arch that
+    # ships no tools, a future format that locates them another way -- neither
+    # of which is a relocation defect.
     for subtree in pruned:
         for dirpath, _, filenames in os.walk(subtree):
             for name in filenames:
-                if not name.endswith(".json"):
+                if name not in GUEST_MANIFESTS:
                     continue
                 path = os.path.join(dirpath, name)
                 try:
@@ -223,9 +234,9 @@ def main() -> int:
                         data = fh.read()
                 except OSError:
                     continue
-                if new in data or old not in data:
+                if new in data:
                     print(
-                        f"relocate-store: {path} does not name {old_s}; a guest "
+                        f"relocate-store: {path} names {new_s}; a guest "
                         f"manifest must keep the guest's own store paths.",
                         file=sys.stderr,
                     )

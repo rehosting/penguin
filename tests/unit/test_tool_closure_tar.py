@@ -60,9 +60,15 @@ def base_tar(tmp_path, monkeypatch):
 
 
 def _members(path):
-    """Member names, as tarfile reports them (trailing slashes normalised off)."""
+    """Member names with any trailing slash removed.
+
+    The parent-entry check below compares a member's name against the set of
+    directory names, so the two spellings of a directory have to be one. Done
+    here rather than relied upon: tarfile happens to strip the slash on read,
+    but that is its behaviour, not this helper's contract.
+    """
     with tarfile.open(path) as tf:
-        return tf.getnames()
+        return [name.rstrip("/") for name in tf.getnames()]
 
 
 def test_every_member_has_a_parent_directory_entry(base_tar):
