@@ -407,6 +407,39 @@ jobs:
       - name: QMP hook test
         run: timeout 10m python3 $GITHUB_WORKSPACE/tests/integration/qmp_hook/test.py --image rehosting/penguin:${{ github.sha }}
 
+  # The portable image is built and pushed only at release time
+  # (publish.yaml's build-portable), so nothing on a PR ever exercised the
+  # store relocation -- three defects shipped across four releases with CI
+  # green throughout, because every guest-boot job above builds
+  # `.#dockerImage`. This builds `.#portableImage` and stops there: no push, so
+  # it does not touch the registry storage that kept the variant on-demand in
+  # the first place, and the assertions that matter live inside the relocation
+  # (nix/relocate-store.py), so a broken rewrite fails the build itself.
+  #
+  # ~1 minute with a warm cache: 15 derivations, everything heavy shared with
+  # build_container via the rehosting-tools cache.
+  portable_image:
+    needs: [changes, lint]
+    if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
+    runs-on: rehosting-arc
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+      - name: Set up Nix
+        uses: rehosting/ci/actions/nix-setup@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache-backend: cachix
+          cachix-name: rehosting-tools
+          cachix-auth-token: ${{ secrets.CACHIX_REHOSTING }}
+          # Same Nix pin as build_container: install-nix-action's default
+          # (2.22.1) computes different tarball-input narHashes and rejects our lock.
+          install-url: https://releases.nixos.org/nix/nix-2.31.2/install
+          enable-kvm: false
+      - name: Build the portable image
+        run: nix build .#portableImage -L --no-link
+
   # Single required status check for branch protection + the merge queue.
   #
   # The per-arch run_tests matrix and build_container are conditionally skipped
@@ -420,7 +453,7 @@ jobs:
   ci_gate:
     if: ${{ always() }}
     runs-on: ubuntu-latest
-    needs: [changes, lint, unit_tests, build_container, run_tests, run_compose, run_qmp_hook]
+    needs: [changes, lint, unit_tests, build_container, portable_image, run_tests, run_compose, run_qmp_hook]
     steps:
       - name: Require no gated job to have failed
         run: |
@@ -429,6 +462,7 @@ jobs:
             [lint]='${{ needs.lint.result }}'
             [unit_tests]='${{ needs.unit_tests.result }}'
             [build_container]='${{ needs.build_container.result }}'
+            [portable_image]='${{ needs.portable_image.result }}'
             [run_tests]='${{ needs.run_tests.result }}'
             [run_compose]='${{ needs.run_compose.result }}'
             [run_qmp_hook]='${{ needs.run_qmp_hook.result }}'
