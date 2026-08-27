@@ -41,7 +41,10 @@ class InterfaceFinder(InitPlugin):
     # interfaces.
     NETDEV_DENY: set[str] = {"inet", "inet6", "ipv4", "ipv6", "ipv4cfg", "ipv6cfg"}
 
-    def _keep_iface(self, iface: str) -> bool:
+    # Programs that deliver false postives
+    NETDEV_BLACKLIST = ("/ip", "/pppd", "/zebra", "/busybox")
+
+    def _keep_iface(self, iface: str, count: int | None = None, files: list[str] | None = None) -> bool:
         """Whether a scraped token is a plausible real interface name."""
         iface = str(iface)
         if not iface or len(iface) > self.IFNAMSIZ:
@@ -53,6 +56,12 @@ class InterfaceFinder(InitPlugin):
             return False
         if iface in self.NETDEV_BARE:
             return True
+        if count is not None and files is not None:
+            for file in files:
+                if file.endswith(self.NETDEV_BLACKLIST):
+                    count -= 1
+                if count <= 0:
+                    return False
         return bool(self.NETDEV_SHAPE.match(iface) or self.NETDEV_NAMED.match(iface))
 
     @cached_analysis
@@ -73,7 +82,7 @@ class InterfaceFinder(InitPlugin):
 
         # Now search for references to standard network commands: ifconfig, ip, brctl
         # We'll use these to identify interfaces
-        interfaces = set()
+        interfaces = dict()
 
         # Look for patterns that match network interface names in the context of commands
         interface_regex = r"([a-zA-Z0-9][a-zA-Z0-9_-]{2,15})"
@@ -86,6 +95,7 @@ class InterfaceFinder(InitPlugin):
             rf"ip\s+(?:-\S+\s+)*(?:addr|address|link|route|neigh|rule)\s+"
             rf"(?:add|del|delete|set|show|list|flush|change|replace)?\s*(?:dev\s+)?{interface_regex}"
         )
+        # returns failed needs improved
         ifup_down_matches = re.compile(rf"if(?:up|down)\s+{interface_regex}")
         ethtool_matches = re.compile(rf"ethtool\s+{interface_regex}")
         route_matches = re.compile(rf"route\s+(?:add|del)\s+{interface_regex}")
@@ -100,17 +110,22 @@ class InterfaceFinder(InitPlugin):
         ]
 
         for p in patterns:
-            interfaces.update(FileSystemHelper.find_regex(p, extract_dir).keys())
+            t = FileSystemHelper.find_regex(p, extract_dir)
+            for key, value in t.items():
+                old_value = interfaces.get(key, dict())
+                interfaces[key] = old_value
+                interfaces[key]["count"] = value.get("count", 0) + old_value.get("count", 0)
+                interfaces[key]["files"] = list(value.get("files", [])) + old_value.get("files", [])
 
         # Drop command keywords, placeholders, and glued/oversized captures.
-        interfaces = [iface for iface in interfaces if self._keep_iface(iface)]
+        interfaces = [iface for iface, values in interfaces.items() if self._keep_iface(iface, values["count"], values["files"])]
 
         result = {}
         if len(sys_net_ifaces):
             result["sysfs"] = list(sys_net_ifaces)
 
         if len(interfaces):
-            result["commands"] = list(interfaces)
+            result["commands"] = interfaces
 
         if len(result):
             return result
