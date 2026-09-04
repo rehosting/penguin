@@ -55,6 +55,25 @@ Arguments
         - guest: Run commands inside the emulated guest via the `guest_cmd.py` wrapper
           (default). Requires `guest_cmd: true` under `core` in config.yaml.
 
+    Host commands also receive the host port that the VPN plugin mapped the binding guest
+    service to. That port cannot be hardcoded in config: the VPN plugin remaps it whenever
+    the guest port is privileged or already taken. It is supplied two ways:
+
+        - `{host_port}` anywhere in the command string is replaced with the port before
+          the command is split and run.
+        - `PENGUIN_HOST_PORT` is set in the command's environment.
+
+    The bridge listens on 0.0.0.0 inside the container, so `127.0.0.1:<host_port>` always
+    reaches the service. Guest commands run inside the guest and talk to the guest port
+    directly, so they are left verbatim.
+
+        Example:
+            commands:
+                - mode: host
+                  run:
+                      - curl -sf http://127.0.0.1:{host_port}/
+                      - python3 ./probe.py --port {host_port}
+
 - endpoints (list[str], optional): Guest endpoints that may trigger the commands,
     formatted as `guest_ip:guest_port`. Either component may be `*` to match anything.
     If omitted, any bind event passing the protocol/port filters may trigger.
@@ -67,7 +86,12 @@ Arguments
     Prefer a wildcard over an exact IP: an allowlist that never matches means the commands
     never run and nothing ever ends the run.
 
-- ports (list[int], optional): Restrict triggering to these guest ports. Default: any.
+- ports (list[int], optional): Guest ports that may trigger the commands.
+    Default: `[80, 443]`, the common web-UI ports, so an unfiltered config does not
+    fire on the first unrelated bind -- a target whose httpd serves UPnP on 1900 well
+    before it binds 80 would otherwise trigger on the wrong service. Set an explicit
+    list for other services, or `[]` to accept any port: an empty list disables the
+    filter rather than matching nothing.
 - proto (str, optional): Protocol to match. Default: 'tcp'. Use '*' for any.
 - delay (int, optional): Delay in seconds after a bind before running commands. Default: 20.
 - timeout (int, optional): Per-command timeout in seconds. Default: 120. A command that
@@ -99,6 +123,8 @@ DEFAULT_DELAY = 20
 DEFAULT_TIMEOUT = 120
 GUEST_CMD_WRAPPER = "/igloo_static/guesthopper/guest_cmd.py"
 VALID_MODES = ("host", "guest")
+HOST_PORT_PLACEHOLDER = "{host_port}"
+HOST_PORT_ENV_VAR = "PENGUIN_HOST_PORT"
 OUTPUT_FILENAME = "run_on_bind_output.txt"
 
 
@@ -216,9 +242,12 @@ class RunOnBind(Plugin):
         endpoints: Optional[List[str]] = Field(
             default=None,
             description="Optional list of guest endpoints that may trigger commands, formatted as guest_ip:guest_port ('*' allowed for either side). If unset, any matching bind may trigger.")
+        # A literal default (not default_factory) so the generated arg docs show
+        # [80, 443] rather than the factory's source text. Pydantic copies mutable
+        # defaults per instance, so the list cannot be shared between plugins.
         ports: Optional[List[int]] = Field(
-            default=None,
-            description="Optional list of guest ports that may trigger commands. If unset, any port may trigger.")
+            default=[80, 443],
+            description="Guest ports that may trigger commands. Defaults to [80, 443], the common web-UI ports. Set an explicit list for other services, or [] to accept any port.")
         proto: str = Field(
             default="tcp",
             description="Protocol to match on bind events. Use '*' to match any protocol.")
@@ -376,7 +405,7 @@ class RunOnBind(Plugin):
         self.attempts += 1
         self.logger.info(f"Attempt {self.attempts}: executing {len(self.commands)} command group(s) for {guest_endpoint} (host {host_ip}:{host_port})")
 
-        success = self.run_commands(guest_endpoint)
+        success = self.run_commands(guest_endpoint, host_port)
 
         if success:
             self.succeeded = True
@@ -390,7 +419,7 @@ class RunOnBind(Plugin):
 
         self.logger.warning(f"commands failed for {guest_endpoint}; waiting for another endpoint to try")
 
-    def run_commands(self, guest_endpoint: str = "") -> bool:
+    def run_commands(self, guest_endpoint: str, host_port: int) -> bool:
         """
         Execute every configured command once and report whether any of them succeeded.
 
@@ -400,6 +429,8 @@ class RunOnBind(Plugin):
 
         Args:
             guest_endpoint (str): Endpoint that triggered this run, for the output artifact.
+            host_port (int): Host port mapped to the triggering guest service,
+                handed to host commands via `{host_port}` and `PENGUIN_HOST_PORT`.
         Returns:
             bool: True if at least one command succeeded.
         """
@@ -407,7 +438,7 @@ class RunOnBind(Plugin):
 
         for mode, cmd in self._flat_commands:
             if mode == "host":
-                ok = self._run_host_command(cmd, guest_endpoint)
+                ok = self._run_host_command(cmd, guest_endpoint, host_port)
             else:
                 ok = self._run_guest_command(cmd, guest_endpoint)
             (succeeded if ok else failed).append(cmd)
@@ -444,10 +475,19 @@ class RunOnBind(Plugin):
             f"{fallback}. Use absolute paths in host commands if they cannot find their files.")
         return fallback
 
-    def _run_host_command(self, cmd: str, guest_endpoint: str = "") -> bool:
+    def _run_host_command(self, cmd: str, guest_endpoint: str, host_port: int) -> bool:
         """
         Run a single command on the host, rooted at the resolved project directory.
+
+        The mapped host port is substituted for `{host_port}` and exported as
+        `PENGUIN_HOST_PORT`, since the VPN plugin picks it at bind time and the user has no
+        way to write it into their config.
         """
+        cmd = self._apply_host_port(cmd, host_port)
+
+        env = dict(os.environ)
+        env[HOST_PORT_ENV_VAR] = str(host_port)
+
         self.logger.info(f"Running HOST command: {cmd}")
         try:
             cmd_list = shlex.split(cmd) if isinstance(cmd, str) else cmd
@@ -464,6 +504,7 @@ class RunOnBind(Plugin):
                 text=True,
                 check=False,
                 cwd=cwd,
+                env=env,
                 timeout=self.timeout,
             )
         except subprocess.TimeoutExpired:
@@ -490,6 +531,21 @@ class RunOnBind(Plugin):
         self._record_output(
             "host", cmd, result.returncode, result.stdout, result.stderr, guest_endpoint)
         return result.returncode == 0
+
+    def _apply_host_port(self, cmd: str, host_port: int) -> str:
+        """
+        Replace the `{host_port}` placeholder in a host command with the mapped port.
+
+        A literal replace rather than `str.format`, so shell and awk braces in a
+        command pass through untouched.
+
+        Args:
+            cmd (str): Command as configured.
+            host_port (int): Port the VPN plugin mapped this bind to.
+        Returns:
+            str: The command with the placeholder resolved, unchanged if it has none.
+        """
+        return cmd.replace(HOST_PORT_PLACEHOLDER, str(host_port))
 
     def _run_guest_command(self, cmd: str, guest_endpoint: str = "") -> bool:
         """
