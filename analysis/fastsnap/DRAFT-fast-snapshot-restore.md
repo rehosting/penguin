@@ -1,6 +1,6 @@
 ---
 type: issue-draft
-title: "A separate fast reset path for fuzzing: port syx-snapshot to the IGLOO QEMU fork"
+title: "A separate fast reset path for fuzzing: syx-snapshot's device block + QEMU's own dirty bitmap"
 labels: [enhancement, research, performance]
 status: NEW
 lane: fastsnap
@@ -12,37 +12,102 @@ referents: "penguin @ 16d112ea (== origin/main after fetch, 2026-08-27); qemu @ 
 
 ## The recommendation, first
 
-**Port LibAFL's `syx-snapshot` to our QEMU fork rather than designing something
-new, and do not build it on `fork()`.**
+**Build a hybrid: import LibAFL `syx-snapshot`'s device half, and use QEMU's own
+dirty bitmap for RAM. Do not build it on `fork()`.** Both halves have been
+prototyped and measured (Slice 0 / RAM half below); this is not a paper design.
 
-`syx-snapshot` (in `qemu-libafl-bridge`) is Nyx's device-state-in-a-block idea
-already carried across to full-system TCG, by people who had to make it work.
-It is 1,743 lines across four C files and four headers. It is a port, not a
-research project — but see *Slice 0 findings* for what the port actually costs;
-the upstream-file footprint is larger than a first grep suggests.
+- **Device state → a flat memory block.** `device_save_kind()`
+  (`libafl/syx-snapshot/device-save.c:38`) walks `savevm_state.handlers`, skips
+  the iterative ones, and writes the rest through a `QIOChannelBufferWriteback`
+  into a plain `uint8_t*`. Restore is a read back from memory. That is Nyx's
+  trick, and it keeps QEMU's own vmstate descriptors, so it stays correct for
+  devices we did not write. **Measured on our tree: the entire device block for
+  `-M virt -m 128` is 62 KB, 17 sections, and it round-trips.**
+- **RAM → QEMU's existing `DIRTY_MEMORY_MIGRATION` bitmap**, not syx's hooks.
+  Under TCG that bitmap is maintained unconditionally and is load-bearing for
+  live migration. `physical_memory_test_and_clear_dirty()` at snapshot, query at
+  restore, restore those pages from a root copy.
+- **Disk → an in-memory COW cache** (`syx-cow-cache.c`), so the disk rolls back
+  without touching the qcow2.
+- **Not `fork()`.** Declined on three verified obstacles, one of which (a
+  7-thread process with an embedded CPython) is sufficient alone.
 
-The three things it does are the three things this problem needs:
+### Why the hybrid beats importing syx whole
 
-1. **Device state into a flat memory block.** `device_save_kind()`
-   (`libafl/syx-snapshot/device-save.c:38`) walks `savevm_state.handlers`,
-   **skips every `se->is_ram` handler**, and writes the rest through a
-   `QIOChannelBufferWriteback` into a plain `uint8_t*`. Restore is a read back
-   from memory. That is exactly the Nyx trick, and it keeps QEMU's own vmstate
-   descriptors — so it stays correct for devices we did not write and did not
-   think about.
-2. **RAM by dirty pages, not by volume.** A root snapshot holds a full RAM copy
-   in host memory; thereafter only pages written since the snapshot are
-   restored. **Take the idea, not syx's implementation** — under TCG, QEMU's own
-   `DIRTY_MEMORY_MIGRATION` bitmap already provides this with no new hooks. See
-   *RAM half* below; this is the one place the Slice-0/1 work changed the
-   recommendation.
-3. **Block writes into an in-memory COW cache** (`syx-cow-cache.c`), so the disk
-   rolls back without touching the qcow2.
+Not mainly the file count. **The two files the hybrid does not touch —
+`accel/tcg/cputlb.c` and `system/physmem.c` — are the two in TCG's hottest
+path.** Carrying a fork divergence in the store path means every guest
+instruction pays for it and every rebase re-litigates it. The divergence that
+remains is in `migration/savevm.c`, which is cold, versioned, and only disturbed
+when upstream restructures snapshots.
+
+The measured reason is stronger still: **syx's RAM tracking is unsound for a
+snapshot of a warm guest** — see *RAM half*. We would have imported that.
+
+### What it costs — read this before deciding
+
+- **~1 day** of careful work for the device half.
+- **5 upstream files**, of which **two (`migration/savevm.c`, `migration/savevm.h`)
+  are internals upstream deliberately keeps `static`.** Our fork would diverge
+  where upstream has signalled it does not want callers, and every future rebase
+  pays for that. Not a reason to decline; a reason to decide deliberately.
+- **Three latent bugs in the imported code, all of which must be fixed on the
+  way in** — two memory bugs in the device half (a 3-argument declaration
+  against a 4-argument `vmstate_save`; a double free in `device_restore_all()`),
+  and one soundness gap in the RAM half (the dirty list never re-arms). All
+  three were found by building and running it, not by reading it.
+- **Provenance:** `rehosting/qemu` is public. Exact upstream commit recorded,
+  license headers intact, file-level attribution, GPL-2.0 compatibility stated
+  in the PR body. Whether to import third-party code into a public repo at all
+  is Luke's call, not this draft's.
+- **Posture:** we would be *adopting and repairing*, not tracking upstream.
+  Given three bugs and a two-major-version gap, that is the honest framing and
+  the cheaper one.
+
+### If you are implementing this, two things will silently sink you
+
+Both were found the expensive way. Neither produces an error.
+
+1. **`SaveStateEntry.is_ram` does not exist in QEMU 11.x, and in 9.x it never
+   meant "is RAM".** It was set for any handler with a `save_setup` op — every
+   *iterative* handler: `ram`, `dirty-bitmap`, `slirp`, `spapr/htab`, VFIO, s390
+   skeys/stattrib, `todclock`. The correct predicate is:
+
+   ```c
+   if (se->ops && se->ops->save_setup) { continue; }   /* skip iterative handlers */
+   ```
+
+   **Matching on `idstr == "ram"` is the naive version and it is wrong** — it
+   silently pulls live handlers into the device block. The obvious reading of
+   the field's name is the broken one.
+
+2. **The dirty list is empty on a warm guest unless you re-arm tracking at
+   snapshot time.** A slow-path hook fires only when the TLB misses or carries a
+   flag; snapshot a guest that has been running and every page's entry is
+   already resident, so its stores take the fast path and are never seen.
+   Measured: **0 of 64 pages trapped** after a mid-run snapshot point with no
+   re-arm; 64/64 with either `tlb_flush(cpu)` per CPU or
+   `physical_memory_test_and_clear_dirty()`. Since `syx_snapshot_root_restore()`
+   restores *only* the pages in its dirty list, the failure mode is a **silently
+   incomplete restore** — the loop runs on partially-reverted state and reports
+   findings. No crash, no error, no empty artifact.
 
 Everything below is why, and what it costs. **One finding does not depend on
 this recommendation at all** — that half the per-restore cost is invisible to
 the benchmark anyone would naturally run — and it has its own section, because
-it stays true if the port is rejected.
+it stays true if the port is rejected entirely.
+
+### A note on method
+
+This lane's recommendation was reversed by its own prototype, and not in the way
+anyone predicted. The RAM slice was authorised on the hypothesis that
+`cputlb.c` drift between QEMU 9 and 11 would make LibAFL's hooks impractical.
+**Drift turned out to be a six-line shift.** The recommendation changed anyway,
+because building the thing surfaced a soundness gap that no amount of reasoning
+about version gaps would have produced. Had the stated hypothesis been correct,
+we would have got a worse answer for a better-sounding reason. *The slice that
+changes your mind usually changes it about something else* — which is the
+argument for pricing a design by prototyping it rather than by reading it.
 
 ## What we are being asked for
 
@@ -203,14 +268,19 @@ speed.
 **That is exactly one trapped store per page per epoch, in software, with no
 hardware involved** — the property Nyx needs virtualisation extensions for.
 
-One honest caveat: LibAFL chose *not* to reuse this bitmap. `syx-snapshot`
-installs its own hooks (`accel/tcg/cputlb.c`, `system/physmem.c`) recording
-dirty pages *with their previous contents*, which supports nested/incremental
-snapshots that a bare bitmap cannot. So there are two viable routes — reuse the
-existing `DIRTY_MEMORY_MIGRATION` bitmap (no new hooks, but the bitmap's
-lifecycle is owned by the migration subsystem and enabled globally), or take
-syx's dedicated hooks. **Recommend syx's**, on the grounds that it is the one
-that has actually been made to work.
+LibAFL chose *not* to reuse this bitmap: `syx-snapshot` installs its own hooks
+(`accel/tcg/cputlb.c`, `system/physmem.c`) recording dirty pages *with their
+previous contents*, which supports nested/incremental snapshots a bare bitmap
+cannot. So there were two candidate routes.
+
+**An earlier revision of this draft recommended syx's hooks, on the grounds
+that they were the ones demonstrated to work. Measurement reversed that** — see
+*RAM half*, where syx's tracking is shown to record nothing at all on a warm
+guest. The bitmap is the recommendation. Two further facts settle it: the
+bitmap needs no global enable under TCG (verified — the probe read it correctly
+having never called `memory_global_dirty_log_start()`), and it is load-bearing
+for live migration, so its completeness is upstream's problem rather than
+ours.
 
 ## Do not build this on `fork()` — closed, on three verified obstacles
 
@@ -290,11 +360,23 @@ decision, not an omission.
    with `__attribute__((visibility("default")))` like their neighbours, so the
    existing CFFI `_lib_symbol()` lookup in `qemu_compat.py` picks them up with
    no new plumbing.
-2. **Port `syx-snapshot`** into the fork under its own directory. Port delta is
-   QEMU 9.1.1 → 11.0.50: headers moved (`sysemu/` → `system/`,
-   `include/exec/ram_addr.h` → `include/system/ram_addr.h`) and the `cputlb`
-   store paths have changed shape. Hook edits land in three upstream files
-   (`accel/tcg/cputlb.c`, `system/physmem.c`, `block/block-backend.c`).
+2. **Port `syx-snapshot`'s device half** into the fork under its own directory
+   — `device-save.c` and `channel-buffer-writeback.c` plus headers. Working
+   sources and patches from the port gate are in `projects/fastsnap/slice0/`.
+   Port delta is QEMU 9.1.1 → 11.0.50: headers moved (`sysemu/` → `system/`,
+   `include/exec/ram_addr.h` → `include/system/ram_addr.h`),
+   `qemu_load_device_state()` gained an `Error **`, and `SaveStateEntry.is_ram`
+   is gone (see the implementer warning at the top — the replacement predicate
+   is `se->ops && se->ops->save_setup`, and the obvious `idstr == "ram"` reading
+   is wrong).
+
+   Upstream files touched: `migration/savevm.c` and `migration/savevm.h`
+   (de-static `savevm_state` and `vmstate_save`; hoist `CompatEntry`,
+   `SaveStateEntry`, `SaveState`), `io/channel-buffer.c` and
+   `include/io/channel-buffer.h` (`qio_channel_buffer_new_external` is a LibAFL
+   addition, not upstream), plus `block/block-backend.c` for the COW cache.
+   **Five, and deliberately not `accel/tcg/cputlb.c` or `system/physmem.c`** —
+   see *RAM half* for why those two are the ones worth not touching.
 
    **Provenance is a hard requirement, because `rehosting/qemu` is public.**
    Record the exact upstream commit the port was taken from; keep the original
@@ -371,7 +453,8 @@ core.
 
 Three things the gate changed in this draft:
 
-1. **The port is 7 upstream files, not 3.** The earlier figure came from
+1. **The port is 7 upstream files, not 3** (importing syx whole; the hybrid
+   later brings this down to 5 — see *RAM half*). The earlier figure came from
    grepping for `syx_snapshot` outside the syx directory, which finds only edits
    that mention the string and misses de-static'ing and helper additions. The
    device half alone needs `migration/savevm.c` (de-static `savevm_state` and
@@ -489,28 +572,37 @@ that half has no in-tree equivalent, which is exactly why it is worth importing.
 
 ## Slices
 
-0. **Port gate (small, decides everything).** Build `syx-snapshot` against
-   `56554982` with the hooks stubbed out, and get `device_save_all()` /
-   `device_restore_all()` round-tripping on one arch. If QEMU 9→11 vmstate drift
-   makes the device half painful, that is known before any RAM work.
-1. **Device block only.** `penguin_fastsnap_*` entry points; restore devices
-   from the block, RAM still by `load_snapshot`. Measures the device half in
-   isolation against the ~94 ms fixed floor.
-2. **RAM by dirty pages.** Port the `cputlb`/`physmem` hooks and the root
-   snapshot. This is where the win is, and where the `tb_flush` avoidance
-   arrives (hand-invalidate TBs for dirty pages only; never enter
-   `RUN_STATE_RESTORE_VM`).
-3. **Block COW cache.** `syx-cow-cache` so disk writes roll back in memory.
-4. **Host surface + fidelity declaration.** `core.fastsnap`, the `FastSnap`
-   pyplugin, the vpn-disabled precondition, and the manifest fields — with the
-   declaration landing *in the same slice as the mode*, never after it.
-5. **A real fuzzing loop on top.** Out of scope here; it is what this substrate
-   is for, and it should be its own draft.
+**Slices 0 and the RAM-half assessment are DONE** — both were run as research
+prototypes, and between them they reversed part of this draft's own
+recommendation. Reports in `projects/fastsnap/slice0/`. What remains is build
+work, and none of it should start before Luke rules on the import.
 
-Slices 0–2 are the research content. Re-run
-`penguin/analysis/fastsnap/run_bench.py` against each to keep the comparison
-honest — the harness measures both halves, and the `tb_flush` half is the one a
-naive benchmark will claim we already fixed.
+- ~~**0. Port gate.**~~ **Done.** Device half builds against `56554982` and
+  round-trips; 62 KB block, 17 sections, positive and negative controls both
+  pass. Found two memory bugs and corrected the `is_ram` predicate.
+- ~~**RAM-half assessment.**~~ **Done, and it changed the plan.** `cputlb.c`
+  drift is a six-line shift, so syx's hooks *would* port — but they record
+  nothing on a warm guest, so the recommendation is now QEMU's own bitmap and
+  those hooks are not ported at all.
+- **1. Device block behind `penguin_fastsnap_*`.** The three entry points beside
+  `penguin_schedule_snapshot`; restore devices from the block, RAM still via
+  `load_snapshot`. Measures the device half in isolation against the ~94 ms
+  fixed floor. Fix the two imported memory bugs here, not later.
+- **2. RAM via the native bitmap.** `physical_memory_test_and_clear_dirty()` at
+  snapshot, query at restore, restore dirty pages from a root copy. **No
+  `cputlb.c` / `physmem.c` edits.** This is where the win is, and where
+  `tb_flush` avoidance arrives for free: hand-invalidate TBs for the dirty pages
+  only and never enter `RUN_STATE_RESTORE_VM`.
+- **3. Block COW cache.** `syx-cow-cache` so disk writes roll back in memory.
+- **4. Host surface + fidelity declaration.** `core.fastsnap`, the `FastSnap`
+  pyplugin, the vpn-disabled precondition, and the declaration — landing *in the
+  same slice as the mode*, never after it.
+- **5. A real fuzzing loop on top.** Out of scope here; it is what this
+  substrate is for, and it deserves its own draft.
+
+Re-run `penguin/analysis/fastsnap/run_bench.py` against slices 1 and 2 to keep
+the comparison honest — it measures both halves of the cost, and the `tb_flush`
+half is the one a naive benchmark will claim we already fixed.
 
 ## Open questions
 
