@@ -32,7 +32,10 @@ The three things it does are the three things this problem needs:
    think about.
 2. **RAM by dirty pages, not by volume.** A root snapshot holds a full RAM copy
    in host memory; thereafter only pages written since the snapshot are
-   restored.
+   restored. **Take the idea, not syx's implementation** — under TCG, QEMU's own
+   `DIRTY_MEMORY_MIGRATION` bitmap already provides this with no new hooks. See
+   *RAM half* below; this is the one place the Slice-0/1 work changed the
+   recommendation.
 3. **Block writes into an in-memory COW cache** (`syx-cow-cache.c`), so the disk
    rolls back without touching the qcow2.
 
@@ -393,15 +396,71 @@ Three things the gate changed in this draft:
    already freed. It passed by luck. **A passing test that reads freed memory
    looks exactly like a passing test.**
 
-That last point is the strongest argument for the *maintenance* posture this
-draft already recommends: we would not be tracking upstream, we would be
-adopting and repairing. It is a real fork commitment — roughly a day of careful
+**Cost line for the adopt decision**, since this is what Luke is weighing: the
+device half is ~1 day of careful work; the import is 5 upstream files, **two of
+which (`migration/savevm.c`, `migration/savevm.h`) are internals upstream keeps
+`static` on purpose** — our fork would diverge at a point upstream has signalled
+it does not want touched, and every future rebase pays for it. Three latent bugs
+in the imported code must be fixed on the way in (two memory bugs in the device
+half, one soundness gap in the RAM half). None of that is a reason to decline;
+all of it is a reason to decide deliberately, and it is the strongest argument
+for the *maintenance* posture this draft recommends: we would not be tracking
+upstream, we would be adopting and repairing. It is a real fork commitment — roughly a day of careful
 work for the device half, not a weekend — and it is still much cheaper than
 originating the mechanism.
 
 **Still unanswered: the RAM half**, where the actual win is. `cputlb.c`'s store
 paths changed shape between 9 and 11, and Slice 0 deliberately did not touch
 them.
+
+## RAM half — use QEMU's own bitmap, not syx's hooks
+
+Full report: `projects/fastsnap/slice0/FINDINGS-ram.md`.
+
+**Version drift is a non-issue.** All four `cputlb.c` hook sites LibAFL uses
+survive into 11.0.50 with the same shapes; the anchor line moved six lines. I
+installed all four and built clean. The RAM half is a *cheaper* port than the
+device half.
+
+**But syx's RAM tracking is unsound for a mid-run snapshot.**
+`syx_snapshot_root_restore()` restores only the pages in its dirty list, so that
+list must be complete — and nothing in the entire LibAFL tree flushes TLBs or
+touches the dirty bitmap. Measured, with a guest looping stores over 64 pages
+and a snapshot point applied mid-run:
+
+| snapshot-point action | slow-path hits after | |
+|---|---|---|
+| **none** (what syx does) | **0 / 64** | every later write invisible |
+| `tlb_flush(cpu)` per CPU | 64 / 64 | re-arms |
+| `physical_memory_test_and_clear_dirty()` | 64 / 64 | re-arms |
+
+A slow-path hook only fires when the TLB misses or carries a flag. Snapshot a
+*warm* guest — the firmware case — and every page's entry is already resident,
+so its stores take the fast path and the dirty list never fills. This is the
+third latent bug in the vendored code and the worst, because it yields a
+silently incomplete restore rather than a crash. (Consistent with the state of
+that code: `syx_snapshot_dirty_list_add_tcg_target()`, documented as being for
+generated code, is defined and never called; `cputlb.c:1750` carries LibAFL's
+own `// TODO: Does not work?`.)
+
+**QEMU's native bitmap does the job already.** Across every run it reported
+64/64 correctly — without the probe ever calling
+`memory_global_dirty_log_start()`. Under TCG it is maintained unconditionally
+(`cputlb.c:1087` arms `TLB_NOTDIRTY` on clean writable pages; `notdirty_write()`
+`:1336` sets VGA+MIGRATION via `DIRTY_CLIENTS_NOCODE` `:1352`). And it is
+**load-bearing for live migration, which works under TCG** — so its completeness
+is guaranteed by a maintained upstream feature rather than by a parallel
+reimplementation we would own.
+
+So for the RAM half: `physical_memory_test_and_clear_dirty()` at snapshot,
+query the bitmap at restore, restore those pages from the root copy. **No
+`cputlb.c` or `physmem.c` edits at all** — 7 upstream files becomes 5, and the
+two dropped are the two in the hottest path in TCG. The cost is nested /
+incremental snapshots, which a loop restoring repeatedly to one snapshot does
+not need; syx's hooks can be added later if they are ever wanted.
+
+The recommendation to port the **device** half is unchanged and strengthened —
+that half has no in-tree equivalent, which is exactly why it is worth importing.
 
 ## Findings on adjacent work
 
