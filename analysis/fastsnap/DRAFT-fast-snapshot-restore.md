@@ -17,8 +17,9 @@ new, and do not build it on `fork()`.**
 
 `syx-snapshot` (in `qemu-libafl-bridge`) is Nyx's device-state-in-a-block idea
 already carried across to full-system TCG, by people who had to make it work.
-It is 1,743 lines across four C files and four headers, and it touches exactly
-three upstream files to install its hooks. It is a port, not a research project.
+It is 1,743 lines across four C files and four headers. It is a port, not a
+research project — but see *Slice 0 findings* for what the port actually costs;
+the upstream-file footprint is larger than a first grep suggests.
 
 The three things it does are the three things this problem needs:
 
@@ -349,6 +350,58 @@ lane rather than inventing a second manifest if it has landed by then; if it has
 not, this requirement is still met some other way rather than deferred. Writing
 a draft that depends on an artifact a docstring merely promises would itself be
 an instance of the class this section is about.
+
+## Slice 0 findings — the port gate, run
+
+Full report and patches: `projects/fastsnap/slice0/` (`FINDINGS.md`,
+`port/*.patch`). Built out-of-worktree, so no third-party source sits in
+`penguin/` or `qemu/`.
+
+**The device half ports and round-trips.** `qemu-system-arm -M virt -m 128`:
+17 device sections, a **62 KB** block with RAM excluded, and a save → perturb →
+restore → save cycle that reproduces the original bytes. Controlled three ways:
+a positive control (perturb PL011 `UARTIMSC`, assert the block changed — proves
+`save()` sees device state at all), a **negative control** (stub
+`device_restore_all()` to `return;` and confirm the test reports FAILED — proves
+a no-op restore is detected), and an exit-code fix so a PASS does not also dump
+core.
+
+Three things the gate changed in this draft:
+
+1. **The port is 7 upstream files, not 3.** The earlier figure came from
+   grepping for `syx_snapshot` outside the syx directory, which finds only edits
+   that mention the string and misses de-static'ing and helper additions. The
+   device half alone needs `migration/savevm.c` (de-static `savevm_state` and
+   `vmstate_save`, hoist three typedefs), `migration/savevm.h`,
+   `io/channel-buffer.c` (`qio_channel_buffer_new_external` is a LibAFL
+   addition, not upstream) and `include/io/channel-buffer.h`. Two of those are
+   migration internals upstream keeps `static` deliberately.
+2. **`SaveStateEntry.is_ram` was removed in 11.x — and it never meant "is
+   RAM".** 9.1.1 set it for any handler with a `save_setup` op, i.e. every
+   iterative handler (`ram`, `dirty-bitmap`, `slirp`, `spapr/htab`, VFIO, s390).
+   The correct port is `se->ops && se->ops->save_setup`. **Matching on
+   `idstr == "ram"` would be wrong** and would silently pull live handlers into
+   the device block — here the obvious reading of the field name is the broken
+   one.
+3. **The vendored code carries two real memory bugs**, both of which would have
+   been imported silently: a 3-argument `extern` for a 4-argument
+   `vmstate_save` (uninitialised `Error **errp` on every call), and a double
+   free in `device_restore_all()` — `qio_channel_buffer_new_external()` borrows
+   the caller's buffer but upstream's finalizer frees it unconditionally.
+   The second was found by running the code, not reading it, and the first
+   passing round-trip was obtained while comparing against a buffer restore had
+   already freed. It passed by luck. **A passing test that reads freed memory
+   looks exactly like a passing test.**
+
+That last point is the strongest argument for the *maintenance* posture this
+draft already recommends: we would not be tracking upstream, we would be
+adopting and repairing. It is a real fork commitment — roughly a day of careful
+work for the device half, not a weekend — and it is still much cheaper than
+originating the mechanism.
+
+**Still unanswered: the RAM half**, where the actual win is. `cputlb.c`'s store
+paths changed shape between 9 and 11, and Slice 0 deliberately did not touch
+them.
 
 ## Findings on adjacent work
 
