@@ -35,7 +35,10 @@ The three things it does are the three things this problem needs:
 3. **Block writes into an in-memory COW cache** (`syx-cow-cache.c`), so the disk
    rolls back without touching the qcow2.
 
-Everything below is why, and what it costs.
+Everything below is why, and what it costs. **One finding does not depend on
+this recommendation at all** — that half the per-restore cost is invisible to
+the benchmark anyone would naturally run — and it has its own section, because
+it stays true if the port is rejected.
 
 ## What we are being asked for
 
@@ -94,10 +97,20 @@ zero pages. A linear fit gives roughly **~94 ms fixed + ~0.13 ms/MB**. The fixed
 ~94 ms — device traversal, qcow2 I/O, stop/resume — is the larger half at every
 realistic size, and it is precisely what "device state in a block" attacks.
 
-**Result 3 — the invisible cost is about as large as the visible one, and it is
-TCG-specific.** Every `loadvm` goes through `vm_stop(RUN_STATE_RESTORE_VM)`
+The stall is not the whole cost. The other half has its own section below,
+because it stands on its own.
+
+## Half the cost is invisible to a restore-latency benchmark
+
+**This finding is independent of the recommendation.** It holds whether or not
+we port anything, it is TCG-specific, and it changes how any future work in this
+area must be measured — so it should survive a decision to reject everything
+else in this draft.
+
+Every `loadvm` goes through `vm_stop(RUN_STATE_RESTORE_VM)`
 (`qemu/system/penguin.c:266`), and QEMU registers a vm-change-state handler that
-turns that state into a **full `tb_flush`**:
+turns that state into a **full `tb_flush`** — throwing away the entire
+translation cache:
 
 ```c
 /* qemu/accel/tcg/tcg-all.c:88 (handler registered at :147) */
@@ -132,10 +145,20 @@ rate (4338 Hz).
 
 **So the real per-iteration cost is roughly 300 ms, of which about half is
 invisible to the obvious benchmark.** At ~3 iterations/second, the faithful path
-is not a fuzzing loop. That is the number a fast path has to beat, and the
-`tb_flush` half of it is a second, independent reason to bypass
-`load_snapshot()` rather than optimise it: a mechanism that never enters
-`RUN_STATE_RESTORE_VM` keeps the translation cache warm for free.
+is not a fuzzing loop.
+
+Three consequences, in decreasing order of how long they outlive this draft:
+
+1. **Any future measurement in this area must measure throughput after the
+   restore, not just the restore.** A change that halves the stall and leaves
+   the flush in place buys ~25% of the real cost while appearing to buy 50%. The
+   obvious benchmark will report a win that the fuzzing loop does not feel.
+2. **It is a second, independent argument for bypass over optimise.** A
+   mechanism that never enters `RUN_STATE_RESTORE_VM` keeps the translation
+   cache warm *for free* — no work, just the absence of a state transition.
+   Optimising `load_snapshot()` cannot get this; replacing it does.
+3. **It is a reason to prefer many small restores over few large ones**, since
+   the flush cost is per-restore and independent of how much state changed.
 
 ## Why the faithful path is slow (mechanism, not speculation)
 
@@ -185,16 +208,21 @@ lifecycle is owned by the migration subsystem and enabled globally), or take
 syx's dedicated hooks. **Recommend syx's**, on the grounds that it is the one
 that has actually been made to work.
 
-## Do not build this on `fork()` — three verified obstacles
+## Do not build this on `fork()` — closed, on three verified obstacles
 
 Luke's phrasing was "fuzzing and or forking", so forkserver designs were priced
-first. All three obstacles below were checked in this fork, not assumed.
+first and are **declined**. All three obstacles were checked in this fork, not
+assumed. Obstacles 2 and 3 dissolve if the fast path runs with
+`plugins.vpn.enabled: false`, which Luke has sanctioned; **obstacle 1 does not,
+and is sufficient on its own.** In-process incremental restore avoids all three,
+and syx-snapshot is in-process — so *fast reset* delivers what *forking* was
+wanted for.
 
-**1. The process is multithreaded, with an embedded CPython in it.** Penguin
-does not run QEMU as a child process; it loads it as a library into the Python
-interpreter via CFFI (`qemu_compat.py` `run()` calls `lib.qemu_init()` then
-`lib.qemu_main_loop()`). Observed thread set of a live run, sampled from
-`/proc/<pid>/task/*/comm`:
+**1. The process is multithreaded, with an embedded CPython in it — the
+sufficient one.** Penguin does not run QEMU as a child process; it loads it as a
+library into the Python interpreter via CFFI (`qemu_compat.py` `run()` calls
+`lib.qemu_init()` then `lib.qemu_main_loop()`). Observed thread set of a live
+run, sampled from `/proc/<pid>/task/*/comm`:
 
 ```
 python3.13  call_rcu  python3.13  worker  CPU 0/TCG  worker  worker   (7 threads)
@@ -219,13 +247,6 @@ adds `vhost-user-vsock-pci,chardev=char0`, served by a `vhost-device-vsock`
 process spawned by `pyplugins/actuation/vpn.py:321`. `fork()` duplicates QEMU
 and not the backend, so every child would share one backend with one device
 state.
-
-Obstacles 2 and 3 dissolve if the fast path runs with `plugins.vpn.enabled:
-false` — which Luke has sanctioned. **Obstacle 1 does not dissolve**, and it is
-by itself sufficient. In-process incremental restore avoids all three, and
-syx-snapshot is in-process. This is the main place where the draft declines
-part of the brief: *forking* is the wrong mechanism here, *fast reset* is the
-right one, and syx gives the second without the first.
 
 ## What the fast path abandons, and what it keeps
 
@@ -270,6 +291,17 @@ decision, not an omission.
    `include/exec/ram_addr.h` → `include/system/ram_addr.h`) and the `cputlb`
    store paths have changed shape. Hook edits land in three upstream files
    (`accel/tcg/cputlb.c`, `system/physmem.c`, `block/block-backend.c`).
+
+   **Provenance is a hard requirement, because `rehosting/qemu` is public.**
+   Record the exact upstream commit the port was taken from; keep the original
+   license headers intact; add a file-level note saying where each file came
+   from. Never strip attribution to make imported code look native, even though
+   we intend to maintain it as ours thereafter — *ours to modify, theirs to
+   credit.* Both trees are GPL-2.0, so no compatibility problem is expected, but
+   the PR body should **state that explicitly** rather than leave a reviewer to
+   infer it. Whether to import third-party code into a public repo at all is a
+   provenance and licensing decision, not an architectural one; it is Luke's
+   call, not this draft's.
 3. **Host side**: a `core.fastsnap` config section and a `FastSnap` pyplugin
    exposing `take()` / `restore()`, refusing to load unless `vpn.enabled` is
    false, and hard-failing (not warning) if the symbols are absent.
@@ -299,11 +331,24 @@ So the fast path must record, in the run's artifacts and not in a log line:
 - that host-side plugin state was not carried across resets;
 - the reset count, so throughput claims are checkable after the fact.
 
-`run_manifest.yaml` is the natural vehicle. **Referent warning:** it is
-described in `src/penguin/run_summary.py:44` as the sibling of `summary.json`,
-but grep finds no writer for it anywhere in the tree at `16d112ea` — it is the
-`scoregate` lane's in-flight work, not a landed artifact. Coordinate with that
-lane rather than inventing a second manifest, and do not assume it exists.
+**The requirement is the artifact, not any particular file.** A later reader,
+who was not present when the run was launched and does not know which mode was
+chosen, must be able to establish from the run's own output that this was a
+reduced-fidelity run and what it gave up. Any vehicle that satisfies that is
+acceptable; a log line is not one, because scrollback is not an artifact.
+
+The requirement lands **in the same slice as the mode**, never after it. A fast
+path that ships one release ahead of its own disclosure is the defect, not a
+step towards fixing it.
+
+*Note on a likely home, not a dependency:* `run_manifest.yaml` would be the
+natural place once it exists. It is described in `src/penguin/run_summary.py:44`
+as the sibling of `summary.json`, but **grep finds no writer for it anywhere at
+`16d112ea`** — it is the `scoregate` lane's in-flight work. Coordinate with that
+lane rather than inventing a second manifest if it has landed by then; if it has
+not, this requirement is still met some other way rather than deferred. Writing
+a draft that depends on an artifact a docstring merely promises would itself be
+an instance of the class this section is about.
 
 ## Findings on adjacent work
 
