@@ -438,15 +438,18 @@ class RunOnBind(Plugin):
 
         for mode, cmd in self._flat_commands:
             if mode == "host":
+                cmd = self._apply_host_port(cmd, host_port)
                 ok = self._run_host_command(cmd, guest_endpoint, host_port)
             else:
                 ok = self._run_guest_command(cmd, guest_endpoint)
-            (succeeded if ok else failed).append(cmd)
+            (succeeded if ok else failed).append((mode, cmd))
 
         self.logger.info(
             f"{len(succeeded)}/{len(self._flat_commands)} command(s) succeeded for {guest_endpoint}")
         if failed:
-            self.logger.info(f"Command(s) that did not succeed: {failed}")
+            self.logger.info(f"{len(failed)} command(s) did not succeed:")
+            for failed_mode, failed_cmd in failed:
+                self.logger.info(f"  [mode: {failed_mode}] {failed_cmd}")
 
         return bool(succeeded)
 
@@ -479,12 +482,12 @@ class RunOnBind(Plugin):
         """
         Run a single command on the host, rooted at the resolved project directory.
 
-        The mapped host port is substituted for `{host_port}` and exported as
-        `PENGUIN_HOST_PORT`, since the VPN plugin picks it at bind time and the user has no
-        way to write it into their config.
+        Args:
+            cmd (str): Command with `{host_port}` already resolved by the caller.
+            guest_endpoint (str): Endpoint that triggered this run, for the artifact.
+            host_port (int): Mapped port, exported as `PENGUIN_HOST_PORT` for commands
+                that would rather read the environment than interpolate the placeholder.
         """
-        cmd = self._apply_host_port(cmd, host_port)
-
         env = dict(os.environ)
         env[HOST_PORT_ENV_VAR] = str(host_port)
 
@@ -535,6 +538,10 @@ class RunOnBind(Plugin):
     def _apply_host_port(self, cmd: str, host_port: int) -> str:
         """
         Replace the `{host_port}` placeholder in a host command with the mapped port.
+
+        Called once per command before dispatch, so every mention of the command
+        downstream -- logs, the success/failure summary, the output artifact -- shows the
+        port it really used rather than the placeholder.
 
         A literal replace rather than `str.format`, so shell and awk braces in a
         command pass through untouched.
