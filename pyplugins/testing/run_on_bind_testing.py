@@ -19,6 +19,11 @@ Arguments:
         Relative paths resolve against penguin's `proj_dir`, which is the working
         directory run_on_bind gives host commands, so a command writing 'hello.txt'
         lands where this plugin looks for it.
+    - host_marker_min_size (int, optional): Bytes `host_marker` must hold to count as
+        passing. Defaults to 1, so a truncated marker fails -- a command like
+        `wget -q -O out.txt <url>` leaves a 0-byte file behind when it errors out, and an
+        existence-only check would call that a pass. Set to 0 when the marker is a
+        `touch`-style success flag with no content.
     - output_contains (list[str], optional): Strings expected in run_on_bind_output.txt.
         Example: ['root', 'uid=0']
     - wait_timeout (int, optional): Seconds to wait for each expected file to appear
@@ -37,6 +42,7 @@ from penguin import Plugin
 OUTPUT_FILENAME = "run_on_bind_output.txt"
 RESULTS_FILENAME = "run_on_bind_test.txt"
 DEFAULT_WAIT_TIMEOUT = 30
+DEFAULT_MARKER_MIN_SIZE = 1
 
 
 class RunOnBindTest(Plugin):
@@ -50,6 +56,13 @@ class RunOnBindTest(Plugin):
 
         if not all(isinstance(entry, str) for entry in self.output_contains):
             raise ValueError("output_contains must contain only strings.")
+
+        min_size = self.get_arg("host_marker_min_size")
+        self.host_marker_min_size = (
+            DEFAULT_MARKER_MIN_SIZE if min_size is None else int(min_size))
+
+        if self.host_marker_min_size < 0:
+            raise ValueError("host_marker_min_size must not be negative.")
 
         self.wait_timeout = int(self.get_arg("wait_timeout") or DEFAULT_WAIT_TIMEOUT)
 
@@ -71,27 +84,51 @@ class RunOnBindTest(Plugin):
 
         return join(self.get_arg("proj_dir") or os.getcwd(), marker)
 
-    def _wait_for(self, path):
-        """Poll for a path until it exists or wait_timeout elapses."""
+    def _wait_for(self, path, min_size=0):
+        """
+        Poll for a path until it holds at least `min_size` bytes or wait_timeout elapses.
+
+        A file can appear before the command writing it is finished, so size is polled
+        alongside existence rather than sampled once the path shows up.
+        """
         deadline = time.time() + self.wait_timeout
-        while time.time() < deadline:
-            if exists(path):
+        while True:
+            if self._satisfies(path, min_size):
                 return True
+            if time.time() >= deadline:
+                return False
             time.sleep(1)
-        return exists(path)
+
+    @staticmethod
+    def _satisfies(path, min_size):
+        try:
+            return os.path.getsize(path) >= min_size
+        except OSError:
+            return False
 
     def _check_marker(self, f):
         marker_path = self._resolve_marker_path()
-        self.logger.info(f"RunOnBindTest: checking for host marker at {marker_path}")
+        min_size = self.host_marker_min_size
+        self.logger.info(
+            f"RunOnBindTest: checking for host marker at {marker_path} "
+            f"(min size {min_size} bytes)")
 
-        if self._wait_for(marker_path):
+        if self._wait_for(marker_path, min_size):
             self.logger.info("RunOnBindTest: host marker passed")
             f.write("host_marker: passed\n")
-        else:
+        elif not exists(marker_path):
             self.logger.error(
                 f"RunOnBindTest: host marker failed - not found at {marker_path} "
                 f"after {self.wait_timeout}s")
-            f.write("host_marker: failed\n")
+            f.write("host_marker: failed (not found)\n")
+        else:
+            size = os.path.getsize(marker_path)
+            self.logger.error(
+                f"RunOnBindTest: host marker failed - {marker_path} holds {size} bytes, "
+                f"expected at least {min_size} after {self.wait_timeout}s")
+            f.write(
+                f"host_marker: failed (too small: {size} bytes, "
+                f"expected >= {min_size})\n")
 
     def _check_output_contains(self, f):
         output_file = join(self.outdir, OUTPUT_FILENAME)
