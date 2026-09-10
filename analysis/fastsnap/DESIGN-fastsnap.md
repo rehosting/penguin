@@ -112,15 +112,17 @@ not a QEMU constraint (`tests/qtest/fuzz/fuzz.c:232` calls
 
 ### Projected exec/s per use case
 
-Reset is measured; guest work is from the measured 117 MIPS; the sum is
-arithmetic.
+Reset is measured; guest work is from the measured **230 MIPS** (uninstrumented
+— see the correction below); the sum is arithmetic. **Reset is now 56–81% of an
+iteration**, which is what makes Tier 1 worth the audit it requires.
 
 | use case | working set | reset | guest | exec/s |
 |---|---|---|---|---|
-| A. packet parse, 10k insn | 16–256 pages | 0.056–0.18 (T1, vCPU-thread) | 0.09 | **3,700–6,850** |
-| A. same, main-loop driven | 16–256 pages | 0.10–0.22 | 0.09 | 3,200–5,200 |
+| A. packet parse, 10k insn | 16–256 pages | 0.056–0.18 (T1, vCPU-thread) | 0.043 | **4,500–10,100** |
+| A. same, with drcov-class coverage | 16–256 pages | 0.056–0.18 | 0.071 | 4,000–7,900 |
+| A. same, main-loop driven | 16–256 pages | 0.10–0.22 | 0.043 | 3,800–7,000 |
 | A. packet parse, 10k insn | 16–256 pages | 0.78–0.89 (T0) | 0.09 | ~1,100 |
-| A. deeper parse, 100k insn | 1,024 pages | 0.48 (T1) | 0.85 | ~750 |
+| A. deeper parse, 100k insn | 1,024 pages | 0.48 (T1) | 0.43 | ~1,100 |
 | B. device-model inference | any | 0.8 (T0) | ~0 | ~1,000, vs a 20–30 s reboot |
 | C. snapshot-and-poke | 16–256 pages | 0.05–0.9 | — | 0.05–0.9 ms round trip, vs ~250 ms |
 
@@ -192,6 +194,113 @@ measured against a bare `ffi.callback`. Penguin's actual pyplugin dispatch adds
 a plugin-manager hop and argument marshalling on top. Even at 50x it is 0.03 ms
 — comparable to reset, not dominant — but it is unmeasured in penguin proper
 and worth confirming there.
+
+## End states, coverage, and the crash collection
+
+A reset loop is not a fuzzer. Three things have to exist around it, and each
+has a design consequence that the reset numbers do not show.
+
+### Correction: TCG runs at ~230 MIPS, not 117
+
+The 117 MIPS in `THROUGHPUT.md` was measured **with `libinsn` loaded** — a
+per-instruction callback plugin, which this section now measures at 2.4x. The
+uninstrumented figure on the same payload (262 instructions/lap, verified from
+the disassembly) is **~230 MIPS**, so guest work was overstated by 2x
+throughout. A 10k-instruction parse is **0.043 ms**, not 0.09 ms — which makes
+reset the dominant term in an iteration, not a co-equal one.
+
+### Coverage is nearly free, if it is inline
+
+| configuration | MIPS | vs baseline |
+|---|---|---|
+| no plugin | 233.7 | — |
+| `empty.so` (plugin loaded, no instrumentation) | 235.8 | **100%** |
+| `hotblocks.so,inline=true` (per-TB inline counter) | 234.6 | **100%** |
+| `bb.so` (per-TB callback) | 210.4 | 94% |
+| `drcov.so` (per-TB callback + bookkeeping) | 135.8 | **61%** |
+| `libinsn.so,inline=on` (per-insn inline) | 194.0 | 87% |
+
+Three rules fall out. **Loading a plugin costs nothing** — the tax is
+instrumentation, not infrastructure. **Per-TB inline counters cost nothing
+measurable**, so an AFL-style bitmap written by inline TCG ops is free.
+**Callbacks are what cost**: 6% for a bare per-TB callback, 1.64x once it does
+real bookkeeping. `drcov`'s 1.64x is the price of a callback implementation,
+not the price of coverage.
+
+Caveat: AFL *edge* coverage needs `map[prev ^ cur]++` with a running `prev`,
+which QEMU's inline-op API cannot express — it adds a constant to a fixed
+address. So block coverage is free; edge coverage needs either the ~6% callback
+or TCG ops generated in the fork, as LibAFL's bridge does. Block coverage is
+weaker but is the cheaper starting point.
+
+**Two traps specific to snapshot fuzzing.** The coverage map must live in
+**host** memory: put it in guest RAM and every reset restores it, silently
+discarding all coverage. And plugins load at QEMU **startup**, so unlike reset,
+coverage is a launch-time choice rather than an arbitrary-point arm — R4 holds
+for reset but not for coverage. R5 survives, because an ordinary run simply
+does not load the plugin.
+
+### End states
+
+An iteration terminates in exactly one of:
+
+1. **Normal** — the guest reaches the end-of-iteration hypercall.
+2. **Target crash** — a fatal signal is delivered. `pyplugins/analysis/crashes.py`
+   already detects this through the igloo_driver signal hooks and de-duplicates
+   on `(proc, signal, pc)`; it fires only on fatal-class signals, so it is off
+   the hot path.
+3. **Kernel panic** — recoverable by reset (RAM and devices are restored) but
+   expensive: the panic path runs and writes to the console first.
+4. **Timeout / hang** — the guest never reaches the hypercall.
+5. **Unmodeled device access** — dispatches to a `hyperfile.py` handler. For
+   use case B this is the *interesting* state, not a failure.
+
+**The ordering rule: detect before you reset.** The reset erases the evidence —
+that is the point of persistent-mode fuzzing, but it means the end state has to
+be captured in the same handler invocation, before `restore()` runs.
+
+**The watchdog should be an instruction budget, not a wall clock.** You are
+already paying for a plugin, and a wall-clock timeout makes the same input
+sometimes-hang, which puts non-reproducible entries in the collection.
+
+### What a "crashing program" is here
+
+There isn't one. Nothing survives the reset, so the artifact is not a process or
+a core — it is:
+
+```
+(snapshot identity, input bytes)  ->  end state
+```
+
+Reproduction is: restore the snapshot, write the input, run. So a collection
+entry needs the snapshot tag and fingerprint (penguin already fingerprints
+snapshots), the input bytes, the observed end state, and — the field that
+matters most — a **reproduction status**.
+
+**This is where Tier 1 bites.** If the allowlist omitted a device section that
+mattered, a saved input may not reproduce, and you cannot distinguish a flaky
+bug from a broken harness. A crash collection quietly accumulating
+non-reproducible entries is the worst failure mode a fuzzer has.
+
+The rule that follows is cheap because crashes are rare: **fuzz at Tier 1,
+triage at Tier 0.** When a crash fires, re-run it from a full device restore
+before it enters the collection. That both confirms the finding and makes the
+allowlist's soundness continuously checked by the consumer that cares most — it
+is the Tier 1 audit, attached to the event rather than to a sampling interval.
+
+### Integration gaps in `crashes.py`
+
+Real, and none of them blockers:
+
+- `time` is host wall-clock since emulation start. Under reset, guest time is
+  restored every iteration, so this identifies nothing. It needs an
+  iteration/input id instead.
+- `count` de-duplicates across iterations, so it will merge crashes produced by
+  *different inputs*. A fuzzer wants the first reproducing input kept per
+  bucket, not a tally.
+- Documented already: it records signal **deliveries, not terminations**. A
+  process that catches SIGSEGV and survives is still recorded — a
+  false-positive source when the plugin is used as a fuzzing oracle.
 
 ## What it abandons
 
