@@ -1,0 +1,53 @@
+{
+  "target": "stridelinx (rehosting/examples, public)",
+  "ram_block": "mach-virt.ram",
+  "ram_mb": 2048,
+  "us_per_page": 0.42,
+  "controls": {
+    "bql_was_held_in_on_ready": false,
+    "arm_ok": true,
+    "positive_pages": 41
+  },
+  "windows": {
+    "1": {
+      "samples": 50,
+      "pages_median": 51.5,
+      "pages_min": 20,
+      "pages_max": 138,
+      "elapsed_ms_median": 1.2589630205184221,
+      "ram_term_ms": 0.02163
+    },
+    "5": {
+      "samples": 50,
+      "pages_median": 80.5,
+      "pages_min": 39,
+      "pages_max": 173,
+      "elapsed_ms_median": 5.172555102035403,
+      "ram_term_ms": 0.03381
+    },
+    "25": {
+      "samples": 50,
+      "pages_median": 176.0,
+      "pages_min": 67,
+      "pages_max": 254,
+      "elapsed_ms_median": 25.2190085593611,
+      "ram_term_ms": 0.07392
+    },
+    "100": {
+      "samples": 50,
+      "pages_median": 235.5,
+      "pages_min": 175,
+      "pages_max": 390,
+      "elapsed_ms_median": 100.41404806543142,
+      "ram_term_ms": 0.09891
+    },
+    "500": {
+      "samples": 50,
+      "pages_median": 302.5,
+      "pages_min": 217,
+      "pages_max": 1438,
+      "elapsed_ms_median": 500.29141642153263,
+      "ram_term_ms": 0.12705
+    }
+  }
+}
