@@ -1,0 +1,30 @@
+[32m02:18:41[0m [34mpenguin[0m [1;30mINFO[0m penguin v3.1.14
+[32m02:18:41[0m [34mpenguin[0m [1;30mINFO[0m Running project [1;34m/host_fs[0m with config [1;34m/config.yaml[0m
+[32m02:18:41[0m [34mpenguin[0m [1;30mINFO[0m Saving results to [1;34m/host_fs/results/0[0m
+[32m02:18:41[0m [34mpenguin[0m [1;30mINFO[0m Note messages referencing [1;34m/host[0m paths reflect automatically-mapped shared directories based on your command line arguments
+[32m02:18:42[0m [34mpenguin.runner[0m [1;30mINFO[0m Using pre-resolved kernel: [1;34m/igloo_static/kernels/4.10/zImage.armel[0m
+[32m02:18:42[0m [34mconfig[0m [1;30mINFO[0m conflict: core_shell: `false` → `true` (base_config -> manual.yaml)
+[32m02:18:42[0m [34mconfig[0m [1;30mINFO[0m conflict: plugins.vpn.enabled: `true` → `false` (manual.yaml -> patch_speed.yaml)
+[32m02:18:42[0m [34mconfig[0m [1;30mINFO[0m conflict: env.igloo_init: `UNKNOWN_FIX_ME` → `[1;34m/speed.sh`[0m (base.yaml -> patch_speed.yaml)
+[32m02:18:43[0m [34mpenguin.gen_image[0m [1;30mINFO[0m Baking tool closure [1;34m/igloo_static/closures/armel/closure.tar.gz[0m into the base image
+[32m02:18:48[0m [34mpenguin.runner[0m [1;30mINFO[0m Logging console output to [1;34m/host_fs/results/0/console.log[0m
+[32m02:18:48[0m [34mpenguin.runner[0m [1;30mINFO[0m Using qemu execution mode for armel
+[32m02:18:48[0m [34mpenguin.runner[0m [1;30mINFO[0m Loading plugins
+[32m02:18:49[0m [34mplugins.core[0m [1;30mINFO[0m Root shell will be available at: [1;32m192.168.235.2:23[0m
+[32m02:18:49[0m [34mplugins.core[0m [1;30mINFO[0m Connect with: telnet 192.168.235.2
+[32m02:18:49[0m [34mplugins.nvram2[0m [1;30mINFO[0m logging nvram accesses: True
+[32m02:18:50[0m [34mpenguin.runner[0m [1;30mINFO[0m Launching rehosting
+[32m02:18:50[0m [34mpyplugins.qemu_compat[0m [1;30mINFO[0m QEMU starting main loop from [1;34m/usr/local/lib/libqemu-system-armel.so[0m
+[32m02:18:56[0m [34mplugins.netdevs[0m [1;30mINFO[0m Failed to register netdev 'eth0' (kernel returned 0)
+[32m02:18:57[0m [34mplugins.live_image[0m [1;30mINFO[0m Staged tool wrappers for armel (closure baked into base image): gdb, gdbserver, iptables, iptables-legacy, ltrace, python3, strace
+[32m02:18:57[0m [34mplugins.live_image[0m [1;30mINFO[0m Creating filesystem tarball at [1;34m/tmp/tmpft3khhua/filesystem.tar...[0m
+[32m02:18:57[0m [34mplugins.live_image[0m [1;30mINFO[0m Filesystem tarball created at [1;34m/tmp/tmpft3khhua/filesystem.tar[0m
+Creating new SQLite index database at :memory:
+Creating offset dictionary for /host_fs/./base/fs.tar.gz ...
+Creating offset dictionary for /host_fs/./base/fs.tar.gz took 0.00s
+Creating new SQLite index database at /host_fs/./base/fs.tar.gz.index.sqlite
+Writing out TAR index to /host_fs/./base/fs.tar.gz.index.sqlite took 0s and is sized 45056 B
+READY guest=192.168.235.2 shell=telnet 192.168.235.2 23 results=/host_fs/results/0
+[32m02:19:01[0m [34mplugins.readiness[0m [1;30mINFO[0m READY guest=192.168.235.2 shell=telnet 192.168.235.2 23 results=[1;34m/host_fs/results/0[0m
+[32m02:20:49[0m [34mplugins.core[0m [1;30mWARNING[0m [33mShutdown thread: execution timed out after 120s - shutting down guest[0m
+[32m02:20:52[0m [34mpenguin.run_manager[0m [1;30mINFO[0m Emulation finishes after 130.48 seconds with return code 0 for [1;34m/host_fs/config.yaml[0m

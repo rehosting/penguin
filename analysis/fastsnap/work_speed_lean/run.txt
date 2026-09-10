@@ -1,0 +1,26 @@
+[32m02:27:58[0m [34mpenguin[0m [1;30mINFO[0m penguin v3.1.14
+[32m02:27:58[0m [34mpenguin[0m [1;30mINFO[0m Running project [1;34m/host_fs[0m with config [1;34m/config.yaml[0m
+[32m02:27:58[0m [34mpenguin[0m [1;30mINFO[0m Saving results to [1;34m/host_fs/results/0[0m
+[32m02:27:58[0m [34mpenguin[0m [1;30mINFO[0m Note messages referencing [1;34m/host[0m paths reflect automatically-mapped shared directories based on your command line arguments
+[32m02:27:59[0m [34mpenguin.runner[0m [1;30mINFO[0m Using pre-resolved kernel: [1;34m/igloo_static/kernels/4.10/zImage.armel[0m
+[32m02:27:59[0m [34mconfig[0m [1;30mINFO[0m conflict: core_shell: `false` → `true` (base_config -> manual.yaml)
+[32m02:27:59[0m [34mconfig[0m [1;30mINFO[0m conflict: env.igloo_init: `UNKNOWN_FIX_ME` → `[1;34m/speed.sh`[0m (base.yaml -> patch_speed.yaml)
+[32m02:27:59[0m [34mconfig[0m [1;30mINFO[0m conflict: plugins.netbinds.enabled: `true` → `false` (manual.yaml -> patch_speed.yaml)
+[32m02:27:59[0m [34mconfig[0m [1;30mINFO[0m conflict: plugins.vpn.enabled: `true` → `false` (manual.yaml -> patch_speed.yaml)
+[32m02:28:00[0m [34mpenguin.gen_image[0m [1;30mINFO[0m Baking tool closure [1;34m/igloo_static/closures/armel/closure.tar.gz[0m into the base image
+[32m02:28:05[0m [34mpenguin.runner[0m [1;30mINFO[0m Logging console output to [1;34m/host_fs/results/0/console.log[0m
+[32m02:28:05[0m [34mpenguin.runner[0m [1;30mINFO[0m Using qemu execution mode for armel
+[32m02:28:05[0m [34mpenguin.runner[0m [1;30mINFO[0m Loading plugins
+[32m02:28:06[0m [34mplugins.core[0m [1;30mINFO[0m Root shell will be available at: [1;32m192.168.224.2:23[0m
+[32m02:28:06[0m [34mplugins.core[0m [1;30mINFO[0m Connect with: telnet 192.168.224.2
+[32m02:28:06[0m [34mpenguin.runner[0m [1;30mINFO[0m Launching rehosting
+[32m02:28:06[0m [34mpyplugins.qemu_compat[0m [1;30mINFO[0m QEMU starting main loop from [1;34m/usr/local/lib/libqemu-system-armel.so[0m
+[32m02:28:12[0m [34mplugins.netdevs[0m [1;30mINFO[0m Failed to register netdev 'eth0' (kernel returned 0)
+[32m02:28:12[0m [34mplugins.live_image[0m [1;30mINFO[0m Staged tool wrappers for armel (closure baked into base image): gdb, gdbserver, iptables, iptables-legacy, ltrace, python3, strace
+[32m02:28:12[0m [34mplugins.live_image[0m [1;30mINFO[0m Creating filesystem tarball at [1;34m/tmp/tmpc75w_iuh/filesystem.tar...[0m
+[32m02:28:12[0m [34mplugins.live_image[0m [1;30mINFO[0m Filesystem tarball created at [1;34m/tmp/tmpc75w_iuh/filesystem.tar[0m
+READY guest=192.168.224.2 shell=telnet 192.168.224.2 23 results=/host_fs/results/0
+[32m02:28:15[0m [34mplugins.readiness[0m [1;30mINFO[0m READY guest=192.168.224.2 shell=telnet 192.168.224.2 23 results=[1;34m/host_fs/results/0[0m
+[32m02:30:06[0m [34mplugins.core[0m [1;30mWARNING[0m [33mShutdown thread: execution timed out after 120s - shutting down guest[0m
+[32m02:30:08[0m [34mpenguin.run_manager[0m [1;30mINFO[0m Emulation finishes after 130.14 seconds with return code 0 for [1;34m/host_fs/config.yaml[0m
+[32m02:30:08[0m [34mpenguin.manager.calculate_score[0m [1;30mWARNING[0m [33m[1;34m/host_fs/results/0/health_final.yaml[0m not found - health scores will be 0.[0m

@@ -1,0 +1,11 @@
+[32m02:27:53[0m [34mpenguin[0m [1;30mINFO[0m penguin v3.1.14
+[32m02:27:53[0m [34mpenguin[0m [1;30mINFO[0m Note messages referencing [1;34m/host[0m paths reflect automatically-mapped shared directories based on your command line arguments
+[32m02:27:53[0m [34mpenguin[0m [1;30mINFO[0m Creating project at generated path: [1;34m/host_projects/fs[0m
+[32m02:27:54[0m [34mpenguin.gen_config[0m [1;30mINFO[0m Generating new configuration for [1;34m/host_work_speed_lean/fs.tar.gz...[0m
+[32m02:27:55[0m [34mpenguin.init.base_patch[0m [1;30mWARNING[0m [33mFailed to find any init programs - config will need manual refinement[0m
+[32m02:27:55[0m [34mpenguin.init_runner[0m [1;30mINFO[0m root_shell patch generated but disabled
+[32m02:27:55[0m [34mpenguin.init_runner[0m [1;30mINFO[0m auto_explore patch generated but disabled
+[32m02:27:55[0m [34mpenguin.init_runner[0m [1;30mINFO[0m single_shot_ficd patch generated but disabled
+[32m02:27:55[0m [34mpenguin.init_runner[0m [1;30mINFO[0m single_shot patch generated but disabled
+[32m02:27:55[0m [34mpenguin.init_runner[0m [1;30mINFO[0m lib_inject.fixed_models patch generated but disabled
+[32m02:27:55[0m [34mpenguin[0m [1;30mINFO[0m Generated config at [1;34m/host_projects/fs/config.yaml[0m
