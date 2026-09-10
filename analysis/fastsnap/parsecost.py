@@ -26,6 +26,8 @@ cannot measure G and says so rather than reporting a number.
 
 import json
 import os
+import cProfile
+import pstats
 import statistics
 import time
 
@@ -67,6 +69,25 @@ class ParseCost(Plugin):
                 f"({len(raw)} -> {len(self.syms)} after dedupe)")
         self.target = self.get_arg("target") or TARGET
         self.samples = {n: [] for n in self.syms}
+        # Host-Python time spent INSIDE each callback body. The bracketed
+        # interval contains this plus the guest trap, the kernel uprobe
+        # handler, the hypercall and the portal transport; timing the body
+        # from within itself is the only one of those terms observable from
+        # here, and it is the one that decides whether "Python is slow" is
+        # the right diagnosis.
+        self.py_ms = {n: [] for n in self.syms}
+        # Whole host-side span: from the uprobe dispatcher's entry through the
+        # end of this callback's body. Covers dispatch + portal generator
+        # driving + body -- i.e. everything a C fast path would replace.
+        self.host_span_ms = []
+        # In-process profiler. py-spy cannot attach here: the penguin process
+        # runs under dockerd, ptrace_scope=1 restricts ptrace to descendants,
+        # and there is no passwordless sudo on this host. Enabling cProfile
+        # from INSIDE the first callback guarantees it lands on the thread the
+        # portal drives callbacks on, which a plugin-init enable would not.
+        self.profile_events = int(self.get_arg("profile_events") or 0)
+        self._prof = None
+        self._prof_n = 0
         self._open = {n: {} for n in self.syms}
         self.resolved = {}
 
@@ -95,18 +116,54 @@ class ParseCost(Plugin):
 
     def _mk_enter(self, name):
         def enter(*args, **kwargs):
-            self._open[name][id(args)] = time.time()
-            self._open[name]["last"] = time.time()
+            self._maybe_profile()
+            t0 = time.perf_counter()
+            now = time.time()
+            self._open[name][id(args)] = now
+            self._open[name]["last"] = now
+            end = time.perf_counter()
+            self.py_ms[name].append((end - t0) * 1000.0)
+            self.host_span_ms.append(
+                (end - plugins.uprobes.t_dispatch_start) * 1000.0)
             return
             yield
         enter.__name__ = f"enter_{name}"
         return enter
 
+    def _maybe_profile(self):
+        if not self.profile_events:
+            return
+        if self._prof is None:
+            self._prof = cProfile.Profile()
+            self._prof.enable()
+            self.logger.info(
+                f"parsecost: cProfile enabled on the callback thread for "
+                f"{self.profile_events} events")
+        self._prof_n += 1
+        if self._prof_n == self.profile_events:
+            self._prof.disable()
+            if self.outdir:
+                path = os.path.join(self.outdir, "parsecost.prof")
+                self._prof.dump_stats(path)
+                st = pstats.Stats(self._prof)
+                st.sort_stats("cumulative")
+                with open(os.path.join(self.outdir,
+                                       "parsecost.prof.txt"), "w") as fh:
+                    st.stream = fh
+                    st.print_stats(45)
+                self.logger.info(f"parsecost: wrote {path}")
+
     def _mk_return(self, name):
         def ret(*args, **kwargs):
+            p0 = time.perf_counter()
+            tin = time.time()
             t0 = self._open[name].pop("last", None)
             if t0 is not None:
-                self.samples[name].append((time.time() - t0) * 1000.0)
+                self.samples[name].append((tin - t0) * 1000.0)
+            end = time.perf_counter()
+            self.py_ms[name].append((end - p0) * 1000.0)
+            self.host_span_ms.append(
+                (end - plugins.uprobes.t_dispatch_start) * 1000.0)
             return
             yield
         ret.__name__ = f"ret_{name}"
@@ -122,14 +179,42 @@ class ParseCost(Plugin):
                     "p90_ms": v[min(len(v) - 1, 9 * len(v) // 10)]}
 
         allstats = {n: stats(self.samples[n]) for n in self.syms}
+        pystats = {n: stats(self.py_ms[n]) for n in self.syms}
         self.logger.info("parsecost: RESULTS")
         for n, st in allstats.items():
             tag = " <- target" if n == self.target else " <- overhead control"
             self.logger.info(f"  {n}: {st}{tag}")
 
+        # Host-side total per dispatch, from the uprobes dispatcher itself.
+        # This is the number that decides whether a C fast path helps: it is
+        # everything that would move out of Python, against a probe round trip
+        # whose remainder is guest trap + kernel uprobe handler + hypercall.
+        disp = None
+        try:
+            disp = stats(list(plugins.uprobes.body_ms))
+        except Exception as e:                      # noqa: BLE001
+            self.logger.warning(f"parsecost: no dispatch timing available: {e}")
+        span = stats(self.host_span_ms)
+        if span:
+            self.logger.info(
+                f"  HOST-SIDE SPAN (dispatch -> end of callback): median "
+                f"{span['median_ms']:.5f} ms (n={span['n']})")
+        if disp:
+            self.logger.info(
+                f"  host-side GENERATOR BODY: median "
+                f"{disp['median_ms']:.4f} ms (n={disp['n']})")
+
+        for n, st in pystats.items():
+            if st:
+                self.logger.info(
+                    f"  python-in-callback {n}: median {st['median_ms']:.4f} ms "
+                    f"(n={st['n']})")
+
         out = {"path": self.path, "target": self.target,
                "symbols": self.syms, "resolved": self.resolved,
-               "stats": allstats, "G_ms": None}
+               "stats": allstats, "python_in_callback": pystats,
+               "host_body_ms": disp, "host_side_span": span,
+               "G_ms": None}
 
         tgt = allstats.get(self.target)
         ctls = {n: st for n, st in allstats.items()

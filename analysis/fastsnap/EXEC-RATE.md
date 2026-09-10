@@ -109,16 +109,28 @@ usable fuzzer.
 
 ## The finding that changes the design
 
-**The iteration loop cannot live in a pyplugin.** The portal round trip is
-0.255 ms -- more than twice G, and 58% of the total budget of a
-Python-driven iteration. Driving injection and restore from host Python caps
-the design at ~2,300 exec/s no matter how fast reset becomes; moving the same
-loop into the emulator reaches ~5,500.
+> **Superseded by `PROFILE.md`.** This section originally read "the iteration
+> loop cannot live in a pyplugin", on the premise that the 0.255 ms probe cost
+> was the portal. It is not. Profiling puts host-side Python at 86 us of the
+> 262 us round trip (~31%); the remaining ~176 us is the guest trap, kernel
+> uprobe handler and hypercall executing as emulated ARM. The corrected
+> conclusion is below.
 
-This was not obvious in advance and it is cheap to get wrong: the pyplugin API
-is the natural place to write a fuzz harness, and it is the wrong place.
-Python may *arm* the loop and collect its results, but the per-iteration path
--- fill the buffer, run, observe, restore -- has to be C inside QEMU.
+**Avoid a guest trap per iteration -- the trap, not the language.** Of a
+262 us probe round trip, ~176 us is guest-side and ~86 us is host-side Python,
+two thirds of which is dwarffi typed-struct marshalling of `portal_event` and
+`pt_regs` (`PROFILE.md`). So:
+
+- Stripping the marshalling layer is worth ~57 us: 2,374 -> ~2,750 exec/s.
+- Removing the guest trap entirely -- a snapshot restore that resumes with PC
+  already at the injection point, rather than a breakpoint -- is worth ~176 us:
+  -> ~5,525 exec/s.
+
+Python may arm the loop, resolve symbols, own the corpus and collect results,
+and hand the per-iteration struct read and buffer write to a C helper. That is
+a reasonable architecture and it does not require a QEMU fork. What does not
+scale is taking a guest breakpoint, kernel uprobe handler and XOL single-step
+on every iteration under TCG.
 
 The measured persistent loop puts a number on the gap: of its 0.421 ms lap,
 0.310 ms (74%) is portal round trip plus `pt_regs` writeback, and only

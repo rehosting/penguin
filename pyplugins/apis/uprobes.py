@@ -10,6 +10,7 @@ from hyper.consts import portal_type
 from hyper.portal import PortalCmd
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
 import functools
+import time as _time
 from collections import defaultdict
 from hyper.consts import HYPER_OP as hop
 import inspect
@@ -32,6 +33,15 @@ class Uprobes(Plugin):
         self.projdir = self.get_arg("proj_dir")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
+
+        # MEASUREMENT (fastsnap lane): per-dispatch host-side wall time, and
+        # the dispatch start stamp so a callback can measure the whole
+        # host-side span -- dispatch + portal generator driving + its own body.
+        # The callback body does NOT run inside the dispatch window: a
+        # generator callback is only constructed there (uprobes.py:213) and
+        # driven by the portal afterwards.
+        self.body_ms: list = []
+        self.t_dispatch_start: float = 0.0
 
         # Maps probe_id to (callback_handle, is_method, read_only, original_func, injection_config)
         self._hooks: Dict[int, tuple] = {}
@@ -175,6 +185,31 @@ class Uprobes(Plugin):
         return pos_indices, kw_indices
 
     def _uprobe_event(self, cpu: Any, is_enter: bool) -> Any:
+        # MEASUREMENT (fastsnap lane): total host-side time per dispatch, so
+        # the probe round trip can be split into "host Python" and "guest trap
+        # + kernel uprobe handler + hypercall". Timing only the user callback
+        # undercounts this by the kffi reads and wrapper construction below.
+        # Two time.time() calls and a bounded append; the list is capped so a
+        # long run cannot grow it without limit.
+        # perf_counter, not time(): time() returns seconds since the epoch, so
+        # a float64 holding 1.79e9 has only ~21 fractional bits and quantizes
+        # differences to ~477 ns -- the same order as the values being measured.
+        # _uprobe_event_inner is a GENERATOR (it does `yield from fn_ret`), so
+        # calling it runs none of the body -- an earlier version of this timer
+        # measured generator construction, 0.8 us, and nothing else. Driving it
+        # with `yield from` here times the body: from the portal's first next()
+        # to StopIteration. Compared against a caller-side span that starts when
+        # the event arrives, the difference is queue wait rather than work.
+        _t0 = _time.perf_counter()
+        self.t_dispatch_start = _t0
+        try:
+            _r = yield from self._uprobe_event_inner(cpu, is_enter)
+            return _r
+        finally:
+            if len(self.body_ms) < 200000:
+                self.body_ms.append((_time.perf_counter() - _t0) * 1000.0)
+
+    def _uprobe_event_inner(self, cpu: Any, is_enter: bool) -> Any:
         arg = self.panda.arch.get_arg(cpu, 2, convention="syscall")
         sce = plugins.kffi.read_type_panda(cpu, arg, "portal_event")
         hook_id = sce.id
