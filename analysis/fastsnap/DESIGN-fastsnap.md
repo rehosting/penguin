@@ -117,7 +117,8 @@ arithmetic.
 
 | use case | working set | reset | guest | exec/s |
 |---|---|---|---|---|
-| A. packet parse, 10k insn | 16–256 pages | 0.05–0.16 (T1) | 0.09 | **4,000–7,000** |
+| A. packet parse, 10k insn | 16–256 pages | 0.056–0.18 (T1, vCPU-thread) | 0.09 | **3,700–6,850** |
+| A. same, main-loop driven | 16–256 pages | 0.10–0.22 | 0.09 | 3,200–5,200 |
 | A. packet parse, 10k insn | 16–256 pages | 0.78–0.89 (T0) | 0.09 | ~1,100 |
 | A. deeper parse, 100k insn | 1,024 pages | 0.48 (T1) | 0.85 | ~750 |
 | B. device-model inference | any | 0.8 (T0) | ~0 | ~1,000, vs a 20–30 s reboot |
@@ -126,6 +127,71 @@ arithmetic.
 Against today's ~3 iter/s for a full-VM-restore loop: **~350–2,000x for
 fuzzing, ~4 orders of magnitude for device-model inference, and
 snapshot-and-poke becomes interactive.**
+
+## The host loop: put it on the vCPU thread, keep Python
+
+`DESIGN` named host-loop overhead as the thing most likely to spoil Tier 1.
+Measured, it does not — but the reason is not the one I expected.
+
+**Crossing into Python is nearly free.** CFFI on this host, both directions:
+
+| crossing | cost |
+|---|---|
+| Python → C, no-op | 0.00033 ms |
+| Python → C, one arg + return | 0.00045 ms |
+| C → Python callback, trivial | 0.00039 ms |
+| C → Python callback, handler-shaped body | 0.00059 ms |
+
+**~0.6 µs against a 56 µs iteration: about 1%.** Batching iterations into C to
+avoid the interpreter would buy nothing. Input generation and triage should
+stay in Python, where they belong.
+
+**Crossing threads is what costs.** Penguin runs the vCPU in its own thread, so
+a loop driven from the main loop pays a pause/resume handshake per iteration.
+Measured as a composite (`[reset + write 1 KB input]`, because the parts
+mislead — `address_space_write` reads as 0.26 ms cold and 0.0001 ms warm, and a
+reset invalidates the input page between writes):
+
+| dirty pages | vCPU-thread | main-loop | handshake |
+|---|---|---|---|
+| 16 | **0.0559 ms** | 0.1029 ms | +0.047 ms (84%) |
+| 256 | **0.1809 ms** | 0.2190 ms | +0.038 ms (21%) |
+| 1,024 | **0.5717 ms** | 0.6096 ms | +0.038 ms (7%) |
+
+The handshake is a flat ~0.04 ms, so it hurts exactly where Tier 1 is supposed
+to win. **The loop belongs in a guest hypercall handler**, which runs on the
+vCPU thread with the guest already trapped and quiesced — no handoff, and
+requirement 1 (quiesce before capture) satisfied for free.
+
+So the C wrapper is worth writing, but for keeping the loop off the main loop,
+not for keeping it out of Python:
+
+```c
+/* setup, from Python, once per campaign */
+bool penguin_fastsnap_arm(const char *const *device_allowlist);
+bool penguin_fastsnap_take(void);
+void penguin_fastsnap_release(void);
+
+/* registered against a guest hypercall number; runs on the vCPU thread */
+bool penguin_fastsnap_on_iteration(penguin_fastsnap_cb_t cb, void *opaque);
+```
+
+The guest harness needs one line — a hypercall at end-of-iteration. It needs no
+loop of its own, because the restore puts its PC back at the snapshot point.
+
+**Integration hazard.** The handler restores the `cpu` section *while running on
+that vCPU*, so the normal hypercall return path — write a result register,
+resume after the trap — would clobber the freshly restored PC. The handler must
+force re-entry with the restored state (`cpu_loop_exit()`) rather than return
+normally, or exclude `cpu` from the block and set registers by hand. This is
+the most likely way to get a subtly wrong iteration that still looks like it
+works.
+
+**Caveat on the Python numbers.** 0.6 µs is the floor for the crossing itself,
+measured against a bare `ffi.callback`. Penguin's actual pyplugin dispatch adds
+a plugin-manager hop and argument marshalling on top. Even at 50x it is 0.03 ms
+— comparable to reset, not dominant — but it is unmeasured in penguin proper
+and worth confirming there.
 
 ## What it abandons
 
@@ -186,17 +252,16 @@ case B's arming point and variation point both exist in-process today.
    and a full-restore comparison matches every iteration.
 2. Measure the RAM term on a real firmware target (the one number still
    synthetic) and the host-loop overhead (below).
-3. Tier 1 plus the audit. Acceptance: 1,000 iterations with per-N audit, zero
+3. Tier 1 plus the audit, with the loop in a hypercall handler. Acceptance: 1,000 iterations with per-N audit, zero
    divergence.
 4. Use case B end to end: vary a `hyperfile` handler's return across a
    candidate set, reset between trials.
 
 ## Still unmeasured
 
-- **Host-loop overhead — the number most likely to spoil this.** At a 0.05 ms
-  reset, a per-iteration round trip through CFFI and a pyplugin only has to
-  cost 0.5 ms to make every Tier 1 figure above irrelevant. Nothing has
-  demonstrated it is cheap. Measure before promising Tier 1.
+- **Penguin's own pyplugin dispatch cost.** The raw CFFI crossing is measured
+  at 0.6 µs; the plugin-manager layer on top of it is not, and that measurement
+  belongs in penguin proper rather than the Slice 0 tree.
 - **The RAM term on a real target.** The sweep costs 0.42 µs/page; how many
   pages a real firmware iteration dirties is target-specific and unknown. The
   table is indexed by dirty pages precisely so a real target only needs its own
