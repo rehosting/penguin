@@ -1,0 +1,17 @@
+{
+  "comm": "lighttpd",
+  "http_reads": 658,
+  "fuzzed": 579,
+  "passthrough_control": 79,
+  "span_s": 34.278923988342285,
+  "exec_per_s": 19.19546833569733,
+  "response_codes_control": {
+    "400": 96,
+    "401": 13,
+    "200": 59,
+    "404": 13,
+    "501": 3,
+    "411": 1,
+    "505": 1
+  }
+}
