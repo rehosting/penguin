@@ -63,10 +63,22 @@ offered as evidence for.
 ## 4. Tier 0 is not the sound oracle it was claimed to be
 
 "every device section is restored, so no allowlist can be wrong" is false.
-`device_save_kind()` skips, before any allowlist logic, every handler with
-`save_setup` — `slirp`, `globalstate`, and all iterative handlers. That
-undermines using Tier 0 to triage Tier 1 crashes, which was the safety
-argument for shipping Tier 1 at all.
+Sections are dropped in two places, and my first account of this named the
+wrong one.
+
+`device_save_kind()` itself skips only two things before any allowlist logic:
+`se->is_ram` and `globalstate` (`slice0/vendor/device-save.c:57-62`). It does
+**not** filter on `save_setup`. The rest of the loss happens one level down,
+inside the `vmstate_save()` it calls: `qemu/migration/savevm.c:1070-1073`
+returns 0 — emitting nothing — for any entry that has neither a `vmsd` nor
+`ops->save_state`, which is exactly the iterative/`save_setup`-only handlers.
+A third path, `vmstate_section_needed()`, can drop a whole section on its
+`.needed` predicate.
+
+The conclusion is unchanged and is what matters: a "full" device save is not
+the complete capture the phrase implies, so Tier 0 cannot serve as the sound
+oracle for triaging Tier 1 crashes — which was the safety argument for
+shipping Tier 1 at all.
 
 ---
 

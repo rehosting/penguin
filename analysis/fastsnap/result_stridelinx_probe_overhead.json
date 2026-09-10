@@ -1,0 +1,30 @@
+{
+  "path": "/usr/sbin/lighttpd",
+  "target": "connection_set_state",
+  "symbols": [
+    "connection_set_state",
+    "get_http_method_key"
+  ],
+  "resolved": {
+    "connection_set_state": "/usr/sbin/lighttpd+0x1c85c",
+    "get_http_method_key": "/usr/sbin/lighttpd+0x15d98"
+  },
+  "stats": {
+    "connection_set_state": {
+      "n": 12109,
+      "median_ms": 0.26106834411621094,
+      "p10_ms": 0.24771690368652344,
+      "p90_ms": 0.2853870391845703
+    },
+    "get_http_method_key": {
+      "n": 1701,
+      "median_ms": 0.25534629821777344,
+      "p10_ms": 0.24962425231933594,
+      "p90_ms": 0.2760887145996094
+    }
+  },
+  "G_ms": 0.0057220458984375,
+  "overhead_control": "get_http_method_key",
+  "overhead_ms": 0.25534629821777344,
+  "overhead_fraction": 0.9780821917808219
+}

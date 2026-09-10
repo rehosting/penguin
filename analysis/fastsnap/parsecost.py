@@ -36,22 +36,62 @@ uprobes = plugins.uprobes
 TARGET = "http_request_parse"
 CONTROL = "http_request_header_finished"
 
+# Controls must not be probed in the same run as the target when they are
+# called from inside it: the probe pair would land in the middle of the
+# interval being measured and inflate it by exactly the quantity it is
+# supposed to isolate. get_http_method_key is called by http_request_parse,
+# so the two runs are deliberately separate.
+
 
 class ParseCost(Plugin):
     def __init__(self) -> None:
         self.outdir = self.get_arg("outdir")
-        self.path = self.get_arg("path") or "*lighttpd"
-        self.samples = {TARGET: [], CONTROL: []}
-        self._open = {TARGET: {}, CONTROL: {}}
+        # NOT a wildcard. symbols.lookup() disables its nm and ELF-fallback
+        # resolvers whenever the path contains '*' (symbols.py:286,292), so a
+        # glob can only ever be answered by the prebuilt JSON symbol DB. With
+        # fail_register_ok=True that silently produced a no-op decorator, and
+        # the run reported "no samples" -- indistinguishable from "the parser
+        # was never called". That is what the first three attempts at G were.
+        self.path = self.get_arg("path") or "/usr/sbin/lighttpd"
+        # dict.fromkeys, not list(): penguin's config merge CONCATENATES YAML
+        # lists across patch layers rather than replacing them, so a two-entry
+        # `symbols:` arrives here as six. Without the dedupe that silently
+        # installs three duplicate probe pairs per address and every interval
+        # is inflated by callbacks that are not in the run being compared
+        # against. (Same mechanism visibly tripled ram_term.windows_ms.)
+        raw = self.get_arg("symbols") or [TARGET, CONTROL]
+        self.syms = list(dict.fromkeys(raw))
+        if len(raw) != len(self.syms):
+            self.logger.warning(
+                f"parsecost: config merge duplicated the symbol list "
+                f"({len(raw)} -> {len(self.syms)} after dedupe)")
+        self.target = self.get_arg("target") or TARGET
+        self.samples = {n: [] for n in self.syms}
+        self._open = {n: {} for n in self.syms}
+        self.resolved = {}
 
-        for name in (TARGET, CONTROL):
+        for name in self.syms:
+            # Pre-flight the resolution so registration is an observable fact
+            # rather than an assumption. fail_register_ok is False below: if a
+            # probe cannot be placed the run must say so loudly, because a
+            # silent miss looks exactly like a real zero.
+            lib, off = plugins.symbols.lookup(self.path, name)
+            self.resolved[name] = None if off is None else f"{lib}+{off:#x}"
+            if off is None:
+                self.logger.error(
+                    f"parsecost: SYMBOL RESOLUTION FAILED for {name} in "
+                    f"{self.path}. No probe will be placed.")
+                continue
+            self.logger.info(f"parsecost: {name} -> {lib} file offset {off:#x}")
+
             uprobes.uprobe(path=self.path, symbol=name, on_enter=True,
-                           fail_register_ok=True)(self._mk_enter(name))
+                           fail_register_ok=False)(self._mk_enter(name))
             uprobes.uretprobe(path=self.path, symbol=name,
-                              fail_register_ok=True)(self._mk_return(name))
+                              fail_register_ok=False)(self._mk_return(name))
+
         self.logger.info(
-            f"parsecost: bracketing {TARGET} (target) and {CONTROL} (overhead "
-            f"control) in {self.path}")
+            f"parsecost: bracketing {self.syms} in {self.path}; "
+            f"target={self.target}; resolved={self.resolved}")
 
     def _mk_enter(self, name):
         def enter(*args, **kwargs):
@@ -81,36 +121,43 @@ class ParseCost(Plugin):
                     "p10_ms": v[max(0, len(v) // 10)],
                     "p90_ms": v[min(len(v) - 1, 9 * len(v) // 10)]}
 
-        tgt, ctl = stats(self.samples[TARGET]), stats(self.samples[CONTROL])
+        allstats = {n: stats(self.samples[n]) for n in self.syms}
         self.logger.info("parsecost: RESULTS")
-        self.logger.info(f"  {TARGET}: {tgt}")
-        self.logger.info(f"  {CONTROL}: {ctl}   <- probe-overhead CONTROL")
+        for n, st in allstats.items():
+            tag = " <- target" if n == self.target else " <- overhead control"
+            self.logger.info(f"  {n}: {st}{tag}")
 
-        out = {"target": TARGET, "control": CONTROL,
-               "target_stats": tgt, "control_stats": ctl, "G_ms": None}
+        out = {"path": self.path, "target": self.target,
+               "symbols": self.syms, "resolved": self.resolved,
+               "stats": allstats, "G_ms": None}
 
+        tgt = allstats.get(self.target)
+        ctls = {n: st for n, st in allstats.items()
+                if n != self.target and st}
         if not tgt:
             self.logger.error(
-                "parsecost: CONTROL FAILED - no samples for the target probe; "
-                "this run says nothing about G.")
-        elif not ctl:
+                "parsecost: no samples for the target probe; this run says "
+                "nothing about the target interval.")
+        elif not ctls:
             self.logger.warning(
-                "parsecost: no control samples - the parser interval cannot be "
+                "parsecost: no control samples - the interval cannot be "
                 "separated from probe overhead. Reporting raw interval only.")
         else:
-            g = tgt["median_ms"] - ctl["median_ms"]
-            ratio = ctl["median_ms"] / tgt["median_ms"] if tgt["median_ms"] else 9
-            out["G_ms"] = g
-            out["overhead_fraction"] = ratio
-            self.logger.info(f"  G (parse - overhead) = {g:.4f} ms")
+            # The cheapest control is the best estimate of pure probe cost.
+            cname = min(ctls, key=lambda n: ctls[n]["median_ms"])
+            cmed = ctls[cname]["median_ms"]
+            g = tgt["median_ms"] - cmed
+            ratio = cmed / tgt["median_ms"] if tgt["median_ms"] else 9
+            out.update({"G_ms": g, "overhead_control": cname,
+                        "overhead_ms": cmed, "overhead_fraction": ratio})
+            self.logger.info(
+                f"  G = {tgt['median_ms']:.4f} - {cmed:.4f} ({cname}) "
+                f"= {g:.4f} ms")
             if ratio > 0.5:
                 self.logger.error(
                     f"parsecost: probe overhead is {ratio:.0%} of the measured "
                     "interval. G is NOT resolvable with this instrument; the "
                     "difference is noise, not a measurement.")
-            else:
-                self.logger.info(
-                    f"  overhead is {ratio:.0%} of the interval -- G resolvable")
 
         if self.outdir:
             p = os.path.join(self.outdir, "parsecost.json")

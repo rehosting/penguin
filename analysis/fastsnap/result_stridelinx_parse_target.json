@@ -1,0 +1,17 @@
+{
+  "target": "http_request_parse",
+  "control": "http_request_header_finished",
+  "path": "/usr/sbin/lighttpd",
+  "resolved": {
+    "http_request_parse": "/usr/sbin/lighttpd+0x112f0",
+    "http_request_header_finished": "/usr/sbin/lighttpd+0x11290"
+  },
+  "target_stats": {
+    "n": 1701,
+    "median_ms": 0.3662109375,
+    "p10_ms": 0.3528594970703125,
+    "p90_ms": 0.39267539978027344
+  },
+  "control_stats": null,
+  "G_ms": null
+}

@@ -1,0 +1,20 @@
+{
+  "lap_interval": {
+    "n": 2020,
+    "median_ms": 0.42128562927246094,
+    "p10_ms": 0.4112720489501953,
+    "p90_ms": 0.48732757568359375
+  },
+  "lap_rate_per_s": 2373.6864742501416,
+  "symbol": "http_request_parse",
+  "path": "/usr/sbin/lighttpd",
+  "resolved": "/usr/sbin/lighttpd+0x112f0",
+  "mode": "loop",
+  "laps_per_entry": 20,
+  "entries": 2121,
+  "fresh_calls": 101,
+  "rewinds": 2020,
+  "span_s": 21.224666118621826,
+  "entries_per_s": 99.93090059207594,
+  "errors": []
+}
