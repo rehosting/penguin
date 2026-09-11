@@ -1266,6 +1266,77 @@ class QemuCompat:
         self._call_with_bql(lambda: fn(cname, bool(load)))
         return True
 
+    # ---- fastsnap: device state in a block -------------------------------
+    #
+    # A second, faster reset path beside savevm/loadvm, and deliberately a
+    # lower-fidelity one: it restores DEVICE state only, never RAM. What that
+    # buys is not just a smaller write -- load_snapshot() goes through
+    # vm_stop(RUN_STATE_RESTORE_VM), which accel/tcg turns into a full
+    # tb_flush, and the guest then re-translates everything it runs. On this
+    # lane's target that re-translation cost more than the restore itself, and
+    # it lands as throughput afterwards rather than latency during, so a
+    # restore-latency number does not show it. A device-only restore changes
+    # no RAM, so nothing it does can invalidate a translated block, and the
+    # flush is skipped as unnecessary rather than merely deferred.
+    #
+    # Fire-and-forget, like schedule_snapshot(), and for the same reason: the
+    # work needs the BQL and stopped vCPUs, and a pyplugin callback has
+    # neither. Poll fastsnap_seq() for completion.
+
+    FASTSNAP_TAKE = 0
+    FASTSNAP_RESTORE = 1
+    FASTSNAP_RELEASE = 2
+
+    def fastsnap_available(self) -> bool:
+        """True if this QEMU build exports the fastsnap ABI."""
+        return self._lib_symbol("penguin_fastsnap_schedule") is not None
+
+    def fastsnap_schedule(self, op: int) -> bool:
+        """Schedule a device-block take (0), restore (1) or release (2).
+
+        Safe from a vCPU-thread callback. Returns True if the request was
+        scheduled, not whether it succeeded -- read :meth:`fastsnap_last_rc`
+        once :meth:`fastsnap_seq` has advanced.
+        """
+        fn = self._lib_symbol("penguin_fastsnap_schedule")
+        if fn is None:
+            logger.warning(
+                "QEMU library does not expose penguin_fastsnap_schedule; "
+                "fastsnap requires a penguin-qemu build that exports it "
+                "(flake input `penguin-qemu`, staged by "
+                "nix/mk-penguin-qemu.nix)")
+            return False
+        self._call_with_bql(lambda: fn(int(op)))
+        return True
+
+    def fastsnap_seq(self) -> int:
+        """Completed-operation counter; advances once per scheduled op."""
+        fn = self._lib_symbol("penguin_fastsnap_seq")
+        return int(fn()) if fn is not None else 0
+
+    def fastsnap_last_rc(self) -> int:
+        fn = self._lib_symbol("penguin_fastsnap_last_rc")
+        return int(fn()) if fn is not None else -1
+
+    def fastsnap_last_us(self) -> int:
+        """Duration of the last completed take/restore, microseconds.
+
+        Measured inside QEMU: the operations are hundreds of microseconds and
+        a pyplugin round trip is comparable to them, so timing this from
+        Python would be measuring the instrument.
+        """
+        fn = self._lib_symbol("penguin_fastsnap_last_us")
+        return int(fn()) if fn is not None else -1
+
+    def fastsnap_block_size(self) -> int:
+        fn = self._lib_symbol("penguin_fastsnap_block_size")
+        return int(fn()) if fn is not None else 0
+
+    def fastsnap_section_count(self) -> int:
+        """Device sections a block would cover on this machine."""
+        fn = self._lib_symbol("penguin_fastsnap_section_count")
+        return int(fn()) if fn is not None else 0
+
     def end_analysis(self):
         if hasattr(self.lib, "qemu_system_shutdown_request"):
             self.lib.qemu_system_shutdown_request(SHUTDOWN_CAUSE_HOST_QMP_QUIT)
