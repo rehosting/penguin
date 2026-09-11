@@ -71,13 +71,65 @@ uprobe.
 hands cleanly to a C helper: Python resolves symbols, owns the corpus and
 arms the probe; C does the per-iteration struct read and buffer write.
 
+## The marshalling cut, implemented and measured
+
+`_FastArrayRegs` in `apis/uprobes.py` replaces the dwarffi `pt_regs` instance
+with one `struct.unpack`. PtRegsWrapper only ever reaches the underlying
+object through `getattr(obj, attr)[i]`, the matching `__setitem__`, and
+`bytes(obj)` (`ptregs_wrap.py:95-100,157`), so a list plus a format string
+satisfies it completely. Modification is detected by comparing a tuple instead
+of serialising twice per event.
+
+Gated on `plugins.uprobes.fast_ptregs`, and cross-checked against kffi on the
+first N events (`fast_ptregs_verify`) -- a fast path returning subtly wrong
+registers would not fail loudly, it would surface as an inexplicable result
+several runs later.
+
+    uprobes: fast_ptregs ENABLED (arm, 72 bytes, <18I, .uregs)
+    uprobes: fast_ptregs verified against kffi on 500 events, 0 mismatches
+
+| | fast off | fast on | delta |
+|---|---|---|---|
+| host-side body per event | 0.0900 ms | 0.0764 ms | -13.6 us |
+| probe interval (read-only bracket) | 0.2618 ms | 0.2532 ms | -8.6 us |
+| **persist lap (register-writing)** | **0.4213 ms** | **0.3896 ms** | **-31.7 us** |
+| **persist exec/s** | **2,374** | **2,567** | **+8.1%** |
+
+The writing path gains far more than the read-only path because the old code
+serialised `pt_regs` twice per event (`original_bytes`, then `new_bytes`)
+where the fast path compares a tuple.
+
+**Against prediction.** ~57 us of saving was predicted, 31.7 us delivered --
+1.8x optimistic, and the resulting rate is 7% below the predicted 2,750/s. The
+shortfall is visible in the profile that motivated it: `read_type_panda` is
+called *twice* per event (16677 calls / 7998 events) and only the `pt_regs`
+one was cut. `portal_event` still goes through dwarffi, as do its four field
+accesses.
+
+**Ceiling of this lever.** Host-side is now 76 us of a 253 us interval.
+Removing *all* remaining Python -- not achievable, but a bound -- gives a
+177 us interval, a ~335 us lap, and **~2,985 exec/s**. So the whole Python
+lever is worth at most +26% over today, of which 8.1% is realised. Cutting the
+second `read_type_panda` buys roughly 5% of the remaining gap. That is why the
+guest trap, not the language, is where the next factor is.
+
+## Arch scope
+
+The fast path applies only where every register is a uniform word in one array
+field: `arm*` (32-bit, `.uregs`) and `loongarch64` (`.regs`). x86, aarch64,
+ppc, riscv and mips mix named fields and fall back to kffi. Note `arch_name`
+is `armel`/`armhf`, never bare `arm`, so the match is a `startswith` -- an
+exact-match table silently disables the fast path with no error, which is how
+the first version of this failed.
+
 ## What each lever is worth
 
 | lever | removes | lap | exec/s |
 |---|---|---|---|
 | today (`persist.py`, measured) | -- | 421 us | 2,374 |
-| strip the typed-struct marshalling | ~57 us | ~364 us | ~2,750 |
-| eliminate the guest trap (snapshot restore, no uprobe) | ~176 us | ~181 us | ~5,525 |
+| `fast_ptregs`, **measured** | 32 us | 390 us | **2,567** |
+| all remaining host Python removed (bound, not reachable) | ~76 us | ~335 us | ~2,985 |
+| eliminate the guest trap (snapshot restore, no uprobe) | ~177 us | ~181 us | ~5,525 |
 
 Python is worth ~16%. The guest-side trap -- breakpoint, kernel uprobe
 handler, XOL single-step, hypercall, all executing as emulated ARM -- is worth
@@ -97,3 +149,49 @@ the trap, not the language.
 `apis/uprobes.py` carries two `perf_counter()` calls and a capped
 `self.body_ms` list per dispatch. Cheap, but it is measurement scaffolding in
 a shared API file, not something to land.
+
+## The guest-trap side
+
+With the fast path on, a probe event costs 253 us of which 76 us is host-side
+Python. **The remaining ~177 us (70%) is guest-side**: the breakpoint trap, the
+kernel's uprobe handler, execute-out-of-line single-step, and the hypercall out
+to QEMU -- all running as emulated ARM under TCG. At ~117 MIPS that is roughly
+20,000 guest instructions to service one probe, which is the right order for
+that kernel path.
+
+Two independent observations support treating it as a fixed per-trap cost
+rather than something proportional to the probed code:
+
+- `connection_set_state` (12 bytes, 12109 calls) and `get_http_method_key`
+  (16 bytes, 1701 calls) produce intervals within 0.006 ms of each other,
+  across a 7x difference in call count.
+- The interval tracks the probe, not the function: adding the parser's real
+  work moves it by exactly G (0.111 ms).
+
+**Why there is no end-to-end A/B here.** The obvious check -- run the same
+workload with probes armed and disarmed, and difference the wall clock -- is
+not resolvable on this target with n=1. Two runs of *identical* configuration
+gave drive windows of 41.21 s and 34.69 s, a 6.52 s band, against an expected
+total probe cost of 27620 x 253 us = 6.99 s. Signal and noise are the same
+size; it would take ~10 repeats per arm to say anything, and the within-run
+medians over thousands of samples are a far better instrument for the same
+quantity.
+
+**The lever, and what it costs to pull.** Nothing here is fixed by making the
+callback faster; the cost is taking a guest trap at all. A fastsnap iteration
+avoids it by construction -- restore a snapshot whose saved PC is already at
+the injection point, so the guest resumes inside the parser with no
+breakpoint, no kernel handler and no hypercall. That is worth ~177 us, taking
+the lap to ~181 us and **~5,525 exec/s**, an order of magnitude the Python
+lever cannot reach.
+
+Scoping note for that build: penguin's `Snapshot` pyplugin already exposes
+`request_save(when='symbol', symbol=...)` and `request_restore(tag)`, but
+`request_restore` is **asynchronous** -- it calls
+`panda.schedule_snapshot(tag, load=True)`, which queues a main-loop bottom-half
+(`qemu/system/penguin.c:304`) and returns immediately. Timing a restore
+therefore needs a completion signal, not a return value; the natural one is the
+next hit of a probe placed at the resume point. That, plus the fact that the
+existing path is a full `savevm`/`loadvm` rather than the `{cpu,timer}`
+allowlist plus dirty-RAM restore measured in `ALLOWLIST.md`, is why the real
+reset cost on this firmware is still unmeasured.

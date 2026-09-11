@@ -10,6 +10,7 @@ from hyper.consts import portal_type
 from hyper.portal import PortalCmd
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
 import functools
+import struct as _struct
 import time as _time
 from collections import defaultdict
 from hyper.consts import HYPER_OP as hop
@@ -18,6 +19,36 @@ import inspect
 __all__ = [
     "Uprobes"
 ]
+
+
+
+class _FastArrayRegs:
+    """Minimal stand-in for a dwarffi pt_regs instance, for array-style arches.
+
+    PtRegsWrapper only ever reaches the underlying object through
+    `getattr(obj, attr)[i]`, `getattr(obj, attr)[i] = v` and `bytes(obj)`
+    (ptregs_wrap.py:95-100,157), so a list plus a struct format satisfies it
+    completely. Profiling put ~66% of the uprobe host-side cost in
+    kffi.read_type_panda -> dwarffi from_buffer/_create_instance and per-field
+    __getattr__; this replaces that with one struct.unpack.
+
+    Only valid where every register is a uniform word in one array field --
+    true for arm and loongarch64, not for x86/aarch64/ppc/riscv, which mix
+    named fields. Callers must fall back to kffi for those.
+    """
+
+    def __init__(self, buf, fmt, attr):
+        self._fmt = fmt
+        self._attr = attr
+        vals = list(_struct.unpack(fmt, buf))
+        self._orig = tuple(vals)
+        setattr(self, attr, vals)
+
+    def modified(self):
+        return tuple(getattr(self, self._attr)) != self._orig
+
+    def __bytes__(self):
+        return _struct.pack(self._fmt, *getattr(self, self._attr))
 
 
 class Uprobes(Plugin):
@@ -42,6 +73,18 @@ class Uprobes(Plugin):
         # driven by the portal afterwards.
         self.body_ms: list = []
         self.t_dispatch_start: float = 0.0
+
+        # Fast pt_regs path (see _FastArrayRegs). Off unless asked for, so the
+        # A/B against the dwarffi path is a config change rather than a build.
+        self.fast_ptregs = bool(self.get_arg_bool("fast_ptregs"))
+        self._fast_layout = None
+        self._fast_checked = False
+        # Cross-check the fast path against kffi for this many events. A fast
+        # path that returns subtly wrong registers would not fail here, it
+        # would surface as an inexplicable result several runs later.
+        self.fast_ptregs_verify = int(self.get_arg("fast_ptregs_verify") or 0)
+        self._verify_n = 0
+        self._verify_bad = 0
 
         # Maps probe_id to (callback_handle, is_method, read_only, original_func, injection_config)
         self._hooks: Dict[int, tuple] = {}
@@ -218,11 +261,37 @@ class Uprobes(Plugin):
 
         f, is_method, read_only, _, injection = self._hooks[hook_id]
         ptregs_addr = sce.regs.address
-        pt_regs_raw = plugins.kffi.read_type_panda(cpu, ptregs_addr, "pt_regs")
+        fast = self._fast_ptregs_layout()
+        if fast is not None:
+            _size, _fmt, _attr = fast
+            _buf = plugins.mem.read_bytes_panda(cpu, ptregs_addr, _size)
+            pt_regs_raw = _FastArrayRegs(_buf, _fmt, _attr)
+            if self._verify_n < self.fast_ptregs_verify:
+                self._verify_n += 1
+                _ref = plugins.kffi.read_type_panda(
+                    cpu, ptregs_addr, "pt_regs")
+                _a = list(getattr(pt_regs_raw, _attr))
+                _b = [int(v) for v in getattr(_ref, _attr)]
+                if _a != _b:
+                    self._verify_bad += 1
+                    if self._verify_bad <= 3:
+                        self.logger.error(
+                            f"uprobes: fast_ptregs MISMATCH at "
+                            f"{ptregs_addr:#x}: fast={_a} kffi={_b}")
+                elif self._verify_n == self.fast_ptregs_verify:
+                    self.logger.info(
+                        f"uprobes: fast_ptregs verified against kffi on "
+                        f"{self._verify_n} events, {self._verify_bad} "
+                        "mismatches")
+        else:
+            pt_regs_raw = plugins.kffi.read_type_panda(
+                cpu, ptregs_addr, "pt_regs")
         pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
 
         original_bytes = None
-        if not read_only:
+        if not read_only and fast is None:
+            # The fast path tracks modification with a tuple compare instead,
+            # so it never pays for two full serialisations per event.
             original_bytes = bytes(pt_regs_raw)
 
         fn_to_call = f if not is_method else self._resolve_callback(
@@ -253,9 +322,14 @@ class Uprobes(Plugin):
             return
 
         if not read_only:
-            new_bytes = bytes(pt_regs_raw)
-            if original_bytes != new_bytes:
-                plugins.mem.write_bytes_panda(cpu, ptregs_addr, new_bytes)
+            if fast is not None:
+                if pt_regs_raw.modified():
+                    plugins.mem.write_bytes_panda(
+                        cpu, ptregs_addr, bytes(pt_regs_raw))
+            else:
+                new_bytes = bytes(pt_regs_raw)
+                if original_bytes != new_bytes:
+                    plugins.mem.write_bytes_panda(cpu, ptregs_addr, new_bytes)
         return fn_ret
 
     def _uprobe_enter_handler(self, cpu: Any) -> None:
@@ -381,6 +455,53 @@ class Uprobes(Plugin):
         self.logger.debug(
             f"Uprobe successfully registered with ID: {probe_id}")
         return result
+
+    def _fast_array_attr(self, arch: str):
+        """Array field name for a uniform-word pt_regs, or None.
+
+        arch_name is 'armel'/'armhf', never bare 'arm' -- an exact-match table
+        silently disables the fast path. get_pt_regs_wrapper has the same
+        startswith() shape (ptregs_wrap.py:1574).
+        """
+        a = (arch or "").lower()
+        if a.startswith("arm") and self.panda.bits == 32:
+            return "uregs"          # ArmPtRegsWrapper
+        if a.startswith("loongarch64"):
+            return "regs"           # LoongArch64PtRegsWrapper
+        return None                 # x86/aarch64/ppc/riscv/mips mix named fields
+
+    def _fast_ptregs_layout(self):
+        """(size, struct_fmt, attr) for the fast path, or None if unsupported."""
+        if self._fast_checked:
+            return self._fast_layout
+        self._fast_checked = True
+        if not self.fast_ptregs:
+            return None
+        try:
+            arch = self.panda.arch_name
+            attr = self._fast_array_attr(arch)
+            if attr is None:
+                self.logger.info(
+                    f"uprobes: fast_ptregs unsupported on {arch} (pt_regs is "
+                    "not a uniform word array); using kffi")
+                return None
+            size = plugins.kffi.sizeof("pt_regs")
+            word = 8 if self.panda.bits == 64 else 4
+            if not size or size % word:
+                self.logger.warning(
+                    f"uprobes: fast_ptregs disabled: pt_regs size {size} is "
+                    f"not a multiple of {word}")
+                return None
+            endian = ">" if self.panda.endianness == "big" else "<"
+            fmt = f"{endian}{size // word}{'Q' if word == 8 else 'I'}"
+            self._fast_layout = (size, fmt, attr)
+            self.logger.info(
+                f"uprobes: fast_ptregs ENABLED ({arch}, {size} bytes, {fmt}, "
+                f".{attr}) -- bypassing dwarffi struct marshalling")
+        except Exception as e:                          # noqa: BLE001
+            self.logger.warning(f"uprobes: fast_ptregs unavailable: {e}")
+            self._fast_layout = None
+        return self._fast_layout
 
     def _cleanup_probe_maps(self, probe_id: int):
         if probe_id in self._hooks:

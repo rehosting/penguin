@@ -1,0 +1,56 @@
+{
+  "path": "/usr/sbin/lighttpd",
+  "target": "connection_set_state",
+  "symbols": [
+    "connection_set_state",
+    "get_http_method_key"
+  ],
+  "resolved": {
+    "connection_set_state": "/usr/sbin/lighttpd+0x1c85c",
+    "get_http_method_key": "/usr/sbin/lighttpd+0x15d98"
+  },
+  "stats": {
+    "connection_set_state": {
+      "n": 12109,
+      "median_ms": 0.25916099548339844,
+      "p10_ms": 0.24271011352539062,
+      "p90_ms": 0.2944469451904297
+    },
+    "get_http_method_key": {
+      "n": 1701,
+      "median_ms": 0.2532005310058594,
+      "p10_ms": 0.2448558807373047,
+      "p90_ms": 0.2815723419189453
+    }
+  },
+  "python_in_callback": {
+    "connection_set_state": {
+      "n": 24218,
+      "median_ms": 0.0013550743460655212,
+      "p10_ms": 0.0011508818715810776,
+      "p90_ms": 0.0019059516489505768
+    },
+    "get_http_method_key": {
+      "n": 3402,
+      "median_ms": 0.0014500692486763,
+      "p10_ms": 0.001258915290236473,
+      "p90_ms": 0.001844950020313263
+    }
+  },
+  "host_body_ms": {
+    "n": 27620,
+    "median_ms": 0.07634889334440231,
+    "p10_ms": 0.06957212463021278,
+    "p90_ms": 0.10264106094837189
+  },
+  "host_side_span": {
+    "n": 27620,
+    "median_ms": 0.0722869299352169,
+    "p10_ms": 0.06586918607354164,
+    "p90_ms": 0.09753904305398464
+  },
+  "G_ms": 0.0059604644775390625,
+  "overhead_control": "get_http_method_key",
+  "overhead_ms": 0.2532005310058594,
+  "overhead_fraction": 0.9770009199632015
+}

@@ -64,6 +64,7 @@ the conservative full-allowlist figure.
 | QEMU (C), conservative reset | 0.111 + 0.11 | 4,525 |
 | host Python, via the portal | 0.255 + 0.111 + 0.07 | 2,294 |
 | host Python, **measured** (`persist.py`, no reset) | 0.421 | **2,374** |
+| host Python + `fast_ptregs`, **measured** | 0.390 | **2,567** |
 | today, full HTTP request | ~14.3 | 70 |
 
 ## Demonstrated today: 2,374 exec/s
@@ -121,7 +122,9 @@ usable fuzzer.
 two thirds of which is dwarffi typed-struct marshalling of `portal_event` and
 `pt_regs` (`PROFILE.md`). So:
 
-- Stripping the marshalling layer is worth ~57 us: 2,374 -> ~2,750 exec/s.
+- Stripping the marshalling layer: implemented and measured at 32 us,
+  2,374 -> **2,567** exec/s (+8.1%). Removing *all* remaining host Python
+  bounds this lever at ~2,985 exec/s, so it is worth at most +26% in total.
 - Removing the guest trap entirely -- a snapshot restore that resumes with PC
   already at the injection point, rather than a breakpoint -- is worth ~176 us:
   -> ~5,525 exec/s.
