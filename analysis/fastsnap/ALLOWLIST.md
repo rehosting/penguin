@@ -2,11 +2,15 @@
 
 Follow-on to `THROUGHPUT.md`. Two numbers draft 45 does not have.
 
-Measurements ran in the quarantined Slice 0 build
-(`projects/fastsnap/slice0/`, outside every repo worktree — it contains
-GPL-2.0 code ported from `qemu-libafl-bridge` and this repo is public). Full
-method, controls and the two instrument failures are in
-`slice0/FINDINGS-allowlist.md`.
+Measurements ran in the Slice 0 build (`projects/fastsnap/slice0/`), which was
+quarantined outside every repo worktree at the time because it carries GPL-2.0
+code from `qemu-libafl-bridge`. **That quarantine is over:** Luke approved GPL
+in `rehosting/qemu_builder`, and the code now lives there as `src/fastsnap/`
+with a declared provenance. `slice0/` is the research record. Full method,
+controls and the two instrument failures are in `slice0/FINDINGS-allowlist.md`.
+
+The numbers below were taken on an 11.0.50 tree. The port to 11.1.0 re-runs the
+round trip and its controls, but **has not re-measured the timings**.
 
 ## 1. The correct device allowlist for an iteration is {cpu, timer}
 

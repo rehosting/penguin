@@ -3,6 +3,18 @@
 Research lane instrument. Not a product change; nothing here is wired into a
 normal `penguin run`.
 
+> **Where the code went.** The device half of the fast restore is no longer a
+> research prototype. It lives in `rehosting/qemu_builder` on branch
+> `workspace/fastsnap` as `src/fastsnap/`, built against QEMU 11.1.0, with its
+> licence declaration in `src/fastsnap/PROVENANCE.md` and a `nix flake check`
+> gate that runs the round trip. `projects/fastsnap/slice0/` is the research
+> record that got it there; the timings in these documents were taken on that
+> 11.0.50 tree and **have not been re-measured on 11.1.0**.
+>
+> The open question the port exists to answer is still open: whether the
+> 0.07 ms reset survives a real firmware target, where post-restore TB
+> re-translation may scale with the working set rather than the dirty set.
+
 ## What it measures
 
 `penguin_save_snapshot` / `penguin_load_snapshot` (qemu `system/penguin.c:238`

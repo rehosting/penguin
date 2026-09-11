@@ -360,7 +360,36 @@ decision, not an omission.
    with `__attribute__((visibility("default")))` like their neighbours, so the
    existing CFFI `_lib_symbol()` lookup in `qemu_compat.py` picks them up with
    no new plumbing.
-2. **Port `syx-snapshot`'s device half** into the fork under its own directory
+2. ~~**Port `syx-snapshot`'s device half** into the fork under its own directory~~
+   **DONE — but not into the fork.** It landed in `rehosting/qemu_builder`
+   (branch `workspace/fastsnap`) as `src/fastsnap/`, because Penguin's QEMU
+   input is moving from the `rehosting/qemu` fork to that curated series over a
+   pristine v11.1.0 tarball. Everything below is preserved because it records
+   the reasoning, but four of its specifics turned out differently:
+
+   - **Upstream files touched is TWO, not five.** `migration/savevm.{c,h}`.
+     `io/channel-buffer.{c,h}` are not touched at all: the borrowed-buffer read
+     they were wanted for now lives in our own channel, which also removes an
+     upstream double free. The COW cache in `block/block-backend.c` is not part
+     of this.
+   - **The structs are NOT hoisted and nothing is de-`static`ed.** Two
+     accessors inside `savevm.c` instead, so `SaveStateEntry` stays an
+     incomplete type outside it. The hoist and the accessor were built and
+     probed head to head: on `git am` portability they are indistinguishable,
+     so that was not the reason; what separates them is footprint (`+64/-0` vs
+     `+46/-35`) and what happens when upstream adds a field to the struct,
+     where the accessor applies cleanly and the hoist leaves a `.rej`.
+   - **The base is 11.1.0, not 11.0.50.** Two more deltas on top of the ones
+     listed below: `hw/boards.h` moved to `hw/core/boards.h`, and QOM's
+     `class_init` `class_data` parameter became `const void *`.
+   - **Provenance is settled, not open.** Luke approved GPL in `qemu_builder`.
+     The declaration is `src/fastsnap/PROVENANCE.md`: whole files with SPDX
+     headers and the upstream commit, deliberately never interleaved into patch
+     hunks where provenance stops being legible.
+
+   The original text follows.
+
+   Port `syx-snapshot`'s device half into the fork under its own directory
    — `device-save.c` and `channel-buffer-writeback.c` plus headers. Working
    sources and patches from the port gate are in `projects/fastsnap/slice0/`.
    Port delta is QEMU 9.1.1 → 11.0.50: headers moved (`sysemu/` → `system/`,
@@ -572,14 +601,22 @@ that half has no in-tree equivalent, which is exactly why it is worth importing.
 
 ## Slices
 
-**Slices 0 and the RAM-half assessment are DONE** — both were run as research
-prototypes, and between them they reversed part of this draft's own
-recommendation. Reports in `projects/fastsnap/slice0/`. What remains is build
-work, and none of it should start before Luke rules on the import.
+**Slice 0, the RAM-half assessment, and the port are DONE.** The first two were
+research prototypes, and between them they reversed part of this draft's own
+recommendation. Reports in `projects/fastsnap/slice0/`.
 
-- ~~**0. Port gate.**~~ **Done.** Device half builds against `56554982` and
-  round-trips; 62 KB block, 17 sections, positive and negative controls both
-  pass. Found two memory bugs and corrected the `is_ram` predicate.
+The import question is **settled**: Luke approved GPL in `rehosting/qemu_builder`,
+and the device half now lives there on branch `workspace/fastsnap` as
+`src/fastsnap/`, on QEMU 11.1.0, with a `nix flake check` gate that runs the
+round trip and its positive control. `projects/fastsnap/slice0/` is now a
+research record, not the live tree.
+
+- ~~**0. Port gate.**~~ **Done, then landed.** Device half builds against
+  `56554982` and round-trips; 62 KB block, 17 sections, positive and negative
+  controls both pass. Found two memory bugs and corrected the `is_ram`
+  predicate. **Re-done on QEMU 11.1.0 in `qemu_builder`** and passing there:
+  17 sections, 63029 bytes, control fires, and the gate verified to fail when
+  the restore is neutered.
 - ~~**RAM-half assessment.**~~ **Done, and it changed the plan.** `cputlb.c`
   drift is a six-line shift, so syx's hooks *would* port — but they record
   nothing on a warm guest, so the recommendation is now QEMU's own bitmap and

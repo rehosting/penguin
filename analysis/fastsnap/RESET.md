@@ -1,7 +1,8 @@
 # What a reset actually costs on real firmware
 
 `ALLOWLIST.md` measured a fast reset at 0.07 ms, on a synthetic payload in the
-quarantined slice0 build. This measures the reset penguin ships today, on
+slice0 build (since landed in `qemu_builder` as `src/fastsnap/`). This
+measures the reset penguin ships today, on
 stridelinx, with the guest doing real work.
 
 **656 ms.** Four orders of magnitude off, and the reason is not what it looks
