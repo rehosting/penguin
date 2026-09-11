@@ -139,21 +139,24 @@ class DevBlock(Plugin):
         # PYTHON side lives inside the penguin image, and the two are versioned
         # independently -- an image built before a binding was added answers
         # True here and then raises AttributeError several minutes later, in a
-        # vCPU callback, after a boot and a warmup. That is exactly what
-        # happened: a five-minute run reported state=done, restores=0, and the
-        # real cause as one line in an errors list. Name the missing pieces up
-        # front instead.
-        needed = ("FASTSNAP_TAKE", "FASTSNAP_RESTORE", "FASTSNAP_PROBE",
-                  "fastsnap_schedule", "fastsnap_seq", "fastsnap_last_rc",
-                  "fastsnap_last_us", "fastsnap_last_digest",
-                  "fastsnap_block_size", "fastsnap_section_count",
-                  "fastsnap_set_denylist", "fastsnap_section_names")
-        absent = [n for n in needed if not hasattr(self.panda, n)]
-        if self.mode == "fast" and absent:
+        # vCPU callback, after a boot and a warmup.
+        #
+        # DERIVED FROM USAGE, not from a hand-kept list. The first version of
+        # this check enumerated the names by hand; the very next change added
+        # FASTSNAP_RESTORE_VERIFY to the code below and not to the list, and
+        # three more runs were lost to the identical AttributeError the check
+        # exists to prevent. A list that must be updated in lockstep with the
+        # code it guards will fall out of lockstep. So read what this class
+        # actually reaches for out of its own source, and require that.
+        absent = sorted(self._api_names_used() - set(dir(self.panda)))
+        # Every mode but loadvm reaches the fastsnap API, and they all run from
+        # this one file against one image, so require the whole set rather than
+        # reasoning per-mode about which subset a given run will touch.
+        if self.mode != "loadvm" and absent:
             self.logger.error(
                 f"devblock: the penguin image's QemuCompat is missing "
                 f"{absent} -- it predates these bindings. Rebuild the image "
-                f"from this tree; mode=fast cannot run.")
+                f"from this tree; mode={self.mode} cannot run.")
             self.errors.append(f"stale image, missing: {absent}")
             self.state = "done"
 
@@ -163,6 +166,22 @@ class DevBlock(Plugin):
             f"devblock: mode={self.mode} detector={self.detector} "
             f"comm={self.comm} warmup={self.warmup} restores={self.want} "
             f"window={self.window} fastsnap_api={self.have_api}")
+
+    @classmethod
+    def _api_names_used(cls):
+        """Every `self.panda.<fastsnap thing>` this class mentions.
+
+        Read off this file's own source, so adding a call adds it to the check
+        automatically. Misses anything reached by a computed name -- there is
+        none here, and a getattr() would have to be added to the pattern.
+        """
+        import inspect
+        import re
+        try:
+            src = inspect.getsource(cls)
+        except OSError:                                  # pragma: no cover
+            return set()
+        return set(re.findall(r"self\.panda\.(FASTSNAP_\w+|fastsnap_\w+)", src))
 
     # ---- the throughput windows ----------------------------------------
     def _tick(self, now):

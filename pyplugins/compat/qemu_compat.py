@@ -1287,6 +1287,14 @@ class QemuCompat:
     FASTSNAP_RESTORE = 1
     FASTSNAP_RELEASE = 2
     FASTSNAP_PROBE = 3
+    # Restore, then digest the result before the guest gets to run again.
+    # A caller cannot verify a restore with PROBE alone: the earliest it can
+    # schedule one is from a later guest event, by which time cpu and timer
+    # state have moved and the digest can never match what the block was taken
+    # at. This op re-serialises inside the same bottom half, vCPUs still
+    # stopped, so last_digest() is directly comparable to the one TAKE left.
+    # last_us() still reports the restore alone.
+    FASTSNAP_RESTORE_VERIFY = 4
 
     def fastsnap_available(self) -> bool:
         """True if this QEMU build exports the fastsnap ABI."""
