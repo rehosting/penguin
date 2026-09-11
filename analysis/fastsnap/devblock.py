@@ -148,7 +148,16 @@ class DevBlock(Plugin):
         # exists to prevent. A list that must be updated in lockstep with the
         # code it guards will fall out of lockstep. So read what this class
         # actually reaches for out of its own source, and require that.
-        absent = sorted(self._api_names_used() - set(dir(self.panda)))
+        used = self._api_names_used()
+        if not used:
+            # Nothing found means the introspection broke, not that the plugin
+            # uses no API. Say so: a check that quietly finds nothing is the
+            # failure mode this whole guard exists to stop.
+            self.logger.error(
+                "devblock: the API preflight found no fastsnap names to check "
+                "-- it is inert, and a stale image will not be caught")
+            self.errors.append("api preflight inert")
+        absent = sorted(used - set(dir(self.panda)))
         # Every mode but loadvm reaches the fastsnap API, and they all run from
         # this one file against one image, so require the whole set rather than
         # reasoning per-mode about which subset a given run will touch.
@@ -169,19 +178,35 @@ class DevBlock(Plugin):
 
     @classmethod
     def _api_names_used(cls):
-        """Every `self.panda.<fastsnap thing>` this class mentions.
+        """Every `FASTSNAP_*` / `fastsnap_*` name this class reaches for.
 
-        Read off this file's own source, so adding a call adds it to the check
-        automatically. Misses anything reached by a computed name -- there is
-        none here, and a getattr() would have to be added to the pattern.
+        Read from the compiled code objects, not from source. Penguin execs a
+        plugin into a synthetic `plugin_file` module, so inspect.getsource()
+        raises TypeError -- and the first version of this caught only OSError
+        and fell back to an empty set, which would have made the check silently
+        inert. An attribute access compiles its name into co_names, so the
+        bytecode has what is needed and cannot go stale.
         """
-        import inspect
         import re
-        try:
-            src = inspect.getsource(cls)
-        except OSError:                                  # pragma: no cover
-            return set()
-        return set(re.findall(r"self\.panda\.(FASTSNAP_\w+|fastsnap_\w+)", src))
+        import types
+        pat = re.compile(r"^(FASTSNAP_\w+|fastsnap_\w+)$")
+        seen, out = set(), set()
+
+        def walk(code):
+            if id(code) in seen:
+                return
+            seen.add(id(code))
+            out.update(n for n in code.co_names if pat.match(n))
+            for c in code.co_consts:
+                if isinstance(c, types.CodeType):
+                    walk(c)
+
+        for v in vars(cls).values():
+            fn = getattr(v, "__func__", v)
+            code = getattr(fn, "__code__", None)
+            if code is not None:
+                walk(code)
+        return out
 
     # ---- the throughput windows ----------------------------------------
     def _tick(self, now):
