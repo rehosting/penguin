@@ -201,6 +201,10 @@ penguin_run() {
                 echo "  --build: Build the PENGUIN container before running the specified command. If no command is specifed, just build and exit"
                 echo "           With no --image, builds and runs the localhost/penguin:dev tag so a local build never"
                 echo "           shadows the default rehosting/penguin:latest run image. Pass --image to choose another tag."
+                echo "           Extra Nix arguments go in PENGUIN_NIX_BUILD_ARGS, NOT on this command line -- an unknown"
+                echo "           flag here is passed through to the penguin CLI, which only rejects it AFTER the image has"
+                echo "           been built and tagged. e.g. to build against a local qemu checkout:"
+                echo "             PENGUIN_NIX_BUILD_ARGS=\"--override-input penguin-qemu ../qemu_builder\" ./penguin --build"
                 echo "  --build-singularity: Build the PENGUIN container and then convert it to singularity. No command will be run"
                 echo "  --dev: Overlay the live penguin worktree (src/, pengutils/, pyplugins/) into the container via PYTHONPATH so edits apply without a rebuild. (--pydev is a deprecated alias.)"
                 echo "  --dev-root: Path to the penguin worktree to overlay under --dev. Defaults to walking up from the cwd for a src/penguin/ dir, then the cwd."
@@ -1231,11 +1235,28 @@ penguin_run() {
         fi
         build_rc=$?
         if [ "$build_rc" -eq 0 ]; then
+            # The tarball carries the name rehosting/penguin:latest, so `load`
+            # writes THAT tag no matter what --image said, and the old image
+            # behind it is left dangling. Retagging afterwards gave the caller
+            # the name they asked for but did not undo the clobber -- so every
+            # --build on a host quietly replaced the shared run image, which is
+            # the exact opposite of what --image and the help text promise.
+            # Remember where the tag pointed and put it back.
+            prev_latest=$("$ENGINE" images -q rehosting/penguin:latest 2>/dev/null | head -1)
             "$ENGINE" load < result
             build_rc=$?
             if [ "$build_rc" -eq 0 ] && [ "$image" != "rehosting/penguin:latest" ]; then
                 "$ENGINE" tag rehosting/penguin:latest "$image"
                 build_rc=$?
+                new_latest=$("$ENGINE" images -q rehosting/penguin:latest 2>/dev/null | head -1)
+                if [ "$build_rc" -eq 0 ] && [ "$prev_latest" != "$new_latest" ]; then
+                    if [ -n "$prev_latest" ]; then
+                        "$ENGINE" tag "$prev_latest" rehosting/penguin:latest
+                    else
+                        # There was no such tag before this build; do not invent one.
+                        "$ENGINE" rmi rehosting/penguin:latest >/dev/null 2>&1 || true
+                    fi
+                fi
             fi
         fi
         set -e
