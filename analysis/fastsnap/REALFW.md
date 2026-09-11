@@ -78,12 +78,51 @@ If that is right, it is not a defect in the port. It is what "restore the
 devices but not the RAM" means on a machine where the CPU's own state points
 into RAM.
 
-**The test.** Deny `cpu,cpu_common` in addition to virtio and run the same fast
-arm. That leaves every peripheral section rewound and the MMU alone. If the
-guest then survives where it otherwise panics, the CPU section is the cause; if
-it dies anyway, the damage is coming from somewhere else and this paragraph is
-wrong. Run interleaved with an un-denied fast run so host drift cannot supply
-the difference. Result to be recorded here.
+**The test, and its result.** Deny `cpu,cpu_common` in addition to virtio and
+run the same fast arm, interleaved with an un-denied run so host drift cannot
+supply the difference.
+
+| arm | block | hits | control | guest |
+|---|---|---|---|---|
+| `cpu` denied | 15 sections, 11,292 B | 1701 | `B != A` **False** | clean |
+| `cpu` kept | 17 sections, 16,019 B | 358 | **ok=True** | 2 kernel traces (`gc_worker`) |
+| `cpu` denied | 15 sections, 11,292 B | 1701 | `B != A` **False** | clean |
+
+With the matrix runs that is **3/3 damaged** with the CPU section in the block
+(kernel panic; `swap_dup` + OOM storm; `gc_worker` fault) and **2/2 clean**
+without it. Restore cost falls from 399 us to 309-328 us.
+
+**What it proves, and what it does not.** Both denied runs report `B != A` is
+False: with `cpu`/`cpu_common` out, the block does not change *at all* while
+the guest runs. The remaining 15 sections are pflash, PCI, gpio, fw_cfg and
+ACPI, and they are static. So they cannot be the source of the damage, and the
+damage is in the CPU section.
+
+But that also means the denied arm's restore is close to a no-op, so its
+survival is partly explained by there being nothing to put back. This
+experiment localises the damage to `cpu`/`cpu_common`; it does **not** isolate
+`TTBR`/`CONTEXTIDR` from the rest of the CP15 file. That attribution remains
+inference from the corruption signatures -- corrupted PTEs and corrupted kernel
+list structures -- and is not separated here.
+
+The localisation is enough for the conclusion that matters: the damaging
+section is the one a reset **cannot omit**, because restoring the CPU is what
+makes a reset a reset. There is no configuration that keeps the reset and drops
+the damage.
+
+### The same run says both things
+
+The `cpu`-kept arm is the whole finding in one place:
+
+```
+control ok=True   B != A True   C == A True   C != B True
+... and two kernel traces, 358 detector hits instead of 1701
+```
+
+The restore is verifiably, byte-exactly correct **and** it destroys the guest.
+Correctness of the block and soundness of the configuration are independent,
+and this run demonstrates both at once rather than inferring across
+experiments.
 
 ### What it costs the measurements
 
