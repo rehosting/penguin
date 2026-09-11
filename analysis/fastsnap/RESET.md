@@ -73,6 +73,13 @@ The Nyx-style approach -- `device_save_kind()` into a plain memory buffer, and
 stream. That is what removes the 482 ms, and the dirty bitmap is what keeps the
 remaining RAM half cheap once you are off `loadvm`.
 
+> **The middle row of that table is not a shippable configuration, and neither
+> is the device half alone.** Both projections above price the *complete*
+> mechanism, device block plus RAM. Measured on real firmware, restoring the
+> device block without the RAM half corrupts the guest within a handful of
+> restores -- see `REALFW.md`. Nothing here is withdrawn; what is withdrawn is
+> the idea that the two halves can be landed, or measured, one at a time.
+
 This is the first measured argument for that design choice in this lane. It was
 previously an assumption.
 

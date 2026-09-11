@@ -64,7 +64,7 @@ class DevBlock(Plugin):
         self.window = int(self.get_arg("window") or 40)
         self.detector = self.get_arg("detector") or "writev"
 
-        if self.mode not in ("fast", "loadvm", "none", "noop"):
+        if self.mode not in ("fast", "loadvm", "none", "noop", "sectiondiff"):
             raise ValueError(f"devblock: unknown mode {self.mode!r}")
 
         self.hits = 0
@@ -79,6 +79,19 @@ class DevBlock(Plugin):
         self._gap = 0
         self.all_sections = []
         self.denied = []
+
+        # mode=sectiondiff: which sections move, and which the restore puts
+        # back. The whole-block A/B/C says only that C != A; it cannot say
+        # whether that is a defective restore or a section whose serialised
+        # form legitimately depends on when it was serialised. Probing ONE
+        # section at a time answers that, and needs no new C: the denylist
+        # already takes a CSV, so denying every section but one makes the
+        # existing PROBE a single-section probe.
+        self.sweeps = {}             # "A" | "B" | "C" -> {section: digest}
+        self.probe_order = []
+        self.sweep_label = None
+        self.sweep_i = -1
+        self.section_report = None
         self.restore_us = []         # from inside QEMU
         self.sched_t = None
         self.seq_at_sched = None
@@ -101,6 +114,17 @@ class DevBlock(Plugin):
         self.deny = self.get_arg("deny")
         if self.deny is None:
             self.deny = "auto"
+        # Denied ON TOP of whatever `deny` selects. Exists to test the
+        # mechanism behind the guest damage the fast arm does on real
+        # firmware: the `cpu` section carries the ARM CP15 registers,
+        # TTBR0/TTBR1 and CONTEXTIDR among them, so restoring it rewinds the
+        # MMU's page-table base while guest RAM stays where the guest has since
+        # taken it. The CPU then walks page tables RAM no longer holds. Denying
+        # cpu,cpu_common leaves peripheral state rewound and the MMU alone; if
+        # the guest survives that and dies without it, the mechanism is named.
+        extra = self.get_arg("deny_extra")
+        self.deny_extra = ([x.strip() for x in extra.split(",") if x.strip()]
+                           if extra else [])
 
         self.have_api = bool(getattr(self.panda, "fastsnap_available", None)
                              and self.panda.fastsnap_available())
@@ -171,6 +195,8 @@ class DevBlock(Plugin):
                 chosen = [x.strip() for x in self.deny.split(",") if x.strip()]
             else:
                 chosen = []
+            chosen = chosen + [n for n in self.deny_extra
+                               if n in names and n not in chosen]
             self.denied = chosen
             if chosen:
                 self.panda.fastsnap_set_denylist(chosen)
@@ -187,11 +213,21 @@ class DevBlock(Plugin):
         safe to poke, so watch the device state itself instead. Driven across
         successive detector hits because each hit means the guest ran, which
         means the main loop got a turn and the bottom half has had a chance.
+
+        A and C are BOTH sampled inside a bottom half, with the vCPUs stopped:
+        A is the digest TAKE leaves of the block it captured, and C is the one
+        RESTORE_VERIFY leaves by re-serialising immediately after restoring.
+        An earlier version probed separately after each, and could never have
+        passed -- the earliest a probe can be scheduled is from the next
+        detector hit, and by then the guest has executed and cpu/timer state
+        has moved. It duly reported C != A, which said nothing about the
+        restore. Only B is a free-running probe, and B is the leg that WANTS
+        the guest to have run.
         """
         st = self.state
         if st == "abc_a":
-            if not self._bh_done():
-                return
+            # A is the digest the TAKE itself left: the hash of the block, as
+            # captured. Not a probe -- see the note in _abc's docstring.
             self.digests["A"] = self.panda.fastsnap_last_digest()
             self._gap = 0
             self.state = "abc_gap"
@@ -205,12 +241,7 @@ class DevBlock(Plugin):
             if not self._bh_done():
                 return
             self.digests["B"] = self.panda.fastsnap_last_digest()
-            self._sched(self.panda.FASTSNAP_RESTORE)
-            self.state = "abc_restore"
-        elif st == "abc_restore":
-            if not self._bh_done():
-                return
-            self._sched(self.panda.FASTSNAP_PROBE)
+            self._sched(self.panda.FASTSNAP_RESTORE_VERIFY)
             self.state = "abc_c"
         elif st == "abc_c":
             if not self._bh_done():
@@ -241,6 +272,99 @@ class DevBlock(Plugin):
             self.state = "loop"
             self.win_mode = "before"
             self.t_prev = now
+
+    # ---- mode=sectiondiff ------------------------------------------------
+    def _probe_one(self, name):
+        """Make the next PROBE cover exactly `name`, by denying the rest."""
+        others = [n for n in self.all_sections if n != name]
+        self.panda.fastsnap_set_denylist(others)
+        self._sched(self.panda.FASTSNAP_PROBE)
+
+    def _sweep(self, label, nxt):
+        """One section per detector hit; `nxt` is the state to enter after."""
+        if not self._bh_done():
+            return
+        if self.sweep_i >= 0:
+            name = self.probe_order[self.sweep_i]
+            self.sweeps[label][name] = self.panda.fastsnap_last_digest()
+        self.sweep_i += 1
+        if self.sweep_i >= len(self.probe_order):
+            self.sweep_i = -1
+            # Put the working denylist back before anything is taken or
+            # restored; leaving an all-but-one denylist in place would make the
+            # next restore a single-section restore.
+            self.panda.fastsnap_set_denylist(self.denied)
+            self.state = nxt
+            self.logger.info(
+                f"devblock: sweep {label} done "
+                f"({len(self.sweeps[label])} sections)")
+            return
+        self._probe_one(self.probe_order[self.sweep_i])
+
+    def _section_verdict(self):
+        a, b, c = self.sweeps["A"], self.sweeps["B"], self.sweeps["C"]
+        moved, not_restored, untouched = [], [], []
+        for n in self.probe_order:
+            if a.get(n) != b.get(n):
+                moved.append(n)
+            if a.get(n) != c.get(n):
+                not_restored.append(n)
+            if b.get(n) == c.get(n) and a.get(n) != b.get(n):
+                untouched.append(n)
+        self.section_report = {
+            "probed": self.probe_order,
+            "moved_A_to_B": moved,
+            "not_restored_C_ne_A": not_restored,
+            "restore_left_alone": untouched,
+        }
+        self.logger.info(
+            f"devblock: sections that moved while the guest ran "
+            f"({len(moved)}): {moved}")
+        self.logger.info(
+            f"devblock: sections the restore did NOT put back "
+            f"({len(not_restored)}): {not_restored}")
+        self.logger.info(
+            f"devblock: of those, untouched by the restore "
+            f"({len(untouched)}): {untouched}")
+
+    def _sectiondiff(self, now):
+        """A/B/C again, but per section, so a failure has an address.
+
+        Same three points as the whole-block control -- after the take, after
+        the guest has run, after the restore -- with a full per-section sweep
+        at each. A section in `moved_A_to_B` but not in `not_restored_C_ne_A`
+        is one the restore handled. A section in both is either broken or
+        time-derived, and `restore_left_alone` separates those: if C still
+        equals B, the restore wrote nothing back.
+        """
+        st = self.state
+        if st == "sweep_a":
+            self._sweep("A", "sd_gap")
+            if self.state == "sd_gap":
+                self._gap = 0
+        elif st == "sd_gap":
+            self._gap += 1
+            if self._gap >= self.abc_gap:
+                self.sweep_i = -1
+                self.state = "sweep_b"
+                self._sched(self.panda.FASTSNAP_PROBE)
+        elif st == "sweep_b":
+            self._sweep("B", "sd_restore")
+            if self.state == "sd_restore":
+                self._sched(self.panda.FASTSNAP_RESTORE)
+        elif st == "sd_restore":
+            if not self._bh_done():
+                return
+            if self.panda.fastsnap_last_rc() != 0:
+                self.errors.append("sectiondiff: restore rc != 0")
+            self.sweep_i = -1
+            self.state = "sweep_c"
+            self._sched(self.panda.FASTSNAP_PROBE)
+        elif st == "sweep_c":
+            self._sweep("C", "sd_done")
+            if self.state == "sd_done":
+                self._section_verdict()
+                self.state = "done"
 
     def _record_shape(self):
         try:
@@ -304,18 +428,32 @@ class DevBlock(Plugin):
                         return
                     self.logger.info(
                         f"devblock: take {self.panda.fastsnap_last_us()} us")
-                if self.mode == "none" or self.want <= 0:
+                if self.mode == "sectiondiff":
+                    self.probe_order = [n for n in self.all_sections
+                                        if n not in self.denied]
+                    for k in ("A", "B", "C"):
+                        self.sweeps[k] = {}
+                    self.sweep_i = -1
+                    self.state = "sweep_a"
+                    self._sched(self.panda.FASTSNAP_PROBE)
+                elif self.mode == "none" or self.want <= 0:
                     self.state = "done"
                     self.logger.info("devblock: CONTROL - not restoring")
                 elif self.mode == "fast":
+                    # No probe here: A is the digest the TAKE just left, and
+                    # scheduling a probe would overwrite it with a reading
+                    # taken after the guest had run again.
                     self.state = "abc_a"        # positive control first
-                    self._sched(self.panda.FASTSNAP_PROBE)
                 else:
                     self.state = "loop"
                     self.win_mode = "before"
 
             elif self.state.startswith("abc_"):
                 self._abc(now)
+
+            elif self.state.startswith("sweep_") or self.state in (
+                    "sd_gap", "sd_restore", "sd_done"):
+                self._sectiondiff(now)
 
             elif self.state == "loop":
                 if self.win_mode == "before" and len(self.win_before) >= self.window:
@@ -372,6 +510,7 @@ class DevBlock(Plugin):
             "fastsnap_api": self.have_api,
             "block": self.shape,
             "control": self.control,
+            "section_report": self.section_report,
             "all_sections": self.all_sections,
             "denied": self.denied,
             "restores": self.n_restores,

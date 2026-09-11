@@ -11,9 +11,15 @@ normal `penguin run`.
 > record that got it there; the timings in these documents were taken on that
 > 11.0.50 tree and **have not been re-measured on 11.1.0**.
 >
-> The open question the port exists to answer is still open: whether the
-> 0.07 ms reset survives a real firmware target, where post-restore TB
-> re-translation may scale with the working set rather than the dirty set.
+> **The question the port existed to answer cannot be asked in this form.** It
+> was: does the 0.07 ms reset survive a real firmware target, where
+> post-restore TB re-translation may scale with the working set rather than the
+> dirty set? Run against booted firmware, the device block restores in ~400 us
+> and then *corrupts the guest* -- kernel panic in one run, page-table
+> corruption and an OOM storm in another, against two clean controls. See
+> `REALFW.md`. The device half is not a stage that works less well without the
+> RAM half; it is one that is unsound without it, so there is no device-only
+> throughput figure to compare against 0.07 ms.
 
 ## What it measures
 

@@ -621,13 +621,21 @@ research record, not the live tree.
   drift is a six-line shift, so syx's hooks *would* port — but they record
   nothing on a warm guest, so the recommendation is now QEMU's own bitmap and
   those hooks are not ported at all.
-- **1. Device block behind `penguin_fastsnap_*`.** The three entry points beside
-  `penguin_schedule_snapshot`; restore devices from the block, RAM still via
-  `load_snapshot`. Measures the device half in isolation against the ~94 ms
-  fixed floor. Fix the two imported memory bugs here, not later.
+- **1. Device block behind `penguin_fastsnap_*`.** ~~Measures the device half in
+  isolation against the ~94 ms fixed floor.~~ **Landed, and the isolation part
+  of this is not achievable.** The entry points exist and the block restores in
+  ~400 us on real firmware -- but repeated device-only restores *corrupt the
+  guest*: kernel panic in one run, page-table corruption and an OOM storm in
+  another, against two clean same-cadence controls (`REALFW.md`). The `cpu`
+  section carries the ARM CP15 registers, TTBR and CONTEXTIDR among them, so
+  restoring it rewinds the MMU's page-table base into RAM that was never
+  rewound. So slices 1 and 2 are **one deliverable**, not two: the RAM half is
+  a correctness prerequisite rather than the place the win lives, and there is
+  no device-half throughput number to compare against the floor.
 - **2. RAM via the native bitmap.** `physical_memory_test_and_clear_dirty()` at
   snapshot, query at restore, restore dirty pages from a root copy. **No
-  `cputlb.c` / `physmem.c` edits.** This is where the win is, and where
+  `cputlb.c` / `physmem.c` edits.** Not merely where the win is -- on the
+  evidence in `REALFW.md`, what makes slice 1 sound at all. And where
   `tb_flush` avoidance arrives for free: hand-invalidate TBs for the dirty pages
   only and never enter `RUN_STATE_RESTORE_VM`.
 - **3. Block COW cache.** `syx-cow-cache` so disk writes roll back in memory.
