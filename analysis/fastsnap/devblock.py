@@ -111,6 +111,28 @@ class DevBlock(Plugin):
                 "--override-input penguin-qemu <qemu_builder>.")
             self.state = "done"
 
+        # fastsnap_available() only proves the QEMU library has the ABI. The
+        # PYTHON side lives inside the penguin image, and the two are versioned
+        # independently -- an image built before a binding was added answers
+        # True here and then raises AttributeError several minutes later, in a
+        # vCPU callback, after a boot and a warmup. That is exactly what
+        # happened: a five-minute run reported state=done, restores=0, and the
+        # real cause as one line in an errors list. Name the missing pieces up
+        # front instead.
+        needed = ("FASTSNAP_TAKE", "FASTSNAP_RESTORE", "FASTSNAP_PROBE",
+                  "fastsnap_schedule", "fastsnap_seq", "fastsnap_last_rc",
+                  "fastsnap_last_us", "fastsnap_last_digest",
+                  "fastsnap_block_size", "fastsnap_section_count",
+                  "fastsnap_set_denylist", "fastsnap_section_names")
+        absent = [n for n in needed if not hasattr(self.panda, n)]
+        if self.mode == "fast" and absent:
+            self.logger.error(
+                f"devblock: the penguin image's QemuCompat is missing "
+                f"{absent} -- it predates these bindings. Rebuild the image "
+                f"from this tree; mode=fast cannot run.")
+            self.errors.append(f"stale image, missing: {absent}")
+            self.state = "done"
+
         syscalls.syscall(f"on_sys_{self.detector}_enter",
                          comm_filter=self.comm)(self.on_hit)
         self.logger.info(
@@ -222,8 +244,15 @@ class DevBlock(Plugin):
 
     def _record_shape(self):
         try:
+            # section_count() is a property of the MACHINE (device_list_all
+            # walks every handler), not of the block. Reporting it as the
+            # block's paired it with a byte count that excludes the denied
+            # sections, so `{'sections': 20, 'bytes': 16019}` described a
+            # 17-section block with a 20 next to it. Report both, named.
+            on_machine = self.panda.fastsnap_section_count()
             self.shape = {
-                "sections": self.panda.fastsnap_section_count(),
+                "sections_in_block": on_machine - len(self.denied),
+                "sections_on_machine": on_machine,
                 "bytes": self.panda.fastsnap_block_size(),
             }
             self.logger.info(f"devblock: block {self.shape}")
