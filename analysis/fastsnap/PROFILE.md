@@ -195,3 +195,58 @@ next hit of a probe placed at the resume point. That, plus the fact that the
 existing path is a full `savevm`/`loadvm` rather than the `{cpu,timer}`
 allowlist plus dirty-RAM restore measured in `ALLOWLIST.md`, is why the real
 reset cost on this firmware is still unmeasured.
+
+## Syscall boundary vs uprobe boundary
+
+A uprobe adds machinery a syscall does not: a breakpoint instruction, the
+kernel's uprobe handler, and an execute-out-of-line single-step. A syscall was
+going to trap into the kernel regardless, so hooking one should cost only the
+portal dispatch. Measured in a single run, so the comparison is immune to the
+run-to-run variance that makes cross-run A/Bs useless here:
+
+| boundary | n | median |
+|---|---|---|
+| syscall `fcntl64` | 1926 | **133.2 us** |
+| syscall `close` | 3897 | 136.8 us |
+| syscall `clock_gettime` | 362 | 163.3 us |
+| syscall `gettimeofday` | 366 | 169.6 us |
+| syscall `setsockopt` | 3409 | 186.1 us |
+| syscall `read` | 1949 | 208.8 us |
+| syscall `writev` | 1701 | 250.3 us |
+| syscall `stat64` | 3534 | 282.6 us |
+| syscall `open` | 3578 | 351.6 us |
+| syscall `epoll_wait` | 361 | 33,165 us |
+| **uprobe** `get_http_method_key` | 1701 | **252.5 us** |
+| **uprobe** `connection_set_state` | 12109 | 257.3 us |
+
+**1.9x cheaper at a syscall boundary**, and that is a lower bound on the gap:
+the syscall bracket includes the kernel's own work for that syscall, which a
+12-byte probed function does not have.
+
+Three checks that the instrument is sound:
+
+- `epoll_wait` at 33 ms. That syscall genuinely blocks, so the bracket is
+  measuring real syscall duration -- which means the cheap entries really are
+  cheap, not an artefact of the timer.
+- The ordering is physically sensible end to end: `fcntl64`/`close` <
+  `clock_gettime` < `setsockopt` < `read` < `stat64` < `open`, i.e. sorted by
+  how much kernel work each does, with the filesystem calls last.
+- The two cheapest agree within 3% across a 2x difference in sample count,
+  the same internal check the uprobe controls passed.
+
+Host-side Python is 73 us and is paid identically by both paths, so guest-side
+overhead is ~179 us at a uprobe against **<=60 us at a syscall**.
+
+**What it is worth.** Applied to the measured 390 us lap, swapping the uprobe
+for a syscall boundary removes ~119 us -> ~271 us -> **~3,700 exec/s**. That is
+an estimate from a measured delta, not an end-to-end measurement. It is +44%
+over the 2,567 measured today and it exceeds the entire Python lever's
+unreachable ceiling of ~2,985.
+
+**Design consequence.** Hook the syscall, not the library function. This costs
+nothing to adopt because it is where the harness wanted to inject anyway --
+"snapshot at the point where the guest reads the packet" is a `read` return
+hook. `read` itself brackets at 208.8 us because it does real work copying the
+packet, but injection needs only the return hook, not a bracket. The
+library-layer uprobe remains available for targets whose parse is not reachable
+from a syscall boundary; it should be the fallback, not the default.
