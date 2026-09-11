@@ -1,0 +1,20 @@
+{
+  "tag": "notrap",
+  "detector": "writev",
+  "comm": "lighttpd",
+  "hits": 1726,
+  "state": "done",
+  "save_observed_ms": 419.9627819471061,
+  "restores": 25,
+  "cycle": {
+    "n": 25,
+    "median_ms": 656.1700429301709,
+    "min_ms": 638.5491420514882,
+    "p10_ms": 642.4478681292385,
+    "p90_ms": 689.6349568851292
+  },
+  "detector_ms_subtracted": 0.133,
+  "restore_ms_est": 656.0370429301709,
+  "restores_per_s_est": 1.5239952063864934,
+  "errors": []
+}
