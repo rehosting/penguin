@@ -132,6 +132,37 @@ restore cost (~400 us) and its round-trip correctness (gated in CI) are still
 real results; what is not available is an end-to-end throughput figure for the
 device half alone.
 
+## The mechanism is correct. The configuration is not.
+
+These are different claims and both are now settled, in opposite directions.
+
+**Correct.** With the vCPUs stopped and both ends sampled inside the same
+bottom half -- `TAKE` leaving the digest of the block it captured,
+`RESTORE_VERIFY` re-serialising immediately after restoring, nothing executing
+in between -- the restore reproduces the block **byte for byte**. On
+`-M virt` aarch64, gated in CI:
+
+```
+fastsnap: scheduled take 1754 us, 63029 bytes, 17 sections
+fastsnap: scheduled restore 892 us
+fastsnap: restore reproduces the block byte for byte (digest 7383989865977933763)
+fastsnap: no RUN_STATE_RESTORE_VM transition, so no tb_flush
+fastsnap: SELFTEST PASSED
+```
+
+So `device_save_all` / `device_restore_all` do exactly what they claim: the
+captured state goes back precisely as captured, and the restore never enters
+`RUN_STATE_RESTORE_VM`, so it never triggers a `tb_flush`.
+
+**Not sound in context.** The state it faithfully restores refers to RAM that
+was never restored. Faithfully rewinding `TTBR` to a page table that has since
+been freed and reused is not a defect in the rewinding.
+
+The distinction matters for what happens next. There is no bug to go and find
+in `src/fastsnap/`; the round trip is exact and gated. What is missing is the
+other half of the state, and no amount of correctness in this half substitutes
+for it.
+
 ## What this does to exec/s
 
 Nothing measured today improved the iteration rate. It is worth being explicit
