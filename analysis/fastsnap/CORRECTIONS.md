@@ -1,9 +1,11 @@
 # Corrections to DESIGN-fastsnap.md, and the RAM term measured on real firmware
 
-Three of this lane's own claims were wrong. All three were found by checking
-the design against the code and against a real target rather than against the
-prototype it was developed on. Recording them here rather than quietly editing
-the design, because two of them are the *kind* of error worth remembering.
+A running list of this lane's own claims that turned out to be wrong, and of
+the instruments that turned out to be measuring nothing. Every one was found by
+checking the design against the code, or against a real target, rather than
+against the prototype it was developed on. Recorded here rather than quietly
+edited away, because the *kind* of error is the part worth keeping: entries 5
+and 6 are both instruments that passed while blind.
 
 ## 1. The central integration decision was backwards
 
@@ -108,6 +110,51 @@ Scope: this is **idle background churn** from the firmware's own daemons, not
 the dirty set of a specific request. A fuzzing iteration adds its own work on
 top. What it establishes is the floor a reset pays even when the iteration
 itself does nothing.
+
+## 5. The no-`tb_flush` assertion was inert, and only its own negative control found it
+
+The selftest's second phase asserts the thing the whole design turns on: that a
+device-only restore never enters `RUN_STATE_RESTORE_VM`, because that state is
+the sole `tb_flush` trigger (`accel/tcg/tcg-all.c`, `tcg_vm_change_state`). It
+printed "no RUN_STATE_RESTORE_VM transition" and PASSED.
+
+It was checking nothing. Phase 2 ran at machine-init-done, where the VM is not
+yet running, and `vm_stop()` on an already-stopped VM returns early **without
+notifying change-state handlers**. The assertion's observer was never called,
+and "never called" is indistinguishable from "called and saw nothing" if you
+only look at the verdict.
+
+Found by injecting the failure it exists to catch: a deliberate
+`vm_stop(RUN_STATE_RESTORE_VM)` in the restore path. It still printed PASSED.
+
+Fixed by running phase 2 from a change-state handler once the VM is actually
+running, refusing to run at all when stopped, and dropping `-S` from the nix
+check so the VM reaches that state. It now fails when the control is injected.
+
+**The generalisation.** A passing assertion is evidence only if you have seen
+it fail. This one had a negative control available for the asking and had never
+been run against it — and the same shape produced the next entry, and the
+reason the real-firmware harness had to grow an A/B/C probe before any of its
+timings could be believed.
+
+## 6. Merge order silently put 25 `loadvm` restores inside the measurement windows
+
+The real-firmware harness disables `notrap` so the only restores in a run are
+its own. `patch_devblock.yaml` set `plugins.notrap.enabled: false` and the runs
+looked clean.
+
+Penguin merges `patch_*.yaml` **in filename order**, and `patch_fuzzcal.yaml`
+sorts *after* `patch_devblock.yaml`. It re-enabled `notrap`, whose loop then
+ran 25 full `loadvm` restores concurrently with the throughput windows being
+measured — each one carrying the ~380 ms cost and the re-translation cliff the
+experiment was trying to attribute to something else.
+
+Nothing logged a conflict in the direction that mattered; the config log shows
+the last writer winning, which is correct behaviour and reads as unremarkable.
+Renamed to `patch_zz_devblock.yaml` so it merges last.
+
+**The generalisation.** A YAML layer that "disables the other thing" is only as
+true as its filename sorts. Check the merged config, not the patch you wrote.
 
 ## The VPN finding, now with evidence rather than inference
 

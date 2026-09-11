@@ -652,11 +652,41 @@ half is the one a naive benchmark will claim we already fixed.
   next-syscall / symbol boundaries) is the natural chooser — but a fuzzer wants
   the reset point to be the *input injection* point, which nothing currently
   models.
-- **Does anything in the IGLOO device set resist device-block save/restore?**
-  The modeled pseudofiles and `igloo` platform devices have vmstate
-  descriptors of our own authorship, and `device_save_kind` supports a denylist.
-  Unknown until slice 0.
-- **Upstream tracking.** `qemu-libafl-bridge` is at QEMU 9.1.1; we are at
-  11.0.50. A port is a fork of a fork. Is it worth carrying the delta, or should
-  the ported files be treated as ours from day one? Recommend the latter — the
-  file count is small and the alternative is a permanent rebase tax.
+- ~~**Does anything in the IGLOO device set resist device-block save/restore?**~~
+  **Answered, on real firmware, and the answer is yes: virtio.** Not our
+  pseudofiles or `igloo` platform devices -- those round-trip. A virtio device
+  keeps `last_avail_idx`/`used_idx` in the device model and the vring itself in
+  **guest RAM**, so a device-only restore puts back one half and leaves the
+  other at whatever the guest has since made of it. `virtio_load()` is strict
+  enough to catch it:
+
+      VQ 1 size 0x100 < last_avail_idx 0x9 - used_idx 0x11
+      error while loading state for instance 0x0 of device
+      '0000:00:01.0/virtio-net': Failed to load element of type virtio
+
+  The rule generalises past virtio: **any device whose state is co-located with
+  guest RAM cannot go in a block that does not carry that RAM.** So the fix is
+  not to make virtio tolerant, it is to keep those devices out -- the denylist,
+  now reachable as `penguin_fastsnap_set_denylist()`. This is the "so is the
+  network backend" sacrifice above arriving as a concrete bill rather than a
+  stated willingness.
+
+  It could not have been found on `-M virt`, which has no virtio-net, which is
+  why every prototype measurement missed it. Once slice 2 carries RAM as well,
+  the denial is worth revisiting: the reason for it is precisely the RAM half's
+  absence.
+- ~~**Upstream tracking.**~~ **Settled: the ported files are ours, from day
+  one.** `qemu-libafl-bridge` is at QEMU 9.1.1 and we are now on 11.1.0, so the
+  gap is two releases wider than when this question was written. The files live
+  in `qemu_builder` under `src/fastsnap/`, **copied, never patched** -- the
+  repo's invariant is that no patch modifies a file we created. Provenance and
+  licence are declared in `src/fastsnap/PROVENANCE.md` rather than carried as a
+  rebase.
+
+  The port is not a transcription. `device-save.c` was rewritten onto two new
+  accessors (`qemu_savevm_foreach_handler`, `qemu_savevm_save_one`) instead of
+  libafl's hoist of `SaveStateEntry` into a public header, so the struct stays
+  an incomplete type outside `savevm.c`; `se->is_ram` no longer exists in 11.x
+  and the correct predicate is `se->ops && se->ops->save_setup`; and
+  `channel-buffer-writeback.c` grew a reader constructor, which removed both the
+  need to patch `io/channel-buffer.c` and libafl's double-free.
