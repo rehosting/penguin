@@ -69,6 +69,8 @@ class DevBlock(Plugin):
         self.n_restores = 0
 
         self.shape = None            # sections/bytes, once taken
+        self.all_sections = []
+        self.denied = []
         self.restore_us = []         # from inside QEMU
         self.sched_t = None
         self.seq_at_sched = None
@@ -80,6 +82,17 @@ class DevBlock(Plugin):
         self.t_prev = None
         self.before_all = []
         self.after_all = []
+
+        # Sections to leave out. Default is every virtio device, and that is a
+        # correctness requirement rather than a preference: a virtio device's
+        # state is split between the device model and the vring in GUEST RAM, so
+        # a device-only restore puts back one half and leaves the other as the
+        # guest has since made it. virtio_load() rejects the result outright
+        # ("VQ 1 size 0x100 < last_avail_idx 0x9 - used_idx 0x11"). This is the
+        # announced trade for the fast path: it gives up the network backend.
+        self.deny = self.get_arg("deny")
+        if self.deny is None:
+            self.deny = "auto"
 
         self.have_api = bool(getattr(self.panda, "fastsnap_available", None)
                              and self.panda.fastsnap_available())
@@ -113,6 +126,28 @@ class DevBlock(Plugin):
             self.after_all.append(statistics.median(self.win_after))
         self.win_before, self.win_after = [], []
 
+    def _apply_denylist(self):
+        try:
+            names = self.panda.fastsnap_section_names()
+            self.all_sections = names
+            self.logger.info(f"devblock: {len(names)} sections on this machine: "
+                             f"{names}")
+            if self.deny == "auto":
+                # Everything virtio, by section id. Matching on the id rather
+                # than a device type because that is what device-save.c
+                # compares.
+                chosen = [n for n in names if "virtio" in n.lower()]
+            elif self.deny:
+                chosen = [x.strip() for x in self.deny.split(",") if x.strip()]
+            else:
+                chosen = []
+            self.denied = chosen
+            if chosen:
+                self.panda.fastsnap_set_denylist(chosen)
+                self.logger.info(f"devblock: excluding {len(chosen)}: {chosen}")
+        except Exception as e:                           # noqa: BLE001
+            self.errors.append(f"denylist: {e!r}")
+
     def _record_shape(self):
         try:
             self.shape = {
@@ -143,6 +178,7 @@ class DevBlock(Plugin):
                     if self.mode == "loadvm":
                         self.panda.schedule_snapshot(self.tag, load=False)
                     else:
+                        self._apply_denylist()
                         self.panda.fastsnap_schedule(self.panda.FASTSNAP_TAKE)
 
             elif self.state == "taking":
@@ -217,6 +253,8 @@ class DevBlock(Plugin):
             "state": self.state, "hits": self.hits,
             "fastsnap_api": self.have_api,
             "block": self.shape,
+            "all_sections": self.all_sections,
+            "denied": self.denied,
             "restores": self.n_restores,
             "restore_us_in_qemu": stats(self.restore_us),
             "throughput_cliff": cliff,

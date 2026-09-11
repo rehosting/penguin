@@ -1291,6 +1291,38 @@ class QemuCompat:
         """True if this QEMU build exports the fastsnap ABI."""
         return self._lib_symbol("penguin_fastsnap_schedule") is not None
 
+    def fastsnap_set_denylist(self, names) -> bool:
+        """Exclude these section ids from the next block.
+
+        Not a tuning knob -- a correctness requirement on any machine with
+        virtio. A virtio device's state is split between the device model
+        (last_avail_idx/used_idx) and the vring, which lives in GUEST RAM. A
+        device-only restore puts back the first and leaves the second as the
+        guest has since made it, and virtio_load() rejects the result:
+
+            VQ 1 size 0x100 < last_avail_idx 0x9 - used_idx 0x11
+
+        Measured on a booted firmware image. So the fast path gives up the
+        devices whose state is co-located with guest RAM -- the announced
+        trade, not a defect.
+        """
+        fn = self._lib_symbol("penguin_fastsnap_set_denylist")
+        if fn is None:
+            return False
+        if not isinstance(names, str):
+            names = ",".join(names or [])
+        cname = self.ffi.new("char[]", names.encode("utf-8"))
+        fn(cname)
+        return True
+
+    def fastsnap_section_names(self) -> list:
+        """Every section a block would cover on this machine."""
+        fn = self._lib_symbol("penguin_fastsnap_section_names")
+        if fn is None:
+            return []
+        raw = self.ffi.string(fn()).decode("utf-8", "replace")
+        return [x for x in raw.split("\n") if x]
+
     def fastsnap_schedule(self, op: int) -> bool:
         """Schedule a device-block take (0), restore (1) or release (2).
 
