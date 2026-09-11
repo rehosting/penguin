@@ -1213,7 +1213,9 @@ class QemuCompat:
         if fn is None:
             logger.warning(
                 "QEMU library does not expose penguin_save_snapshot; "
-                "snapshot support requires a rebuilt pandare deb")
+                "snapshot support requires a penguin-qemu build that exports "
+                "it (flake input `penguin-qemu`, staged by "
+                "nix/mk-penguin-qemu.nix)")
             return False
         cname = self.ffi.new("char[]", name.encode("utf-8"))
         ok = bool(self._call_with_bql(lambda: fn(cname)))
@@ -1232,7 +1234,9 @@ class QemuCompat:
         if fn is None:
             logger.warning(
                 "QEMU library does not expose penguin_load_snapshot; "
-                "snapshot support requires a rebuilt pandare deb")
+                "snapshot support requires a penguin-qemu build that exports "
+                "it (flake input `penguin-qemu`, staged by "
+                "nix/mk-penguin-qemu.nix)")
             return False
         cname = self.ffi.new("char[]", name.encode("utf-8"))
         ok = bool(self._call_with_bql(lambda: fn(cname)))
@@ -1254,7 +1258,9 @@ class QemuCompat:
         if fn is None:
             logger.warning(
                 "QEMU library does not expose penguin_schedule_snapshot; "
-                "snapshot support requires a rebuilt pandare deb")
+                "snapshot support requires a penguin-qemu build that exports "
+                "it (flake input `penguin-qemu`, staged by "
+                "nix/mk-penguin-qemu.nix)")
             return False
         cname = self.ffi.new("char[]", name.encode("utf-8"))
         self._call_with_bql(lambda: fn(cname, bool(load)))
