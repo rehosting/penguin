@@ -32,9 +32,13 @@ reporting one first:
 
   mode=fast     device block only        -- expect no cliff
   mode=loadvm   full savevm/loadvm       -- POSITIVE CONTROL, expect a cliff
-  mode=none     take a block, never restore -- NEGATIVE CONTROL, expect no
-                cliff, and isolates any cliff in `fast` to the restore rather
-                than to the take or to the measurement itself
+  mode=noop     identical window cadence, restore replaced by nothing --
+                THE NOISE FLOOR. Without it a small ratio in `fast` cannot be
+                told from variance, and this workload's absolute rate moves a
+                lot between runs (5.8 to 10.6 ms/hit observed), so only an
+                in-run paired comparison is fair.
+  mode=none     take a block, never restore -- isolates a failure to the take
+                path rather than the restore loop
 
 Run all three against the same target before believing any of them.
 """
@@ -60,7 +64,7 @@ class DevBlock(Plugin):
         self.window = int(self.get_arg("window") or 40)
         self.detector = self.get_arg("detector") or "writev"
 
-        if self.mode not in ("fast", "loadvm", "none"):
+        if self.mode not in ("fast", "loadvm", "none", "noop"):
             raise ValueError(f"devblock: unknown mode {self.mode!r}")
 
         self.hits = 0
@@ -69,6 +73,10 @@ class DevBlock(Plugin):
         self.n_restores = 0
 
         self.shape = None            # sections/bytes, once taken
+        self.digests = {}            # A/B/C positive control
+        self.control = None          # its verdict
+        self.abc_gap = int(self.get_arg("abc_gap") or 20)
+        self._gap = 0
         self.all_sections = []
         self.denied = []
         self.restore_us = []         # from inside QEMU
@@ -148,6 +156,70 @@ class DevBlock(Plugin):
         except Exception as e:                           # noqa: BLE001
             self.errors.append(f"denylist: {e!r}")
 
+    def _abc(self, now):
+        """A/B/C: show the restore moves device state before believing timing.
+
+        A restore that silently restored nothing produces the same duration and
+        the same absence of a re-translation cliff as a correct one. On -M virt
+        the selftest pokes a PL011 register; on real firmware there is nothing
+        safe to poke, so watch the device state itself instead. Driven across
+        successive detector hits because each hit means the guest ran, which
+        means the main loop got a turn and the bottom half has had a chance.
+        """
+        st = self.state
+        if st == "abc_a":
+            if not self._bh_done():
+                return
+            self.digests["A"] = self.panda.fastsnap_last_digest()
+            self._gap = 0
+            self.state = "abc_gap"
+        elif st == "abc_gap":
+            # Let the guest run, so its device state has a chance to move.
+            self._gap += 1
+            if self._gap >= self.abc_gap:
+                self._sched(self.panda.FASTSNAP_PROBE)
+                self.state = "abc_b"
+        elif st == "abc_b":
+            if not self._bh_done():
+                return
+            self.digests["B"] = self.panda.fastsnap_last_digest()
+            self._sched(self.panda.FASTSNAP_RESTORE)
+            self.state = "abc_restore"
+        elif st == "abc_restore":
+            if not self._bh_done():
+                return
+            self._sched(self.panda.FASTSNAP_PROBE)
+            self.state = "abc_c"
+        elif st == "abc_c":
+            if not self._bh_done():
+                return
+            self.digests["C"] = self.panda.fastsnap_last_digest()
+            a, b, c = (self.digests.get(k) for k in "ABC")
+            moved = (a != b)
+            restored = (c == a)
+            not_noop = (c != b)
+            self.control = {"A": a, "B": b, "C": c,
+                            "B_differs_from_A": moved,
+                            "C_equals_A": restored,
+                            "C_differs_from_B": not_noop,
+                            "ok": bool(moved and restored and not_noop)}
+            if not moved:
+                self.logger.error(
+                    "devblock: CONTROL FAILED - device state did not change "
+                    "while the guest ran, so the probe is blind and nothing "
+                    "below is evidence of anything")
+            elif not restored or not not_noop:
+                self.logger.error(
+                    f"devblock: CONTROL FAILED - restore did not reproduce A "
+                    f"(C==A {restored}, C!=B {not_noop})")
+            else:
+                self.logger.info(
+                    "devblock: control OK - state moved, and the restore put "
+                    "it back")
+            self.state = "loop"
+            self.win_mode = "before"
+            self.t_prev = now
+
     def _record_shape(self):
         try:
             self.shape = {
@@ -158,13 +230,24 @@ class DevBlock(Plugin):
         except Exception as e:                           # noqa: BLE001
             self.errors.append(f"shape: {e!r}")
 
+    def _sched(self, op):
+        self.seq_at_sched = self.panda.fastsnap_seq()
+        return self.panda.fastsnap_schedule(op)
+
+    def _bh_done(self):
+        """Has the scheduled bottom half run? This callback is on a vCPU
+        thread and the BH is on the main loop, so blocking here would deadlock;
+        the state machine just re-checks on the next detector hit."""
+        return self.panda.fastsnap_seq() > self.seq_at_sched
+
     def _do_restore(self):
         self.sched_t = time.perf_counter()
+        if self.mode == "noop":
+            return                      # the noise floor: same cadence, no work
         if self.mode == "loadvm":
             self.panda.schedule_snapshot(self.tag, load=True)
         else:
-            self.seq_at_sched = self.panda.fastsnap_seq()
-            self.panda.fastsnap_schedule(self.panda.FASTSNAP_RESTORE)
+            self._sched(self.panda.FASTSNAP_RESTORE)
 
     def on_hit(self, *args, **kwargs):
         now = time.perf_counter()
@@ -195,9 +278,15 @@ class DevBlock(Plugin):
                 if self.mode == "none" or self.want <= 0:
                     self.state = "done"
                     self.logger.info("devblock: CONTROL - not restoring")
+                elif self.mode == "fast":
+                    self.state = "abc_a"        # positive control first
+                    self._sched(self.panda.FASTSNAP_PROBE)
                 else:
                     self.state = "loop"
                     self.win_mode = "before"
+
+            elif self.state.startswith("abc_"):
+                self._abc(now)
 
             elif self.state == "loop":
                 if self.win_mode == "before" and len(self.win_before) >= self.window:
@@ -205,8 +294,8 @@ class DevBlock(Plugin):
                     self.win_mode = "pending"
                 elif self.win_mode == "pending":
                     # first hit after the restore's bottom half
-                    if self.mode != "loadvm":
-                        if self.panda.fastsnap_seq() > self.seq_at_sched:
+                    if self.mode == "fast":
+                        if self._bh_done():
                             if self.panda.fastsnap_last_rc() == 0:
                                 self.restore_us.append(
                                     self.panda.fastsnap_last_us())
@@ -253,6 +342,7 @@ class DevBlock(Plugin):
             "state": self.state, "hits": self.hits,
             "fastsnap_api": self.have_api,
             "block": self.shape,
+            "control": self.control,
             "all_sections": self.all_sections,
             "denied": self.denied,
             "restores": self.n_restores,

@@ -1286,6 +1286,7 @@ class QemuCompat:
     FASTSNAP_TAKE = 0
     FASTSNAP_RESTORE = 1
     FASTSNAP_RELEASE = 2
+    FASTSNAP_PROBE = 3
 
     def fastsnap_available(self) -> bool:
         """True if this QEMU build exports the fastsnap ABI."""
@@ -1359,6 +1360,17 @@ class QemuCompat:
         """
         fn = self._lib_symbol("penguin_fastsnap_last_us")
         return int(fn()) if fn is not None else -1
+
+    def fastsnap_last_digest(self) -> int:
+        """Hash of the device state from the last PROBE.
+
+        Compare across probes; the value is not stable across builds or
+        machines. This is the only way, on a target with nothing safe to poke,
+        to show a restore actually moved device state -- one that silently did
+        nothing is otherwise indistinguishable from a correct one.
+        """
+        fn = self._lib_symbol("penguin_fastsnap_last_digest")
+        return int(fn()) if fn is not None else 0
 
     def fastsnap_block_size(self) -> int:
         fn = self._lib_symbol("penguin_fastsnap_block_size")
