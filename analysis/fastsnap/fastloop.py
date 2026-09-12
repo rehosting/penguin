@@ -95,6 +95,7 @@ class FastLoop(Plugin):
         self._closed_by_signal = False
         self.crash_iter_ms = []    # laps a crash ended
         self.t_sched = None
+        self.t_sched_mono = None
         # Wall time from scheduling a reset to first SEEING it finished.
         #
         # READ IT AS A COMPOSITE, not as bottom-half latency. The observation
@@ -112,6 +113,17 @@ class FastLoop(Plugin):
         # bottom half is already running.
         self.bh_wall_ms = []
         self.bh_wall_crash_ms = []
+        # The two halves of bh_wall, which it could not previously separate.
+        # sched_ms is scheduling to the bottom half completing (main-loop
+        # latency plus the reset); obs_ms is that completion to the next
+        # detector hit noticing (guest execution plus this plugin's own cost).
+        # "The reset is slow" and "the round trip is slow" have opposite fixes
+        # and bh_wall alone cannot tell them apart.
+        self.sched_ms = []
+        self.obs_ms = []
+        self.sched_crash_ms = []
+        self.obs_crash_ms = []
+        self._have_bh_clock = True
         self.t0 = time.perf_counter()
         self.want = int(self.get_arg("iters") or 200)
         self.verify_every = int(self.get_arg("verify_every") or 50)
@@ -300,6 +312,7 @@ class FastLoop(Plugin):
     def _sched(self, op):
         self.seq_at_sched = self.panda.fastsnap_seq()
         self.t_sched = time.perf_counter()
+        self.t_sched_mono = time.clock_gettime(time.CLOCK_MONOTONIC)
         self.panda.fastsnap_schedule(op)
 
     def _bh_done(self):
@@ -319,6 +332,8 @@ class FastLoop(Plugin):
         try:
             names = self.panda.fastsnap_section_names()
             self.all_sections = names
+            self.logger.info(f"fastloop: device sections on this machine: "
+                             f"{names}")
             if self.allow and self.deny:
                 raise ValueError(
                     "fastloop: allow= and deny= are mutually exclusive; they "
@@ -515,6 +530,7 @@ class FastLoop(Plugin):
                         w = (now - self.t_sched) * 1000.0
                         (self.bh_wall_crash_ms if self._closed_by_signal
                          else self.bh_wall_ms).append(w)
+                        self._split_wall(now)
                     self.reset_us.append(self.panda.fastsnap_last_us())
                     self.restored.append(
                         self.panda.fastsnap_ram_restored_pages())
@@ -545,6 +561,50 @@ class FastLoop(Plugin):
             if len(self.errors) < 5:
                 self.errors.append(repr(e))
             self.state = "done"
+
+    @staticmethod
+    def _self_sha256():
+        try:
+            import hashlib
+            return hashlib.sha256(
+                open(__file__, "rb").read()).hexdigest()[:16]
+        except Exception:                                   # noqa: BLE001
+            return None
+
+    def _split_wall(self, now):
+        """Split the schedule-to-observed span at the bottom half.
+
+        CLOCK_MONOTONIC on both sides, taken explicitly rather than through
+        perf_counter(): both are that clock on Linux, but only the explicit
+        form is documented to be, and a mismatched epoch would arrive as a
+        plausible latency rather than as an error. A build without the
+        timestamp is recorded as absent, never as zero.
+        """
+        if not self._have_bh_clock or self.t_sched_mono is None:
+            return
+        try:
+            bh = self.panda.fastsnap_bh_done_us() / 1e6
+        except Exception:                                   # noqa: BLE001
+            self._have_bh_clock = False
+            return
+        now_mono = time.clock_gettime(time.CLOCK_MONOTONIC)
+        sched = (bh - self.t_sched_mono) * 1000.0
+        obs = (now_mono - bh) * 1000.0
+        # A negative half means the two clocks are not the same clock. Dropping
+        # the sample is right: a negative latency reported as a small positive
+        # one is exactly the kind of number that gets quoted.
+        if sched < 0 or obs < 0:
+            self._have_bh_clock = False
+            self.errors.append(
+                f"bh clock mismatch (sched={sched:.3f} ms, obs={obs:.3f} ms); "
+                f"the split is unavailable for this run")
+            return
+        if self._closed_by_signal:
+            self.sched_crash_ms.append(sched)
+            self.obs_crash_ms.append(obs)
+        else:
+            self.sched_ms.append(sched)
+            self.obs_ms.append(obs)
 
     def _mark(self, now):
         """Close one iteration."""
@@ -643,12 +703,26 @@ class FastLoop(Plugin):
             "armed_at_s": self.t_arm_s,
             "ram_snapshot_bytes": self.snapshot_bytes,
             "sections_on_machine": len(self.all_sections),
+            # The names, not just the count. Choosing an allowlist requires
+            # knowing what is on the machine, and a run that recorded only a
+            # count made the next run's configuration a guess.
+            "sections": list(self.all_sections),
+            # This plugin's own source hash. The project directories hold
+            # COPIES of fastloop.py (the container cannot see the analysis
+            # tree), so a run can silently measure a version older than the one
+            # in git. Recording the hash makes a result traceable to a source
+            # rather than to a filename.
+            "plugin_sha256": self._self_sha256(),
             "denied": self.denied,
             "iter_ms": it,
             "verify_iter_ms": _stats(self.verify_iter_ms),
             "crash_iter_ms": _stats(self.crash_iter_ms),
             "bh_wall_ms": _stats(self.bh_wall_ms),
             "bh_wall_crash_ms": _stats(self.bh_wall_crash_ms),
+            "sched_to_bh_ms": _stats(self.sched_ms),
+            "bh_to_observed_ms": _stats(self.obs_ms),
+            "sched_to_bh_crash_ms": _stats(self.sched_crash_ms),
+            "bh_to_observed_crash_ms": _stats(self.obs_crash_ms),
             "reset_us": _stats(self.reset_us),
             "restored_pages": _stats(self.restored),
             "verifies": self.verifies,

@@ -1387,6 +1387,7 @@ class QemuCompat:
         "penguin_fastsnap_seq",
         "penguin_fastsnap_last_rc",
         "penguin_fastsnap_last_us",
+        "penguin_fastsnap_bh_done_us",
         "penguin_fastsnap_last_digest",
         "penguin_fastsnap_last_ram_digest",
         "penguin_fastsnap_diff_pages",
@@ -1562,6 +1563,22 @@ class QemuCompat:
         """Hash of guest RAM from the last STATE_DIGEST, separate from the
         device half so a divergence says which half moved."""
         return int(self._fastsnap_fn("penguin_fastsnap_last_ram_digest")())
+
+    def fastsnap_bh_done_us(self) -> int:
+        """CLOCK_MONOTONIC microseconds at which the last bottom half finished.
+
+        Subtract from ``time.clock_gettime(time.CLOCK_MONOTONIC) * 1e6``. Use
+        that explicit form rather than ``perf_counter()``: both are
+        CLOCK_MONOTONIC on Linux, but only the explicit one is documented to
+        be, and an epoch mismatch here would show up as a plausible-looking
+        latency rather than as an error.
+
+        This is what separates "the reset is slow" from "the round trip is
+        slow" -- the operation's own duration is :meth:`fastsnap_last_us`, and
+        everything else in an iteration is either main-loop latency before this
+        timestamp or guest execution after it.
+        """
+        return int(self._fastsnap_fn("penguin_fastsnap_bh_done_us")())
 
     def fastsnap_diff_pages(self) -> int:
         """Pages differing from the fork reference at the last FORK_DIFF.

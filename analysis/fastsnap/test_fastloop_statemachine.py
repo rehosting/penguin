@@ -22,6 +22,7 @@ not merely about not crashing.
 """
 import ast
 import pathlib
+import time
 import sys
 import types
 
@@ -61,6 +62,7 @@ class FakeQemu:
         self._diff_pages = -1
         self._diff_us = -1
         self.missing = []
+        self._bh_done_us = 0
         # The device oracle. Default 0: a full block puts every section back,
         # which is the only answer a correct unscoped reset can give.
         self.dev_diff_sections = 0
@@ -85,6 +87,9 @@ class FakeQemu:
 
     def fastsnap_set_allowlist(self, names):
         self.allowlist = names
+
+    def fastsnap_bh_done_us(self):
+        return self._bh_done_us
 
     def fastsnap_dev_diff_sections(self):
         return self.dev_diff_sections
@@ -149,6 +154,9 @@ class FakeQemu:
             # which is exactly the confusion the plugin must not fall for.
             self._last_us = self.diff_us
             self._diff_pages = self.diff_pages_split
+        # Same clock the plugin subtracts against, so a test that got the
+        # epochs wrong would show up here rather than in a run.
+        self._bh_done_us = int(time.clock_gettime(time.CLOCK_MONOTONIC) * 1e6)
         self.seq += 1
 
 
@@ -292,6 +300,19 @@ def main():
                              q.FASTSNAP_LOOP_RESET_VERIFY,
                              q.FASTSNAP_FORK_DROP}, set(loop_ops)
     print("ok  the loop schedules only resets")
+
+    # The round trip, split at the bottom half. Previously an iteration was
+    # one undifferentiated span from "reset scheduled" to "next detector hit
+    # noticed", and on the real target two thirds of it was outside the reset
+    # with no way to say which side. The two halves must both be populated and
+    # must add up to the span they replaced.
+    assert p.sched_ms and p.obs_ms, (len(p.sched_ms), len(p.obs_ms))
+    assert len(p.sched_ms) == len(p.obs_ms) == len(p.bh_wall_ms)
+    for a, b, w in zip(p.sched_ms, p.obs_ms, p.bh_wall_ms):
+        assert a >= 0 and b >= 0, (a, b)
+        assert abs((a + b) - w) < 1.0, (a, b, w)
+    print(f"ok  the round trip splits at the bottom half "
+          f"({len(p.sched_ms)} laps, halves sum to the span)")
 
     p.uninit()
     import json
