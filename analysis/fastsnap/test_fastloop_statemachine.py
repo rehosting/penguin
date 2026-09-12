@@ -61,6 +61,11 @@ class FakeQemu:
         self._diff_pages = -1
         self._diff_us = -1
         self.missing = []
+        # The device oracle. Default 0: a full block puts every section back,
+        # which is the only answer a correct unscoped reset can give.
+        self.dev_diff_sections = 0
+        self.dev_diff_report = ""
+        self.allowlist = None
 
     # -- the API the plugin uses --
     def fastsnap_available(self):
@@ -77,6 +82,15 @@ class FakeQemu:
 
     def fastsnap_set_denylist(self, names):
         self.denylist = names
+
+    def fastsnap_set_allowlist(self, names):
+        self.allowlist = names
+
+    def fastsnap_dev_diff_sections(self):
+        return self.dev_diff_sections
+
+    def fastsnap_dev_diff_report(self):
+        return self.dev_diff_report
 
     def fastsnap_schedule(self, op):
         self.ops.append(op)
@@ -395,6 +409,97 @@ def main():
         hit(p)
     assert p.n_iters == 0, p.n_iters
     print("ok  absent C symbols refuse the run before it starts")
+
+    # ---- the device oracle ---------------------------------------------
+    #
+    # The allowlist is the largest lever on reset cost and the only setting
+    # here whose failure is silence: a section left out of the block is not
+    # restored, RAM stays byte-perfect, and the fork oracle -- which compares
+    # RAM and nothing else -- reports a clean run. These three controls are
+    # what stop that from reading as a result.
+
+    def run_scoped(**kw):
+        pp, qq = make("loop", tmp, **kw)
+        for _ in range(2):
+            hit(pp)
+        for _ in range(80):
+            if pp.state == "done":
+                break
+            qq.run_bottom_half()
+            hit(pp)
+        pp.uninit()
+        return pp, qq, json.load(open(pathlib.Path(tmp) / "fastloop.json"))
+
+    pv, qv, out = run_scoped(allow="cpu,timer")
+    qv2 = qv
+    assert qv.allowlist == ["cpu", "timer"], qv.allowlist
+    assert out["device_scope"] == ["allow", ["cpu", "timer"]], out["device_scope"]
+    assert out["verdict"].startswith("VALID"), out["verdict"]
+    print("ok  an allowlist reaches the C side and a clean device oracle "
+          "keeps the run VALID")
+
+    # The control that matters. RAM is byte-perfect on EVERY lap and the run
+    # must still fail, because two device sections never came back.
+    pp, qq = make("loop", tmp, allow="cpu,timer")
+    qq.dev_diff_sections = 2
+    qq.dev_diff_report = "pl011#7,pflash_cfi01#3"
+    for _ in range(2):
+        hit(pp)
+    for _ in range(80):
+        if pp.state == "done":
+            break
+        qq.run_bottom_half()
+        hit(pp)
+    pp.uninit()
+    out = json.load(open(pathlib.Path(tmp) / "fastloop.json"))
+    assert all(v["diff_pages"] == 0 for v in pp.verifies), pp.verifies
+    assert out["verdict"].startswith("FAILED"), out["verdict"]
+    assert "pl011#7" in out["verdict"], out["verdict"]
+    print("ok  device control: a clean RAM result does not rescue a scoped "
+          "block that left device state behind")
+
+    # An oracle that cannot compare is not a pass. -1 must never read as 0.
+    pp, qq = make("loop", tmp, allow="cpu,timer")
+    qq.dev_diff_sections = -1
+    for _ in range(2):
+        hit(pp)
+    for _ in range(80):
+        if pp.state == "done":
+            break
+        qq.run_bottom_half()
+        hit(pp)
+    pp.uninit()
+    out = json.load(open(pathlib.Path(tmp) / "fastloop.json"))
+    assert out["verdict"].startswith("INVALID"), out["verdict"]
+    print("ok  device control: an allowlist whose oracle cannot compare is "
+          "unscored, not passed")
+
+    # A bogus allowlist must stop the run, not fall back to a full block --
+    # which would put numbers for a configuration nobody asked for under the
+    # label of the one they did.
+    refused = False
+    try:
+        pp, qq = make("loop", tmp, allow="cpu,no_such_section")
+        for _ in range(2):
+            hit(pp)
+        refused = pp.state == "done" and q.FASTSNAP_LOOP_ARM not in qq.ops
+    except Exception:
+        refused = True
+    assert refused, "an allowlist naming a section that does not exist ran anyway"
+    print("ok  an allowlist that names nothing real refuses the run rather "
+          "than quietly measuring a full block")
+
+    # Two answers to the same question is a refusal, not a precedence rule.
+    refused = False
+    try:
+        pp, qq = make("loop", tmp, allow="cpu", deny="timer")
+        for _ in range(2):
+            hit(pp)
+        refused = pp.state == "done" and q.FASTSNAP_LOOP_ARM not in qq.ops
+    except Exception:
+        refused = True
+    assert refused, "allow= and deny= together were silently resolved"
+    print("ok  allow= and deny= together refuse rather than pick a winner")
 
     # ---- the two control arms never touch the fastsnap reset ----------
     # mode=armed ends with a FORK_DROP: it armed, so it is holding a forked

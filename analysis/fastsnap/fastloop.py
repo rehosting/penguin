@@ -120,8 +120,26 @@ class FastLoop(Plugin):
         if self.mode not in ("loop", "armed", "bare"):
             raise ValueError(f"fastloop: unknown mode {self.mode!r}")
 
+        # Keep ONLY these device sections in the block. The largest single
+        # lever on reset cost -- measured, 17 sections restore in 0.752 ms and
+        # {cpu, timer} in 0.043 ms -- and the only setting here whose failure
+        # mode is silence rather than an error. Paired with dev_diff below;
+        # see _apply_scoping().
+        self.allow = self.get_arg("allow")
         self.deny = self.get_arg("deny")
-        if self.deny is None:
+        if self.allow and self.deny:
+            # Refused here, in __init__, so it costs nothing: the two are
+            # answers to the same question and the C side takes exactly one.
+            # A precedence rule would make the block's scope depend on
+            # argument order, which nothing downstream reports.
+            raise ValueError(
+                f"fastloop: allow={self.allow!r} and deny={self.deny!r} are "
+                f"mutually exclusive")
+        if self.deny is None and not self.allow:
+            # The default, and it is a correctness default rather than a
+            # tuning one -- see _apply_scoping(). An explicit allowlist is
+            # already narrower than any denylist, so it does not get one
+            # layered underneath it.
             self.deny = "auto"
         extra = self.get_arg("deny_extra")
         self.deny_extra = ([x.strip() for x in extra.split(",") if x.strip()]
@@ -142,7 +160,8 @@ class FastLoop(Plugin):
         self.iter_ms = []           # host wall clock, per iteration
         self.verify_iter_ms = []    # laps that also ran the oracle
         self.restored = []          # dirty pages copied back, per reset
-        self.verifies = []          # {iter, diff_pages, bytes, diff_us}
+        self.verifies = []          # {iter, diff_pages, bytes, diff_us, dev_*}
+        self.allowed = None
         self.split_diff = None      # the deliberately-wrong-order control
         self.t_iter = None
         self.seq_at_sched = None
@@ -289,10 +308,39 @@ class FastLoop(Plugin):
         the state machine re-checks on the next detector hit instead."""
         return self.panda.fastsnap_seq() > self.seq_at_sched
 
-    def _apply_denylist(self):
+    def _apply_scoping(self):
+        """Choose which device sections the block covers.
+
+        An allowlist and a denylist answer the same question two ways and the
+        C side takes exactly one, so naming both is refused here rather than
+        silently resolved -- a precedence rule would make the scoping depend on
+        argument order in a way nothing reports.
+        """
         try:
             names = self.panda.fastsnap_section_names()
             self.all_sections = names
+            if self.allow and self.deny:
+                raise ValueError(
+                    "fastloop: allow= and deny= are mutually exclusive; they "
+                    "are two answers to 'is this section in the block' and "
+                    "only one can be in force")
+            if self.allow:
+                wanted = [x.strip() for x in self.allow.split(",") if x.strip()]
+                unknown = [w for w in wanted if w not in names]
+                if unknown:
+                    # Not a warning. An allowlist of names that match nothing
+                    # produces an empty block that restores nothing, very
+                    # quickly, and every number from the run would be a
+                    # measurement of doing no work.
+                    raise ValueError(
+                        f"fastloop: allow= names {unknown}, which are not "
+                        f"sections on this machine. Available: {names}")
+                self.allowed = wanted
+                self.panda.fastsnap_set_allowlist(wanted)
+                self.logger.info(
+                    f"fastloop: {len(names)} sections, allowing "
+                    f"{len(wanted)}: {wanted}")
+                return
             if self.deny == "auto":
                 # Every virtio device, by section id. A virtio device's state
                 # is split between the model and a vring in GUEST RAM. The RAM
@@ -313,7 +361,18 @@ class FastLoop(Plugin):
             self.logger.info(f"fastloop: {len(names)} sections, denying "
                              f"{len(chosen)}: {chosen}")
         except Exception as e:                              # noqa: BLE001
-            self.errors.append(f"denylist: {e!r}")
+            # FATAL, where this used to warn and carry on. The scope of the
+            # block is not a detail of the run, it IS what the run measures: a
+            # failed allowlist silently falls back to a full block, and the
+            # resulting numbers describe a configuration nobody asked for while
+            # carrying the label of the one they did. Better no result.
+            self.errors.append(f"scoping: {e!r}")
+            self.logger.error(
+                f"fastloop: REFUSING THE RUN - could not apply the requested "
+                f"device scope ({e!r}). Falling back to a different scope "
+                f"would produce numbers for a configuration you did not ask "
+                f"for.")
+            raise
 
     # ---- the loop ---------------------------------------------------------
 
@@ -363,7 +422,7 @@ class FastLoop(Plugin):
                         self.t_iter = now
                         self.t_loop0 = now
                     else:
-                        self._apply_denylist()
+                        self._apply_scoping()
                         self.state = "arming"
                         self._sched(self.panda.FASTSNAP_LOOP_ARM)
 
@@ -494,13 +553,36 @@ class FastLoop(Plugin):
         was_verify = self._pending_verify is not None
         if was_verify:
             d = self.panda.fastsnap_diff_pages()
+            # The device oracle, read in the same breath as the RAM one. They
+            # answer different questions and a scoped block needs both: the
+            # fork reference cannot see a device section that was never
+            # restored, only the guest damage it eventually causes -- which is
+            # a slower, weaker and much later signal.
+            try:
+                dev_n = self.panda.fastsnap_dev_diff_sections()
+                dev_report = self.panda.fastsnap_dev_diff_report()
+            except Exception as e:                          # noqa: BLE001
+                dev_n, dev_report = -1, repr(e)
             self.verifies.append({
                 "iter": self._pending_verify,
                 "diff_pages": d,
                 "bytes_checked": self.panda.fastsnap_diff_bytes_checked(),
                 "diff_us": self.panda.fastsnap_diff_us(),
                 "report": self.panda.fastsnap_diff_report() if d else "",
+                "dev_diff_sections": dev_n,
+                "dev_diff_report": dev_report if dev_n else "",
             })
+            if dev_n > 0:
+                self.logger.error(
+                    f"fastloop: DEVICE STATE NOT RESTORED - iteration "
+                    f"{self._pending_verify} left {dev_n} device sections "
+                    f"differing from the arm-time reference ({dev_report}). "
+                    f"RAM can be byte-perfect and this still be wrong.")
+            elif dev_n < 0:
+                self.logger.warning(
+                    f"fastloop: the device oracle could not compare at "
+                    f"iteration {self._pending_verify}; a scoped block is "
+                    f"unscored for this lap")
             if d < 0:
                 self.logger.error(
                     f"fastloop: THE ORACLE IS BLIND - iteration "
@@ -592,6 +674,13 @@ class FastLoop(Plugin):
         # would report a broken instrument as a broken reset.
         blind = [v for v in self.verifies if v["diff_pages"] < 0]
         bad = [v for v in self.verifies if v["diff_pages"] > 0]
+        dev_bad = [v for v in self.verifies
+                   if v.get("dev_diff_sections", 0) > 0]
+        dev_blind = [v for v in self.verifies
+                     if v.get("dev_diff_sections", 0) < 0]
+        out["device_scope"] = ("allow", self.allowed) if self.allowed else (
+            ("deny", self.denied) if self.denied else ("all", []))
+        out["dev_diff_clean"] = len(self.verifies) - len(dev_bad) - len(dev_blind)
         if self.mode == "loop":
             if not self.verifies:
                 out["verdict"] = ("UNVERIFIED: the loop ran but the oracle "
@@ -613,11 +702,33 @@ class FastLoop(Plugin):
                 out["verdict"] = (f"FAILED: {len(bad)} of {len(self.verifies)} "
                                   f"verifications found the guest differing "
                                   f"from the reference after a reset")
+            elif dev_bad:
+                # Reported as a failure of the RUN, not a caveat on it. A
+                # scoped block that leaves device state behind is the exact
+                # thing the allowlist was supposed to be checked for, and a
+                # clean RAM result sitting next to it is what would make this
+                # easy to wave through.
+                names = sorted({n for v in dev_bad
+                                for n in v["dev_diff_report"].split(",") if n})
+                out["verdict"] = (
+                    f"FAILED: RAM came back clean on all "
+                    f"{len(self.verifies)} verifications, but {len(dev_bad)} "
+                    f"of them left device sections unrestored ({names}). The "
+                    f"device scope in force does not cover what this workload "
+                    f"touches.")
+            elif self.allowed and dev_blind and not out.get("dev_diff_clean"):
+                out["verdict"] = (
+                    f"INVALID: an allowlist was in force and the device "
+                    f"oracle could not compare on any of "
+                    f"{len(self.verifies)} verifications, so nothing scored "
+                    f"the sections it dropped")
             else:
                 out["verdict"] = (
                     f"VALID: {len(self.verifies)} verifications, every one "
                     f"byte-identical to an independently forked reference "
-                    f"across {self.verifies[0]['bytes_checked']} bytes")
+                    f"across {self.verifies[0]['bytes_checked']} bytes, with "
+                    f"{out['dev_diff_clean']} of them also finding every "
+                    f"device section back where the arm left it")
             self.logger.info(f"fastloop: {out['verdict']}")
 
         path = os.path.join(self.outdir, "fastloop.json")
