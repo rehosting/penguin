@@ -1296,6 +1296,135 @@ class QemuCompat:
     # last_us() still reports the restore alone.
     FASTSNAP_RESTORE_VERIFY = 4
 
+    # Digest the WHOLE guest -- every RAM block, then the device block -- with
+    # the vCPUs stopped. This exists because the two channels penguin already
+    # has cannot see a corrupt guest: the device digest covers devices by
+    # construction, and crashes.yaml hooks USERSPACE fatal signals, so a run
+    # that panicked the kernel 98 times produced a crashes.yaml the same shape
+    # as a healthy one. "No crashes recorded" is therefore not evidence of a
+    # healthy guest; this is the signal that does not need the guest well
+    # enough to deliver a signal. Read the halves separately --
+    # fastsnap_last_digest() for devices, fastsnap_last_ram_digest() for RAM --
+    # so a divergence says WHICH half moved.
+    FASTSNAP_STATE_DIGEST = 5
+
+    # The fork oracle. FORK_REF forks at the stopped-vCPU safe point; the child
+    # blocks every signal and parks in pause(), so its copy of guest RAM stays
+    # byte-identical to the instant of the fork. FORK_DIFF reads it back with
+    # process_vm_readv() -- fork preserves the address-space layout, so a
+    # RAMBlock is at the same host address in both -- and compares page by
+    # page. A digest answers "did the state come back"; only this answers
+    # "come back WHERE", which is the question a dirty-tracking bug turns on.
+    #
+    # Independent of the mechanism it checks, deliberately: the reference is
+    # never the source the restore reads from. FORK_REF refuses outright if any
+    # block carries RAM_SHARED, because a shared block is the SAME memory in
+    # both processes and the "reference" would track the parent's live state
+    # and report zero differences forever.
+    #
+    # FORK_DROP reaps the child. A parked reference holds a full CoW copy of
+    # guest RAM, so drop it when done.
+    FASTSNAP_FORK_REF = 6
+    FASTSNAP_FORK_DIFF = 7
+    FASTSNAP_FORK_DROP = 8
+
+    # How many guest pages a stretch of execution writes to, via QEMU's own
+    # migration dirty bitmap. The clear IS the arm: TCG re-marks a page's TLB
+    # entry TLB_NOTDIRTY only once its dirty bits are gone. DIRTY_COUNT reads
+    # the set accumulated since the last arm or count and clears it again, so a
+    # loop of counts yields one number per interval. Take no savevm/loadvm in
+    # the interval -- the migration code walks and clears the same bitmap.
+    FASTSNAP_DIRTY_ARM = 9
+    FASTSNAP_DIRTY_COUNT = 10
+    FASTSNAP_DIRTY_STOP = 11
+
+    # The RAM half. RAM_SNAPSHOT copies every block AND arms tracking in one
+    # operation -- as separate ops the guest would run in the gap and those
+    # writes would be lost silently. RAM_RESTORE copies back the pages dirtied
+    # since, invalidates translated code for exactly those ranges, and re-arms.
+    FASTSNAP_RAM_SNAPSHOT = 12
+    FASTSNAP_RAM_RESTORE = 13
+    FASTSNAP_RAM_RELEASE = 14
+
+    # A complete reset, as two ops. LOOP_ARM takes the device block, snapshots
+    # RAM, arms tracking and forks the reference, all in ONE bottom half: the
+    # guest executes between bottom halves, so a reference taken even one op
+    # later holds a different moment than the snapshot, and every later
+    # comparison would report a failing reset forever for a reset that was
+    # correct. LOOP_RESET is device block then dirty RAM pages.
+    #
+    # Neither half is sound alone. Restoring devices without RAM rewinds the
+    # CPU's page-table base into RAM that was never rewound; measured on real
+    # firmware that destroys the guest within a handful of restores (kernel
+    # panic in rcu_process_callbacks, swap_dup errors, OOM kills) while an
+    # identical cadence with the restore removed stays clean.
+    FASTSNAP_LOOP_ARM = 15
+    FASTSNAP_LOOP_RESET = 16
+
+    # Reset AND diff against the fork reference in one bottom half. This is
+    # the only form usable on a guest that is running: as two ops the guest
+    # executes in the gap and dirties pages of ordinary kernel work, so a
+    # perfectly correct reset reports hundreds of differing pages. last_us()
+    # reports the reset alone and fastsnap_diff_us() the comparison, because
+    # the comparison reads all of guest RAM back and is ~80x the reset -- a
+    # loop pays for the reset every iteration and for the oracle only when it
+    # asks.
+    FASTSNAP_LOOP_RESET_VERIFY = 17
+
+    # The C symbols these bindings call. A PYTHON-level preflight -- checking
+    # that a QemuCompat method exists -- cannot see a missing one of these, and
+    # that distinction is not academic: the methods below were added here and
+    # the matching declarations were not added to the generated cffi header, so
+    # `_lib_symbol` returned None, every accessor handed back its "absent"
+    # fallback, and a 256 MB RAM snapshot reported itself as 0 bytes for a
+    # whole run without anything raising. The question a caller needs answered
+    # is about the LIBRARY, so ask the library.
+    FASTSNAP_SYMBOLS = (
+        "penguin_fastsnap_set_denylist",
+        "penguin_fastsnap_section_names",
+        "penguin_fastsnap_schedule",
+        "penguin_fastsnap_seq",
+        "penguin_fastsnap_last_rc",
+        "penguin_fastsnap_last_us",
+        "penguin_fastsnap_last_digest",
+        "penguin_fastsnap_last_ram_digest",
+        "penguin_fastsnap_diff_pages",
+        "penguin_fastsnap_diff_us",
+        "penguin_fastsnap_diff_bytes_checked",
+        "penguin_fastsnap_diff_report",
+        "penguin_fastsnap_ram_restored_pages",
+        "penguin_fastsnap_ram_snapshot_bytes",
+        "penguin_fastsnap_dirty_pages",
+        "penguin_fastsnap_dirty_pages_scanned",
+        "penguin_fastsnap_dirty_page_size",
+        "penguin_fastsnap_dirty_report",
+        "penguin_fastsnap_dirty_blocks",
+        "penguin_fastsnap_block_size",
+        "penguin_fastsnap_section_count",
+    )
+
+    def fastsnap_missing_symbols(self) -> list:
+        """Which of FASTSNAP_SYMBOLS this build does not expose.
+
+        A symbol can be absent two ways and both look the same from here: the
+        QEMU library genuinely lacks it, or the generated cffi header never
+        declared it so ffi.cdef has no prototype. Either way calling it is
+        impossible, and either way the honest answer to the caller is a name in
+        this list rather than a plausible-looking zero.
+        """
+        return [n for n in self.FASTSNAP_SYMBOLS if self._lib_symbol(n) is None]
+
+    def _fastsnap_fn(self, name):
+        fn = self._lib_symbol(name)
+        if fn is None:
+            raise RuntimeError(
+                f"{name} is not callable in this build -- either the QEMU "
+                f"library does not export it or the generated cffi header does "
+                f"not declare it. Returning a default here would put a made-up "
+                f"number into a measurement; check fastsnap_missing_symbols() "
+                f"before the run instead.")
+        return fn
+
     def fastsnap_available(self) -> bool:
         """True if this QEMU build exports the fastsnap ABI."""
         return self._lib_symbol("penguin_fastsnap_schedule") is not None
@@ -1379,6 +1508,71 @@ class QemuCompat:
         """
         fn = self._lib_symbol("penguin_fastsnap_last_digest")
         return int(fn()) if fn is not None else 0
+
+    def fastsnap_last_ram_digest(self) -> int:
+        """Hash of guest RAM from the last STATE_DIGEST, separate from the
+        device half so a divergence says which half moved."""
+        return int(self._fastsnap_fn("penguin_fastsnap_last_ram_digest")())
+
+    def fastsnap_diff_pages(self) -> int:
+        """Pages differing from the fork reference at the last FORK_DIFF.
+
+        Zero means the reset put every byte back. A NEGATIVE value means the
+        comparison itself failed -- a read error is never folded into "no
+        differences", because an oracle that reports success when it could not
+        look is worse than no oracle. (That distinction is what surfaced guest
+        RAM being MADV_DONTFORK: the diff returned -1, not 0.)
+        """
+        v = int(self._fastsnap_fn("penguin_fastsnap_diff_pages")())
+        # The C side returns uint64_t; -1 arrives as 2**64-1.
+        return -1 if v == (1 << 64) - 1 else v
+
+    def fastsnap_diff_us(self) -> int:
+        """Cost of the last fork-oracle comparison, microseconds -- kept out of
+        `fastsnap_last_us` so a verified reset is not reported at the oracle's
+        price."""
+        return int(self._fastsnap_fn("penguin_fastsnap_diff_us")())
+
+    def fastsnap_diff_bytes_checked(self) -> int:
+        """Bytes the last FORK_DIFF actually compared. The denominator for
+        `diff_pages`: without it, zero differences over zero bytes reads the
+        same as a clean reset."""
+        return int(self._fastsnap_fn("penguin_fastsnap_diff_bytes_checked")())
+
+    def fastsnap_diff_report(self) -> str:
+        """First few differing guest addresses from the last FORK_DIFF."""
+        fn = self._fastsnap_fn("penguin_fastsnap_diff_report")
+        return self.ffi.string(fn()).decode("utf-8", "replace")
+
+    def fastsnap_ram_restored_pages(self) -> int:
+        """Pages copied back by the last RAM_RESTORE/LOOP_RESET -- the size of
+        the dirty set the reset actually paid for."""
+        return int(self._fastsnap_fn("penguin_fastsnap_ram_restored_pages")())
+
+    def fastsnap_ram_snapshot_bytes(self) -> int:
+        return int(self._fastsnap_fn("penguin_fastsnap_ram_snapshot_bytes")())
+
+    def fastsnap_dirty_pages(self) -> int:
+        return int(self._fastsnap_fn("penguin_fastsnap_dirty_pages")())
+
+    def fastsnap_dirty_pages_scanned(self) -> int:
+        """Pages examined by the last DIRTY_COUNT, so "0 dirty" is
+        distinguishable from "looked at nothing"."""
+        return int(self._fastsnap_fn("penguin_fastsnap_dirty_pages_scanned")())
+
+    def fastsnap_dirty_page_size(self) -> int:
+        return int(self._fastsnap_fn("penguin_fastsnap_dirty_page_size")())
+
+    def fastsnap_dirty_report(self) -> str:
+        fn = self._fastsnap_fn("penguin_fastsnap_dirty_report")
+        return self.ffi.string(fn()).decode("utf-8", "replace")
+
+    def fastsnap_dirty_blocks(self) -> str:
+        """Per-RAMBlock breakdown of the dirty count. This is what separates a
+        guest working set from a flash write; a block with RAM_MIGRATABLE clear
+        is prefixed '!' so an under-count has somewhere to show up."""
+        fn = self._fastsnap_fn("penguin_fastsnap_dirty_blocks")
+        return self.ffi.string(fn()).decode("utf-8", "replace")
 
     def fastsnap_block_size(self) -> int:
         fn = self._lib_symbol("penguin_fastsnap_block_size")
