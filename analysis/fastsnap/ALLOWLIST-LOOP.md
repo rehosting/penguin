@@ -70,4 +70,115 @@ guesses about this path were both wrong, which is why it is written down first.
 
 ## Results
 
-(pending)
+`work/bugbench/proj/results/15` (arm 1) and `results/16` (arm 2), mipsel/malta,
+4,000 laps each, verify every 25. Baseline for comparison is `results/14`:
+full block minus virtio, 348 us reset, 1.119 ms lap, 893.7 exec/s.
+
+First, a fact neither `ALLOWLIST.md` nor anything else in this lane had:
+**malta has 37 device sections, not 17.** The 17 was `-M virt`. And the ids
+repeat -- `serial` three times, `smbus-eeprom` eight times, `i8259` and `dma`
+twice each. Every list-shaped thing built on these ids is coarser than it looks:
+naming one matches all of them. The per-section comparison matches by position
+for exactly this reason.
+
+### Arm 1 -- `allow: "cpu"`, scored against the predictions
+
+| # | predicted | observed | |
+|---|---|---|---|
+| P0 | `"cpu"` is real, or the list is printed | real; 37 sections named | ok |
+| P1 | oracle reports > 0 and names them | 151/160 non-zero: `mc146818rtc#13` (148), `cpu_common#2` (3) | ok |
+| P2 | `reset_us` median < 120 us | **71 us**, from 348 us -- **4.9x** | ok |
+| P3 | ~1.3x exec/s, NOT 17x | **893.7 -> 1,278.9 = 1.43x** | ok |
+| P4 | RAM diff stays 0 | 160/160 zero | ok |
+| P5 | verdict FAILED | FAILED, sections named | ok |
+| P6 | `sched_to_bh` ~0.4-0.5 ms | **0.119 ms** | **wrong** |
+| P7 | crash lap is `bh_to_observed`-dominated, > 60% | **99.6%** | ok |
+
+**P3 is the one that matters and it means the ranking was wrong.** Cutting the
+reset by 4.9x bought 1.43x on the loop, because the reset was never the lap. I
+put the allowlist first on the strength of a 17.5x figure measured on the reset
+in isolation; in a closed loop it is worth a third of that at best.
+
+P6 was wrong in a way that says where the time actually is. A 0.782 ms lap:
+
+| | | |
+|---|---|---|
+| reset (its own clock) | 0.071 ms | 9% |
+| main-loop latency to the bottom half | ~0.048 ms | 6% |
+| **after the bottom half completes** | **0.656 ms** | **84%** |
+
+A `bare` lap -- no arm, no reset -- was measured at 0.111 ms. So about 0.5 ms
+of that 0.656 ms exists *only because a reset happened* and is *not* on the
+reset's clock. Candidates, in no particular order and none of them measured:
+re-translation of the TBs invalidated over the 25 restored pages,
+`resume_all_vcpus()`, the detector's portal round trip. Guessing on this path
+has been wrong twice, so it is named as open rather than attributed.
+
+### The crash lap
+
+A 22.1 ms crash lap splits as `sched_to_bh` **0.119 ms** and `bh_to_observed`
+**22.02 ms** -- **99.6% after the bottom half completed.** Getting the reset
+serviced by the main loop after a fatal signal costs the same ~48 us it costs
+on any other lap. The crash cost is guest execution plus host-side plugin work
+on that path, which is where the earlier 308.6 -> 56.9 ms throttling result
+already pointed.
+
+So the crash lap and the "in-QEMU loop" item are the same problem, and it is
+not the one either was framed as: neither the reset nor the cost of *scheduling*
+one.
+
+### Arm 2 -- and the instrument failure it exposed
+
+Arm 1 named `mc146818rtc#13` on 148 of 160 laps. Read as a scope miss, that
+says "add it". Arm 2 did:
+
+| | arm 1 (`cpu`) | arm 2 (`cpu,cpu_common,mc146818rtc`) |
+|---|---|---|
+| reset_us median | 71 | 95 |
+| restored pages | 25 | **59** |
+| lap | 0.782 ms | **1.616 ms** |
+| exec/s | 1,278.9 | **618.7** |
+| oracle names `mc146818rtc` | 148/160 | **153/160** |
+
+**The section was in the block, was restored from it, and the report did not
+change.** Throughput halved for nothing.
+
+`hw/rtc/mc146818rtc.c` says why, and it is not a bug: `rtc_pre_save()` calls
+`rtc_update_time()`, which reads the live clock and writes the current time
+into `cmos_data` -- a saved field -- and `rtc_post_load()` re-derives both
+timers from the current clock. **This device cannot serialise to the same bytes
+twice, however correct the restore is.** Both arms' reports on it were true
+differences and false meanings.
+
+Note what the two fuzzing runs themselves say: 139,413 inputs / 1,881 crashes in
+arm 1 against 136,925 / 1,841 in arm 2. The fuzzing was unaffected; only the
+lap accounting moved. The cost was real and bought nothing.
+
+### What the instrument does now
+
+The count was one number for two findings:
+
+- **not in the block and differs** -- the scope is too narrow. Widening fixes it.
+- **in the block and differs** -- unrestorable. Widening cannot fix it; either
+  the save reads state the restore does not own, or the restore is broken for
+  that device. A genuine restore bug lands here too, so it is counted and named
+  rather than forgiven.
+
+`device_section_in_scope()` supplies the distinction, `*` marks in-block in the
+report, and the selftest now requires the full-block control to show that every
+section on `-M virt` round-trips -- without which phase 8's positive control is
+ambiguous between the two cases.
+
+Read through the corrected instrument, arm 1's actual answer is that **`cpu`
+alone was sufficient except for `cpu_common`**, which fired on 3 laps of 160.
+That needs re-running against the corrected build, together with a full-block
+control at the same 4,000 laps: arm 1 was compared against `results/14`, which
+ran 60,000 laps under a different harness version.
+
+### Still not established
+
+- the ~0.5 ms post-reset term, which is now the largest single cost in a lap;
+- whether `cpu_common` is a real scope miss or another unrestorable section;
+- any of this on a second machine. Both arms are malta/mipsel. `ALLOWLIST.md`'s
+  `{cpu, timer}` was aarch64-shaped and does not transfer: malta's equivalent
+  came out as `cpu` plus possibly `cpu_common`, and `timer` never appeared.

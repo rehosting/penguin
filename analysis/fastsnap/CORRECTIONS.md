@@ -6,7 +6,9 @@ checking the design against the code, or against a real target, rather than
 against the prototype it was developed on. Recorded here rather than quietly
 edited away, because the *kind* of error is the part worth keeping: entries 5,
 6 and 7 are all instruments that passed while blind, and 7 did it one layer
-below where the check was looking.
+below where the check was looking. Entry 9 is the harder relative of those --
+an instrument that saw correctly, reported accurately, and had every control
+pass, while the number it produced could mean either of two opposite things.
 
 ## 1. The central integration decision was backwards
 
@@ -222,6 +224,54 @@ The general statement, which is the one worth keeping: **the arming point sets
 the iteration cost, and the reset is a small term in it.** A reset that is free
 does not make a 20-second span shorter. `fastloop` gained an `arm_after_s`
 floor because a hit count alone does not say where in a boot you are.
+
+## 9. The device oracle was right about the bytes and wrong about the meaning
+
+The per-section device oracle exists to score a device allowlist: it digests
+every section at the arm and re-digests them after the reset, and names the
+ones that differ. Its first two uses produced a true difference and a false
+conclusion, and the conclusion cost a run.
+
+Arm 1 of the allowlist experiment ran `allow: "cpu"` on mipsel/malta. The
+oracle named `mc146818rtc#13` on 148 of 160 verification laps. Read the only
+way the number could be read -- "this section was not restored" -- that is an
+instruction to add it to the allowlist. Arm 2 added it, and:
+
+- the oracle reported it on **153 of 160 laps, while it was in the block**;
+- restored pages went 25 -> 59, the lap went 0.782 -> 1.616 ms, and throughput
+  went 1,278.9 -> 618.7 exec/s.
+
+`hw/rtc/mc146818rtc.c` explains it and nothing is broken. `rtc_pre_save()`
+calls `rtc_update_time()`, which reads the live clock and writes the current
+time into `cmos_data` -- a `VMSTATE_BUFFER` field -- and `rtc_post_load()`
+re-derives both timers from the current clock. **The device cannot serialise to
+the same bytes twice, whatever the restore does.**
+
+What makes this worth an entry is not the device. It is that the oracle was
+working perfectly. The bytes really did differ, every report it made was
+accurate, and its own controls -- a full-block reset scoring zero on `-M virt`,
+and a deliberately dropped section being seen and named -- all passed, because
+`-M virt` happens to have no section in this class. The failure was that one
+number was answering two questions, and the caller could not tell which.
+
+The kind of error: **an instrument whose referent is ambiguous rather than
+wrong.** Entries 5, 6 and 7 are instruments that were blind. This one saw
+correctly and reported into a field that could mean either of two opposite
+things, so the reader supplied the wrong one. It is the harder version, because
+no control on the instrument itself can catch it -- the control has to be on
+what the number is allowed to mean.
+
+Fixed by making the two cases different fields rather than different readings
+of one: a section the block did not carry is a scope miss and widening fixes
+it; a section the block did carry and restored is unrestorable and widening
+cannot. A genuine restore bug lands in the second bucket, so it is counted and
+named rather than forgiven. The selftest now requires the full-block control to
+establish that every section on the test machine round-trips, since without
+that the positive control below it is ambiguous between the two.
+
+The measurement it corrupted, re-read: `cpu` alone was sufficient on malta
+except for `cpu_common`, which fired on 3 laps of 160 and is still unattributed
+between the two buckets.
 
 ## The VPN finding, now with evidence rather than inference
 
