@@ -42,6 +42,7 @@ class FakeEvent:
 
 
 def _load(tmp_path, signals=("SIGSEGV", "SIGABRT")):
+    Path(tmp_path).mkdir(parents=True, exist_ok=True)
     return load_pyplugin(
         str(CRASHES),
         outdir=str(tmp_path),
@@ -130,3 +131,84 @@ def test_finalize_rewrites_report(tmp_path):
     lp.finalize()  # uninit() rewrites crashes.yaml
     (rec,) = _records(tmp_path)
     assert rec["signame"] == "SIGSEGV"
+
+
+# --------------------------------------------------------------------------- #
+# Snapshot / restore
+#
+# Same producer/consumer shape as tests/unit/test_netbinds_lifecycle.py: one
+# instance captures state, a *separate* instance rehydrates it, so the test
+# covers the cross-process path a real restore takes. json round-trips the
+# payload because the snapshot host sidecar is json.dump'd
+# (pyplugins/core/snapshot.py:_save_host_state).
+# --------------------------------------------------------------------------- #
+import json
+
+
+def test_save_state_is_none_when_no_crashes(tmp_path):
+    lp = _load(tmp_path)
+    assert lp.plugin.save_state() is None  # nothing recorded -> nothing to carry
+
+
+def test_restore_rehydrates_records_into_a_fresh_instance(tmp_path):
+    src = _load(tmp_path / "a")
+    src.dispatch("signal_deliver", None, FakeEvent(11, "httpd", 412, 0x4013A8))
+    src.dispatch("signal_deliver", None, FakeEvent(11, "httpd", 412, 0x4013A8))
+    src.dispatch("signal_deliver", None, FakeEvent(6, "ntpd", 77, 0x8048100))
+    state = json.loads(json.dumps(src.plugin.save_state()))  # sidecar round-trip
+
+    dst = _load(tmp_path / "b")
+    assert _records(tmp_path / "b") == []
+    dst.plugin.load_state(state)
+    dst.plugin.on_restore("boot")
+
+    recs = _records(tmp_path / "b")
+    assert {(r["proc"], r["signame"], r["pc"], r["count"]) for r in recs} == {
+        ("httpd", "SIGSEGV", "0x004013a8", 2),
+        ("ntpd", "SIGABRT", "0x08048100", 1),
+    }
+    # Carried rows are on the pre-snapshot clock, and say so.
+    assert all(r["pre_restore"] is True for r in recs)
+
+
+def test_restored_records_keep_deduping_against_new_deliveries(tmp_path):
+    """The rebuilt key must match what on_signal_deliver computes, or a
+    post-restore repeat of a pre-restore crash opens a second record."""
+    src = _load(tmp_path / "a")
+    src.dispatch("signal_deliver", None, FakeEvent(11, "httpd", 412, 0x4013A8))
+    state = json.loads(json.dumps(src.plugin.save_state()))
+
+    dst = _load(tmp_path / "b")
+    dst.plugin.load_state(state)
+    dst.plugin.on_restore("boot")
+    dst.dispatch("signal_deliver", None, FakeEvent(11, "httpd", 999, 0x4013A8))
+
+    (rec,) = _records(tmp_path / "b")
+    assert rec["count"] == 2
+    assert rec["pid"] == 412  # first occurrence wins, as before the restore
+
+
+def test_reset_state_rewinds_the_report(tmp_path):
+    """restore-many: the report must rewind with the guest, or dedup counts
+    accumulate over iterations the guest never executed."""
+    lp = _load(tmp_path)
+    lp.dispatch("signal_deliver", None, FakeEvent(11, "httpd", 412, 0x4013A8))
+    assert len(_records(tmp_path)) == 1
+    lp.plugin.reset_state()
+    assert _records(tmp_path) == []
+    # and a fresh delivery after the rewind starts from count 1
+    lp.dispatch("signal_deliver", None, FakeEvent(11, "httpd", 412, 0x4013A8))
+    (rec,) = _records(tmp_path)
+    assert rec["count"] == 1
+
+
+def test_load_state_without_restore_does_not_touch_the_report(tmp_path):
+    """load_state only stashes; on_restore applies. (snapshot.py calls them in
+    that order, and a plugin that applied early would clobber a live report.)"""
+    lp = _load(tmp_path)
+    lp.dispatch("signal_deliver", None, FakeEvent(11, "httpd", 412, 0x4013A8))
+    lp.plugin.load_state({"records": [{"proc": "x", "pid": 1, "signal": 11,
+                                       "signame": "SIGSEGV", "pc": "0x00000000",
+                                       "time": 0.0, "count": 9}]})
+    (rec,) = _records(tmp_path)
+    assert rec["proc"] == "httpd"

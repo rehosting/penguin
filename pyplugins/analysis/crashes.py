@@ -104,6 +104,10 @@ class Crashes(Plugin):
         # (proc, signal, pc) -> record dict; insertion-ordered
         self.records = {}
 
+        # Records handed back by load_state() on a snapshot restore, applied in
+        # on_restore() once every plugin has loaded. None when not restoring.
+        self._restore_data = None
+
         # Guest signal number -> canonical name, resolved for the guest arch
         # (MIPS numbers several signals differently).
         self.signames = {}
@@ -163,6 +167,59 @@ class Crashes(Plugin):
             )
         else:
             rec["count"] += 1
+        self.write_report()
+
+    # ------------------------------------------------------------------
+    # Snapshot / restore
+    #
+    # ``records`` is host-side state a VM snapshot does not capture, so the
+    # three-hook protocol from plugin_manager.Plugin applies (same shape as
+    # NetBinds):
+    #
+    # - ``save_state``/``load_state``/``on_restore`` carry the aggregate
+    #   across a *cross-process* once-and-continue restore, where a fresh
+    #   penguin process attaches to a guest that is already past the crashes
+    #   it suffered before the snapshot. Without this the restored run starts
+    #   blank and every pre-snapshot crash silently disappears from the
+    #   report.
+    # - ``reset_state`` is the *restore-many* case a fuzzing loop builds:
+    #   restoring the same point repeatedly must rewind the report with the
+    #   guest, or dedup counts accumulate across iterations that the guest
+    #   never actually executed.
+    #
+    # ``time`` is deliberately NOT rebased on restore: it is seconds since
+    # emulation start on the timeline the delivery happened on, and a restored
+    # run is a different timeline. Rows carried across a restore are tagged
+    # ``pre_restore: true`` so a consumer can tell which clock a row is on.
+    # ------------------------------------------------------------------
+
+    def save_state(self):
+        """Return the aggregated crash records for the snapshot's host sidecar."""
+        if not self.records:
+            return None
+        return {"records": list(self.records.values())}
+
+    def load_state(self, data) -> None:
+        """Stash records captured at snapshot time; applied in on_restore()."""
+        self._restore_data = data or None
+
+    def on_restore(self, tag: str) -> None:
+        """Rehydrate the aggregate so the restored run's report is continuous."""
+        data = self._restore_data
+        self._restore_data = None
+        if not data:
+            return
+        self.records = {}
+        for rec in data.get("records", []):
+            rec = dict(rec)
+            rec["pre_restore"] = True
+            key = (rec["proc"], int(rec["signal"]), int(rec["pc"], 16))
+            self.records[key] = rec
+        self.write_report()
+
+    def reset_state(self) -> None:
+        """Rewind to a pristine report for restore-many (fuzzing) loops."""
+        self.records = {}
         self.write_report()
 
     def write_report(self):
