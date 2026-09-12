@@ -66,6 +66,7 @@ class FakeQemu:
         # The device oracle. Default 0: a full block puts every section back,
         # which is the only answer a correct unscoped reset can give.
         self.dev_diff_sections = 0
+        self.dev_unrestorable_sections = 0
         self.dev_diff_report = ""
         self.allowlist = None
 
@@ -93,6 +94,9 @@ class FakeQemu:
 
     def fastsnap_dev_diff_sections(self):
         return self.dev_diff_sections
+
+    def fastsnap_dev_unrestorable_sections(self):
+        return self.dev_unrestorable_sections
 
     def fastsnap_dev_diff_report(self):
         return self.dev_diff_report
@@ -499,6 +503,31 @@ def main():
     assert out["verdict"].startswith("INVALID"), out["verdict"]
     print("ok  device control: an allowlist whose oracle cannot compare is "
           "unscored, not passed")
+
+    # A section that IS in the block and still differs is a different finding
+    # from one the block never carried, and must not fail the scope. The real
+    # case: mc146818rtc reads the live clock in pre_save and re-derives its
+    # timers in post_load, so it can never come back byte-identical. Counted
+    # against the allowlist it reads as "add this section" -- which a run did,
+    # to a section already in the block, and throughput halved.
+    pp, qq = make("loop", tmp, allow="cpu,timer")
+    qq.dev_diff_sections = 0
+    qq.dev_unrestorable_sections = 1
+    qq.dev_diff_report = "*mc146818rtc#13"
+    for _ in range(2):
+        hit(pp)
+    for _ in range(80):
+        if pp.state == "done":
+            break
+        qq.run_bottom_half()
+        hit(pp)
+    pp.uninit()
+    out = json.load(open(pathlib.Path(tmp) / "fastloop.json"))
+    assert out["verdict"].startswith("VALID"), out["verdict"]
+    assert out["dev_unrestorable"] == ["*mc146818rtc#13"], out["dev_unrestorable"]
+    assert "mc146818rtc" in out["verdict"], out["verdict"]
+    print("ok  device control: a section that cannot round-trip is named, not "
+          "charged to the scope")
 
     # A bogus allowlist must stop the run, not fall back to a full block --
     # which would put numbers for a configuration nobody asked for under the

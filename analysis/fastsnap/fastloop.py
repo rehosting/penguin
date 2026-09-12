@@ -631,9 +631,10 @@ class FastLoop(Plugin):
             # a slower, weaker and much later signal.
             try:
                 dev_n = self.panda.fastsnap_dev_diff_sections()
+                dev_unres = self.panda.fastsnap_dev_unrestorable_sections()
                 dev_report = self.panda.fastsnap_dev_diff_report()
             except Exception as e:                          # noqa: BLE001
-                dev_n, dev_report = -1, repr(e)
+                dev_n, dev_unres, dev_report = -1, -1, repr(e)
             self.verifies.append({
                 "iter": self._pending_verify,
                 "diff_pages": d,
@@ -641,14 +642,30 @@ class FastLoop(Plugin):
                 "diff_us": self.panda.fastsnap_diff_us(),
                 "report": self.panda.fastsnap_diff_report() if d else "",
                 "dev_diff_sections": dev_n,
-                "dev_diff_report": dev_report if dev_n else "",
+                "dev_unrestorable_sections": dev_unres,
+                "dev_diff_report": dev_report if (dev_n or dev_unres) else "",
             })
             if dev_n > 0:
                 self.logger.error(
-                    f"fastloop: DEVICE STATE NOT RESTORED - iteration "
+                    f"fastloop: DEVICE SCOPE TOO NARROW - iteration "
                     f"{self._pending_verify} left {dev_n} device sections "
-                    f"differing from the arm-time reference ({dev_report}). "
+                    f"outside the block and unrestored ({dev_report}). "
                     f"RAM can be byte-perfect and this still be wrong.")
+            if dev_unres > 0:
+                # Reported once per run, not per lap: it is a property of the
+                # devices on this machine, not of the iteration, and it does
+                # not change. Logging it every verification buried the scope
+                # answer, which does.
+                if not getattr(self, "_said_unrestorable", False):
+                    self._said_unrestorable = True
+                    self.logger.warning(
+                        f"fastloop: {dev_unres} device sections are IN the "
+                        f"block, are restored from it, and still do not "
+                        f"serialise identically ({dev_report}). Widening the "
+                        f"allowlist cannot fix this -- either the device's "
+                        f"save reads state the restore does not own (a live "
+                        f"clock, say), or its restore is broken. Not counted "
+                        f"against the scope.")
             elif dev_n < 0:
                 self.logger.warning(
                     f"fastloop: the device oracle could not compare at "
@@ -763,6 +780,10 @@ class FastLoop(Plugin):
         bad = [v for v in self.verifies if v["diff_pages"] > 0]
         dev_bad = [v for v in self.verifies
                    if v.get("dev_diff_sections", 0) > 0]
+        dev_unres = sorted({n for v in self.verifies
+                            for n in v.get("dev_diff_report", "").split(",")
+                            if n.startswith("*") or n.startswith("!*")})
+        out["dev_unrestorable"] = dev_unres
         dev_blind = [v for v in self.verifies
                      if v.get("dev_diff_sections", 0) < 0]
         out["device_scope"] = ("allow", self.allowed) if self.allowed else (
@@ -815,7 +836,10 @@ class FastLoop(Plugin):
                     f"byte-identical to an independently forked reference "
                     f"across {self.verifies[0]['bytes_checked']} bytes, with "
                     f"{out['dev_diff_clean']} of them also finding every "
-                    f"device section back where the arm left it")
+                    f"device section in scope back where the arm left it"
+                    + (f". {len(dev_unres)} sections on this machine never "
+                       f"serialise identically and are excluded by name: "
+                       f"{dev_unres}" if dev_unres else ""))
             self.logger.info(f"fastloop: {out['verdict']}")
 
         path = os.path.join(self.outdir, "fastloop.json")

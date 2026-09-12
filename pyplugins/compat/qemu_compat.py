@@ -1404,6 +1404,7 @@ class QemuCompat:
         "penguin_fastsnap_block_size",
         "penguin_fastsnap_section_count",
         "penguin_fastsnap_dev_diff_sections",
+        "penguin_fastsnap_dev_unrestorable_sections",
         "penguin_fastsnap_dev_diff_report",
     )
 
@@ -1496,6 +1497,27 @@ class QemuCompat:
         walk failed) and must NOT be read as zero.
         """
         return int(self._fastsnap_fn("penguin_fastsnap_dev_diff_sections")())
+
+    def fastsnap_dev_unrestorable_sections(self) -> int:
+        """Sections that WERE in the block, were restored from it, and still
+        do not serialise to the reference's bytes.
+
+        Separate from :meth:`fastsnap_dev_diff_sections` because the two
+        license opposite actions. A scope miss is fixed by widening the scope;
+        this is not. Either the device's save is not a pure function of its
+        restorable state -- ``mc146818rtc`` reads the live clock in
+        ``rtc_pre_save`` and re-derives its timers in ``rtc_post_load``, so it
+        can never come back byte-identical however correct the restore is -- or
+        the restore is genuinely broken for that device.
+
+        Neither is fixed by adding a section to an allowlist it is already in,
+        which is exactly what conflating the two produced: a run added it, the
+        report did not change, and throughput halved.
+
+        -1 when no comparison could be made. Not zero.
+        """
+        return int(self._fastsnap_fn(
+            "penguin_fastsnap_dev_unrestorable_sections")())
 
     def fastsnap_dev_diff_report(self) -> str:
         """Comma-separated ids of the differing device sections. A leading '-'
