@@ -123,6 +123,8 @@ class FastLoop(Plugin):
         self.obs_ms = []
         self.sched_crash_ms = []
         self.obs_crash_ms = []
+        self.sched_verify_ms = []
+        self.obs_verify_ms = []
         self._have_bh_clock = True
         self.t0 = time.perf_counter()
         self.want = int(self.get_arg("iters") or 200)
@@ -602,6 +604,15 @@ class FastLoop(Plugin):
         if self._closed_by_signal:
             self.sched_crash_ms.append(sched)
             self.obs_crash_ms.append(obs)
+        elif self._pending_verify is not None:
+            # A verified lap's bottom half carries the oracle's ~50 ms, which
+            # lands wholly inside sched_to_bh. Left in the ordinary bucket it
+            # moved that bucket's MEAN from 0.12 ms to 2.54 ms on a run where
+            # 4% of laps were verified -- the median survived, so the number
+            # was quotable and the number beside it was not. Same separation
+            # iter_ms already makes, one level down.
+            self.sched_verify_ms.append(sched)
+            self.obs_verify_ms.append(obs)
         else:
             self.sched_ms.append(sched)
             self.obs_ms.append(obs)
@@ -723,6 +734,8 @@ class FastLoop(Plugin):
             "bh_to_observed_ms": _stats(self.obs_ms),
             "sched_to_bh_crash_ms": _stats(self.sched_crash_ms),
             "bh_to_observed_crash_ms": _stats(self.obs_crash_ms),
+            "sched_to_bh_verify_ms": _stats(self.sched_verify_ms),
+            "bh_to_observed_verify_ms": _stats(self.obs_verify_ms),
             "reset_us": _stats(self.reset_us),
             "restored_pages": _stats(self.restored),
             "verifies": self.verifies,

@@ -307,7 +307,12 @@ def main():
     # with no way to say which side. The two halves must both be populated and
     # must add up to the span they replaced.
     assert p.sched_ms and p.obs_ms, (len(p.sched_ms), len(p.obs_ms))
-    assert len(p.sched_ms) == len(p.obs_ms) == len(p.bh_wall_ms)
+    # Verified laps are bucketed apart: their bottom half carries the oracle,
+    # which is ~50x the reset, and leaving them in dragged the ordinary
+    # bucket's mean by 20x on a run where only 4% of laps were verified.
+    assert p.sched_verify_ms and len(p.sched_verify_ms) == len(p.verifies)
+    assert not (set(map(id, p.sched_verify_ms)) & set(map(id, p.sched_ms)))
+    assert len(p.sched_ms) + len(p.sched_verify_ms) == len(p.bh_wall_ms)
     for a, b, w in zip(p.sched_ms, p.obs_ms, p.bh_wall_ms):
         assert a >= 0 and b >= 0, (a, b)
         assert abs((a + b) - w) < 1.0, (a, b, w)
