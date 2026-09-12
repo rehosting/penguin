@@ -4,8 +4,9 @@ A running list of this lane's own claims that turned out to be wrong, and of
 the instruments that turned out to be measuring nothing. Every one was found by
 checking the design against the code, or against a real target, rather than
 against the prototype it was developed on. Recorded here rather than quietly
-edited away, because the *kind* of error is the part worth keeping: entries 5
-and 6 are both instruments that passed while blind.
+edited away, because the *kind* of error is the part worth keeping: entries 5,
+6 and 7 are all instruments that passed while blind, and 7 did it one layer
+below where the check was looking.
 
 ## 1. The central integration decision was backwards
 
@@ -155,6 +156,72 @@ Renamed to `patch_zz_devblock.yaml` so it merges last.
 
 **The generalisation.** A YAML layer that "disables the other thing" is only as
 true as its filename sorts. Check the merged config, not the patch you wrote.
+
+## 7. Eleven bindings that were never callable, and every one returned a plausible number
+
+The first real-firmware run of `fastloop.py` produced a complete result set:
+a device block of 20 sections, 13 iterations, a reset median of 1,876 us, an
+oracle verdict, a JSON report. Three of its numbers were fiction:
+
+    armed in 278712 us, 0 bytes of RAM snapshotted     <- a 256 MB snapshot
+    restored_pages median 0                            <- of a guest that ran
+    control OK - the oracle sees -1 pages              <- a failed read
+
+Nothing raised. Nothing logged a warning. The run took five minutes and its
+output was indistinguishable in shape from a good one.
+
+**The cause.** `penguin-cffi-gen.py` restates the `penguin_fastsnap_*`
+prototypes by hand. Six ops and eleven accessors were added to
+`include/fastsnap/penguin-fastsnap.h` and not to that script, so `ffi.cdef`
+never saw them, `_lib_symbol()` returned `None`, and each binding fell through
+to its "symbol absent" default -- `0` for a byte count, `-1` for a page count.
+Both are values a working build could legitimately return.
+
+**Why the preflight did not catch it.** `fastloop` has a preflight precisely
+for stale images, and it passed. It checks `dir(self.panda)` -- whether the
+QemuCompat *methods* exist. They all did. The dependency that was missing was a
+*C symbol*, one layer down, and a Python-level question cannot reach it. The
+check and the failure were in different layers, so the check was green and
+inert at the same time. That is the same shape as corrections 5 and 6: an
+instrument that passes while blind.
+
+**The fixes, in the order they matter.**
+
+1. `penguin-cffi-gen.py` now EXTRACTS the prototypes from the header instead of
+   restating them, and exits non-zero if the extraction finds none. A
+   hand-kept copy of an ABI drifts; this one drifted within a single session.
+2. The new bindings raise instead of returning a default. A wrong number that
+   reaches a measurement is worse than a traceback.
+3. `QemuCompat.fastsnap_missing_symbols()` asks the LIBRARY which symbols are
+   callable, and `fastloop` refuses to run if any are absent. The Python-level
+   check is kept as well -- they fail in different ways.
+4. The split-order oracle control now treats `<= 0` as a failed control, not
+   just `== 0`. It had reported `-1` as "control OK - the oracle sees -1 pages
+   the guest dirtied", which is a broken oracle passing its own control.
+5. `test_fastloop_statemachine.py` reproduces the exact state -- every Python
+   binding present, every C symbol absent -- and asserts the run is refused
+   before a boot is spent on it.
+
+**What survived from that run.** The device-restore path and `last_us` were
+declared, so `reset_us` median 1,876 us is real. And the console is the
+strongest evidence in it: the same `Creating SSH2 RSA key` line repeats once
+per lap, which is the guest deterministically re-executing the span it was
+rewound to. The reset worked. The instrument reading it did not.
+
+## 8. A 20-second iteration from a correct reset
+
+The same run reported a median iteration of **19.9 seconds**. That is not the
+reset (1.9 ms of it) and not a defect.
+
+One iteration is the span of guest execution from the armed instant to the next
+detector hit, because that is what a reset rewinds. The plugin armed after 40
+`writev` calls, which fell 72 s into boot, while the guest was generating SSH
+host keys -- so every lap replayed the key generation.
+
+The general statement, which is the one worth keeping: **the arming point sets
+the iteration cost, and the reset is a small term in it.** A reset that is free
+does not make a 20-second span shorter. `fastloop` gained an `arm_after_s`
+floor because a hit count alone does not say where in a boot you are.
 
 ## The VPN finding, now with evidence rather than inference
 
