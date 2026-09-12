@@ -1381,6 +1381,7 @@ class QemuCompat:
     # is about the LIBRARY, so ask the library.
     FASTSNAP_SYMBOLS = (
         "penguin_fastsnap_set_denylist",
+        "penguin_fastsnap_set_allowlist",
         "penguin_fastsnap_section_names",
         "penguin_fastsnap_schedule",
         "penguin_fastsnap_seq",
@@ -1401,6 +1402,8 @@ class QemuCompat:
         "penguin_fastsnap_dirty_blocks",
         "penguin_fastsnap_block_size",
         "penguin_fastsnap_section_count",
+        "penguin_fastsnap_dev_diff_sections",
+        "penguin_fastsnap_dev_diff_report",
     )
 
     def fastsnap_missing_symbols(self) -> list:
@@ -1452,6 +1455,52 @@ class QemuCompat:
         cname = self.ffi.new("char[]", names.encode("utf-8"))
         fn(cname)
         return True
+
+    def fastsnap_set_allowlist(self, names) -> bool:
+        """Keep ONLY these section ids in the next block. Clears any denylist.
+
+        This is the largest single lever on reset cost -- measured, a full
+        seventeen-section block restores in 0.752 ms and a {cpu, timer} block
+        in 0.043 ms, against a RAM half of tens of microseconds -- and the
+        most dangerous setting in this ABI. A denylist is conservative: a
+        device nobody named is still restored. An allowlist drops everything
+        the caller did not think of, and a dropped section does not fail. It
+        drifts, and the guest misbehaves thousands of iterations later with
+        nothing pointing back here.
+
+        Do not use it without reading :meth:`fastsnap_dev_diff_sections` on
+        verification laps. That is the check that turns "faster" into
+        "faster and still putting the guest back".
+        """
+        fn = self._lib_symbol("penguin_fastsnap_set_allowlist")
+        if fn is None:
+            return False
+        if not isinstance(names, str):
+            names = ",".join(names or [])
+        cname = self.ffi.new("char[]", names.encode("utf-8"))
+        fn(cname)
+        return True
+
+    def fastsnap_dev_diff_sections(self) -> int:
+        """Device sections differing from the arm-time reference, after the
+        last LOOP_RESET_VERIFY.
+
+        The reference always covers the FULL section set, whatever the block is
+        scoped to, so this sees the sections an allowlist left out. Zero means
+        the reset put every section back -- including the omitted ones, which
+        is the case that licenses the allowlist: a section the workload never
+        touches costs nothing to skip.
+
+        -1 means the comparison could not be made (no reference taken, or the
+        walk failed) and must NOT be read as zero.
+        """
+        return int(self._fastsnap_fn("penguin_fastsnap_dev_diff_sections")())
+
+    def fastsnap_dev_diff_report(self) -> str:
+        """Comma-separated ids of the differing device sections. A leading '-'
+        marks one that vanished since the arm, '+' one that appeared."""
+        fn = self._fastsnap_fn("penguin_fastsnap_dev_diff_report")
+        return self.ffi.string(fn()).decode("utf-8", "replace")
 
     def fastsnap_section_names(self) -> list:
         """Every section a block would cover on this machine."""
