@@ -1069,6 +1069,98 @@ class FastLoop(Plugin):
         self.t_signal_mono = None
         self.split_diff = None
 
+    def _wall_attribution(self, span):
+        """Where the wall clock went, by lap class, as a share of the span.
+
+        The three lap buckets are disjoint, so this is arithmetic rather than
+        an estimate, and it is here because the two numbers needed to see the
+        largest win of this lane were both already in this report and neither
+        was read. `exec_per_s_median` said 1,876 for a run whose loop really
+        turned over 543 times a second. The comment on `crash_iter_ms` said,
+        in this file, that crash laps "accounted for very nearly all 220 s of
+        wall clock". The verdict went on quoting the median for weeks.
+
+        A share is not a new measurement -- it is the division nobody was
+        going to do by hand. `unaccounted` is the part of the span that is in
+        no bucket at all: the arming draws, the gaps where the detector never
+        fired, and anything that happened between laps.
+        """
+        if not span or span <= 0:
+            return None
+        classes = {
+            "plain": self.iter_ms,
+            "crash": self.crash_iter_ms,
+            "verify": self.verify_iter_ms,
+        }
+        out = {}
+        total_ms = 0.0
+        for name, bucket in classes.items():
+            ms = float(sum(bucket))
+            total_ms += ms
+            out[name] = {
+                "laps": len(bucket),
+                "lap_share": (len(bucket) / self.n_iters) if self.n_iters else None,
+                "wall_s": ms / 1000.0,
+                "wall_share": ms / 1000.0 / span,
+            }
+        out["unaccounted"] = {
+            "laps": None,
+            "lap_share": None,
+            "wall_s": span - total_ms / 1000.0,
+            "wall_share": (span - total_ms / 1000.0) / span,
+        }
+        return out
+
+    def _wall_notes(self, out):
+        """Sentences the verdict owes the reader about where the time went.
+
+        Two questions, both of which went unasked for an entire session:
+
+        1. Does the headline rate agree with the wall clock? fastloop has
+           computed both since the first loop run, with a comment saying a
+           disagreement means the median is hiding a tail. It disagreed by
+           3.4x and the comment was the only thing that noticed.
+        2. Is a minority of the laps eating a majority of the clock? Crash
+           laps were 1.4% of the laps and most of the run. That is the
+           signature of a cost that scales with something other than the
+           loop, which is what a YAML report rewritten per crash was.
+        """
+        notes = []
+        med = out.get("exec_per_s_median")
+        wall = out.get("exec_per_s_wall_incl_oracle")
+        share = out.get("wall_share")
+        if med and wall and wall > 0:
+            ratio = med / wall
+            out["exec_per_s_median_over_wall"] = ratio
+            # 1.5x is well past what the oracle can explain: verify laps are
+            # ~1 in `verify_every` and cost ~48 ms, which at the configured
+            # rates is tens of percent, not multiples.
+            if ratio >= 1.5:
+                notes.append(
+                    f"THE HEADLINE RATE IS NOT THE RATE: exec_per_s_median "
+                    f"{med:.0f} is {ratio:.1f}x the wall-clock rate "
+                    f"{wall:.0f}. The median is hiding a tail; read "
+                    f"wall_share before quoting either number.")
+        if share:
+            for name in ("plain", "crash", "verify"):
+                c = share.get(name) or {}
+                ws, ls = c.get("wall_share"), c.get("lap_share")
+                if ws is None or ls is None or not c.get("laps"):
+                    continue
+                if ws >= 0.25 and ls > 0 and ws >= 2.0 * ls:
+                    notes.append(
+                        f"{name.upper()} LAPS ARE {ws:.0%} OF THE WALL CLOCK "
+                        f"AND {ls:.1%} OF THE LAPS. A cost that concentrates "
+                        f"like that scales with something other than the loop.")
+            un = (share.get("unaccounted") or {}).get("wall_share")
+            if un is not None and un >= 0.25:
+                notes.append(
+                    f"{un:.0%} OF THE SPAN IS IN NO LAP AT ALL. Arming draws, "
+                    f"a detector that stopped firing, or time between laps -- "
+                    f"whichever it is, the lap medians do not describe this "
+                    f"run.")
+        return notes
+
     # ---- report -----------------------------------------------------------
 
     def uninit(self) -> None:
@@ -1141,7 +1233,12 @@ class FastLoop(Plugin):
         # includes whatever the guest does when the driver pauses, and a mean
         # over that reports the driver's duty cycle rather than the loop's rate.
         out["exec_per_s_median"] = (1000.0 / it["median"]) if it else None
-        if self.t_loop0 and self.t_loopN and self.n_iters > 1:
+        # `is not None`, not truthiness. perf_counter()'s origin is unspecified
+        # and a zero timestamp is a legal reading; `x and y` would silently drop
+        # the whole wall-clock cross-check on it. Same falsy-zero shape as the
+        # `arm_backoff_s: 0` bug that waited three seconds anyway.
+        if (self.t_loop0 is not None and self.t_loopN is not None
+                and self.n_iters > 1):
             # Includes the verified laps, so it is BELOW the loop's rate by
             # however much the oracle cost. Reported as a cross-check on the
             # median rather than as the headline: if the two disagree by more
@@ -1150,6 +1247,7 @@ class FastLoop(Plugin):
             out["exec_per_s_wall_incl_oracle"] = (
                 (self.n_iters - 1) / span if span else None)
             out["loop_wall_s"] = span
+            out["wall_share"] = self._wall_attribution(span)
 
         # A negative diff means the oracle could not look. That is neither a
         # pass nor an ordinary failure, and lumping it in with "pages differ"
@@ -1248,6 +1346,14 @@ class FastLoop(Plugin):
                     f" Reached on draw {self.arm_attempt} of "
                     f"{len(self.arm_history)}: {len(rejected)} earlier "
                     f"draw(s) armed on a broken victim and were discarded.")
+            # Appended to the VERDICT, not filed beside it. The whole lesson
+            # of the crashes.py fix is that a number nobody has to read is a
+            # number nobody reads; putting this anywhere but in the sentence
+            # that gets quoted would reproduce the failure it exists to catch.
+            notes = self._wall_notes(out)
+            if notes:
+                out["wall_notes"] = notes
+                out["verdict"] += " " + " ".join(notes)
             self.logger.info(f"fastloop: {out['verdict']}")
 
         path = os.path.join(self.outdir, "fastloop.json")
@@ -1257,6 +1363,7 @@ class FastLoop(Plugin):
             f"fastloop: RESULTS mode={self.mode} iters={self.n_iters} "
             f"iter_median_ms={it['median'] if it else None} "
             f"exec_per_s={out['exec_per_s_median']} "
+            f"exec_per_s_wall={out.get('exec_per_s_wall_incl_oracle')} "
             f"reset_us_median="
             f"{out['reset_us']['median'] if out['reset_us'] else None} "
             f"restored_pages_median="

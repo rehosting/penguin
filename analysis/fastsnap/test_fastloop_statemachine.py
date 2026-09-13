@@ -443,10 +443,87 @@ def arm_tests(tmp):
           f"({len(p.crash_to_sig_ms)} laps)")
 
 
+def _valid_loop(tmp, iter_ms, crash_ms, verify_ms, n_iters, span):
+    """A loop-mode plugin whose verdict will be VALID, with the lap buckets set.
+
+    Set directly rather than driven: the point of these tests is the
+    arithmetic on the buckets and the sentence it produces, and driving a
+    thousand laps through the fake to fill them would test the fake.
+    """
+    p, q = make("loop", tmp)
+    p.state = "loop"
+    p.split_diff = 341
+    p.verifies = [{"diff_pages": 0, "bytes_checked": 268836864,
+                   "dev_diff_sections": 0, "dev_diff_report": ""}]
+    p.iter_ms = list(iter_ms)
+    p.crash_iter_ms = list(crash_ms)
+    p.verify_iter_ms = list(verify_ms)
+    p.n_iters = n_iters
+    p.t_loop0, p.t_loopN = 0.0, span
+    p.uninit()
+    return json.load(open(os.path.join(tmp, "fastloop.json")))
+
+
+def wall_tests(tmp):
+    # ---- THE NUMBER NOBODY DIVIDED ------------------------------------
+    # This is the crashes.py run, to scale: 1% of the laps closing on a
+    # crash, each one two orders of magnitude slower than a plain lap
+    # because a YAML report was being re-serialised on the vCPU thread.
+    # Every input to the conclusion was already in fastloop.json for weeks.
+    out = _valid_loop(tmp, [0.5] * 990, [70.0] * 10, [], 1000, 1.2)
+
+    assert out["verdict"].startswith("VALID"), out["verdict"]
+    crash = out["wall_share"]["crash"]
+    assert crash["laps"] == 10 and abs(crash["lap_share"] - 0.01) < 1e-9
+    assert abs(crash["wall_share"] - 0.7 / 1.2) < 1e-9, crash
+    assert any("CRASH LAPS ARE" in n for n in out["wall_notes"]), out["wall_notes"]
+    assert "58% OF THE WALL CLOCK" in out["verdict"], out["verdict"]
+    print("ok  a lap class that is 1% of the laps and 58% of the clock is "
+          "named IN the verdict")
+
+    # ...and the headline rate is convicted by the wall clock beside it.
+    assert abs(out["exec_per_s_median"] - 2000.0) < 1e-6
+    assert abs(out["exec_per_s_median_over_wall"] - 2000.0 / (999 / 1.2)) < 1e-6
+    assert any("THE HEADLINE RATE IS NOT THE RATE" in n
+               for n in out["wall_notes"]), out["wall_notes"]
+    print("ok  and exec_per_s_median is called out as 2.4x the wall rate")
+
+    # ---- AND STAYS QUIET WHEN THERE IS NOTHING TO SAY -----------------
+    # The falsifier. A note that fires on a healthy run is a note that gets
+    # ignored on a sick one, which is precisely how the disagreement this
+    # exists to surface survived an entire session of being printed.
+    out = _valid_loop(tmp, [1.0] * 990, [1.0] * 10, [], 1000, 1.0)
+    assert out["verdict"].startswith("VALID"), out["verdict"]
+    assert "wall_notes" not in out, out.get("wall_notes")
+    assert abs(out["exec_per_s_median_over_wall"] - 1000.0 / 999) < 1e-6
+    print("ok  a run whose median agrees with its wall clock gets no note")
+
+    # ---- TIME IN NO LAP AT ALL ----------------------------------------
+    # The run-8 signature: the loop wedges mid-run, the detector stops
+    # firing, and the laps that DID happen still have a healthy median.
+    # Nothing in the lap buckets can see this; only the span can.
+    out = _valid_loop(tmp, [1.0] * 100, [], [], 100, 10.0)
+    assert any("IN NO LAP AT ALL" in n for n in out["wall_notes"]), out["wall_notes"]
+    un = out["wall_share"]["unaccounted"]
+    assert abs(un["wall_share"] - 0.99) < 1e-9, un
+    print("ok  a span that is 99% outside any lap says so")
+
+    # ---- THE SHARES ARE A PARTITION -----------------------------------
+    # Arithmetic, not an estimate: the three buckets are disjoint and
+    # `unaccounted` is defined as the remainder, so they must sum to one.
+    # If a fourth lap class is ever added without being added here, this
+    # fails rather than quietly attributing it to nothing.
+    out = _valid_loop(tmp, [0.5] * 90, [70.0] * 5, [48.0] * 5, 100, 1.0)
+    total = sum(c["wall_share"] for c in out["wall_share"].values())
+    assert abs(total - 1.0) < 1e-9, out["wall_share"]
+    print("ok  the wall shares partition the span exactly")
+
+
 def main():
     import tempfile
     tmp = tempfile.mkdtemp()
     arm_tests(tmp)
+    wall_tests(tmp)
 
     # ---- mode=loop: the full path -------------------------------------
     p, q = make("loop", tmp)
