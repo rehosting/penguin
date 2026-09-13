@@ -490,6 +490,102 @@ def _valid_loop(tmp, iter_ms, crash_ms, verify_ms, n_iters, span):
     return json.load(open(os.path.join(tmp, "fastloop.json")))
 
 
+def _health_loop(tmp, **kw):
+    """A live loop with a readable progress counter and the probe behind it."""
+    p, q = make("loop", tmp, arm_probe=2, arm_progress="bug.n",
+                verify_every=10 ** 6, iters=10 ** 6, **kw)
+    prog = types.SimpleNamespace(n=0)
+    p._test_mod.plugins.bug = prog
+    for _ in range(2):
+        prog.n += 10
+        hit(p)
+    for _ in range(8):
+        prog.n += 10
+        q.run_bottom_half()
+        hit(p)
+    assert p.state == "loop", p.state
+    assert p._probe_done, "the probe never finished; the window never engages"
+    return p, q, prog
+
+
+def health_tests(tmp):
+    # ---- THE PROBE LOOKS ONCE ------------------------------------------
+    # arm_probe scores the first 200 laps and never asks again. Two runs
+    # passed it and came apart afterwards -- one at full speed with every lap
+    # closing on a fault, one with the detector going quiet -- and both
+    # reported a rate with a clean oracle beside it.
+    p, q, prog = _health_loop(tmp, health_window=4)
+    for _ in range(20):
+        prog.n += 10
+        q.run_bottom_half()
+        hit(p)
+    assert not p.degraded, p.degraded
+    assert p.state == "loop", p.state
+    print("ok  a healthy loop passes the rolling window it is checked against")
+
+    # ---- FAULTING ------------------------------------------------------
+    p, q, prog = _health_loop(tmp, health_window=4)
+    p.fatal_signos = {11}
+    kept = p.n_iters
+    for _ in range(8):
+        prog.n += 10
+        q.run_bottom_half()
+        crash(p)
+    assert p.degraded, "the loop came apart and the run did not notice"
+    d = p.degraded[0]
+    assert d["why"] == "faulting", d
+    assert d["signal_fraction"] > 0.5, d
+    assert p.state == "done", p.state
+    # The laps before the breach were measured under a healthy loop, so they
+    # are KEPT. Discarding them would throw away the only span the run
+    # actually measured along with the finding.
+    assert p.n_iters > kept, (kept, p.n_iters)
+    assert any("degraded at iteration" in e for e in p.errors), p.errors
+    print(f"ok  a loop that starts faulting after its probe is caught at "
+          f"iteration {d['at_iteration']} and stops")
+
+    # ---- IDLE, the other half ------------------------------------------
+    # Two-sided for the same reason the probe is: "every lap faults" and
+    # "nothing is being injected any more" are both ways to stop measuring
+    # what the run says it measures, and optimising against only the first
+    # produced an arm that delivered no input at all.
+    p, q, prog = _health_loop(tmp, health_window=4)
+    for _ in range(8):
+        q.run_bottom_half()               # prog.n deliberately does NOT move
+        hit(p)
+    assert p.degraded, "the injector stopped and the loop kept reporting a rate"
+    d = p.degraded[0]
+    assert d["why"] == "idle" and d["progress_delta"] == 0, d
+    assert p.state == "done", p.state
+    print("ok  a loop whose injector goes quiet is caught by the same window")
+
+    # ---- THE VERDICT SAYS WHAT IT MEANS --------------------------------
+    # A clean oracle beside a degraded loop is exactly the combination that
+    # gets waved through: every reset returned the right bytes, and the loop
+    # still stopped being the same loop. That is what state surviving the
+    # reset looks like, and it is the question this harness exists to answer.
+    p.split_diff = 341
+    p.verifies = [{"diff_pages": 0, "bytes_checked": 268836864,
+                   "dev_diff_sections": 0, "dev_diff_report": ""}]
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    assert out["verdict"].startswith("DEGRADED"), out["verdict"]
+    assert "survived the reset" in out["verdict"] \
+        or "surviving the reset" in out["verdict"], out["verdict"]
+    assert out["degraded"] and out["health_window"] == 4, out["health_window"]
+    print("ok  and the verdict is DEGRADED, not VALID-with-clean-verifications")
+
+    # ---- OFF IS OFF ----------------------------------------------------
+    p, q, prog = _health_loop(tmp, health_window=0)
+    p.fatal_signos = {11}
+    for _ in range(20):
+        q.run_bottom_half()
+        crash(p)
+    assert not p.degraded, p.degraded
+    assert p.state == "loop", p.state
+    print("ok  health_window=0 disables the check rather than defaulting it on")
+
+
 def lap_tests(tmp):
     # ---- THE ONLY PER-INPUT SEAM --------------------------------------
     # In a snapshot loop each lap is an independent execution of the same
@@ -636,6 +732,7 @@ def main():
     arm_tests(tmp)
     wall_tests(tmp)
     lap_tests(tmp)
+    health_tests(tmp)
 
     # ---- mode=loop: the full path -------------------------------------
     p, q = make("loop", tmp)

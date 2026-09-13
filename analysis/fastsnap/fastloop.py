@@ -174,6 +174,18 @@ class FastLoop(Plugin):
         self.arm_bad_frac = float(self._num("arm_bad_frac", 0.5))
         self.arm_retries = int(self._num("arm_retries", 3))
         self.arm_backoff_s = float(self._num("arm_backoff_s", 3.0))
+        # THE PROBE LOOKS ONCE. This looks for the whole run.
+        #
+        # `arm_probe` scores the first 200 laps and never asks again. Two runs
+        # passed it and came apart afterwards -- one at full speed with every
+        # lap closing on a fault, one with the detector simply going quiet --
+        # and both reported a rate with a clean oracle beside it.
+        #
+        # 0 disables. `_num`, not `or`, so it can be.
+        self.health_window = int(self._num("health_window", 1000))
+        self.degraded = []
+        self._hw_n = self._hw_sig = 0
+        self._hw_progress0 = None
         self.arm_attempt = 0
         self.arm_history = []      # one row per draw, accepted or rejected
         self._probe_n = 0
@@ -933,6 +945,8 @@ class FastLoop(Plugin):
             self._lap_event(was_crash, was_verify)
         if not self._probe_done:
             self._probe(was_crash)
+        elif self.health_window and self.mode == "loop":
+            self._health(was_crash)
         if self.state != "loop":
             return
         if self.n_iters >= self.want:
@@ -1060,6 +1074,73 @@ class FastLoop(Plugin):
         self._pending_verify = None
         self._closed_by_signal = False
 
+    def _health(self, was_crash):
+        """Re-ask the probe's question on a rolling window, for the whole run.
+
+        WHAT A MID-RUN CHANGE MEANS, and it is not what a bad draw means.
+        Every lap rewinds to the same instant, so lap 100,000 has to behave
+        like lap 1. If it does not, something survived the reset -- state that
+        accumulated across laps and was never rewound. A degradation that only
+        appears after a long run is therefore evidence about the SCOPE of the
+        restore, which is the one question this harness exists to answer, and
+        it is precisely the evidence a first-200-laps probe cannot collect.
+        (`cpu_common` is a known real scope miss on this target; this is the
+        instrument that would find the next one.)
+
+        Both halves of the probe's two-sided test, for the same reason it is
+        two-sided: "every lap faults" and "nothing is being injected any more"
+        are both ways for the loop to stop measuring what it says it measures,
+        and optimising against only the first produced an arm that delivered
+        no input at all.
+
+        On a breach the run STOPS and says where. Re-arming would discard the
+        finding along with the laps; continuing would average the degraded
+        span into the rate. The laps before it are kept: they were measured
+        while the window was still under threshold.
+        """
+        if self._hw_n == 0:
+            self._hw_progress0 = self._read_progress()
+        self._hw_n += 1
+        if was_crash:
+            self._hw_sig += 1
+        if self._hw_n < self.health_window:
+            return
+        frac = self._hw_sig / self._hw_n
+        now_p = self._read_progress()
+        delta = (None if (now_p is None or self._hw_progress0 is None)
+                 else now_p - self._hw_progress0)
+        need = self.arm_progress_frac * self._hw_n
+        idle = delta is not None and delta < need
+        if frac <= self.arm_bad_frac and not idle:
+            self._hw_n = self._hw_sig = 0
+            self._hw_progress0 = None
+            return
+        self.degraded.append({
+            "at_iteration": self.n_iters,
+            "window": self._hw_n,
+            "signal_laps": self._hw_sig,
+            "signal_fraction": round(frac, 4),
+            "progress_delta": delta,
+            "progress_needed": need,
+            "why": "idle" if idle else "faulting",
+        })
+        self.logger.error(
+            f"fastloop: THE LOOP DEGRADED AT ITERATION {self.n_iters}, having "
+            f"passed its arming probe. Over the last {self._hw_n} laps "
+            + (f"{self.arm_progress} advanced by {delta}, needing "
+               f"{need:.0f}: the injector has stopped being reached."
+               if idle else
+               f"{self._hw_sig} ({frac:.1%}) closed on a fatal signal.")
+            + " Every lap rewinds to the same instant, so a lap that behaves "
+              "differently from lap 1 means something survived the reset. "
+              "Stopping here: the laps before this were measured under a "
+              "healthy loop and are kept, the rest of the run would not have "
+              "been.")
+        self.errors.append(
+            f"degraded at iteration {self.n_iters} "
+            f"({'idle' if idle else f'{frac:.1%} faulting'})")
+        self.state = "done"
+
     def _reset_measurements(self):
         """Throw away everything the rejected draw measured.
 
@@ -1072,10 +1153,13 @@ class FastLoop(Plugin):
                      "bh_wall_ms", "bh_wall_crash_ms", "sched_ms", "obs_ms",
                      "sched_crash_ms", "obs_crash_ms", "sched_verify_ms",
                      "obs_verify_ms", "crash_to_sig_ms", "crash_after_sig_ms",
-                     "reset_us", "restored", "verifies", "page_obs"):
+                     "reset_us", "restored", "verifies", "page_obs",
+                     "degraded"):
             getattr(self, name).clear()
         self.n_iters = 0
         self.signal_laps = 0
+        self._hw_n = self._hw_sig = 0
+        self._hw_progress0 = None
         self.t_iter = None
         self.t_loop0 = None
         self.t_loopN = None
@@ -1272,6 +1356,8 @@ class FastLoop(Plugin):
             "arm_progress_counter": self.arm_progress,
             "longest_clean_streak": self._best_streak,
             "arm_history": self.arm_history,
+            "health_window": self.health_window,
+            "degraded": self.degraded,
             # HOST LOAD, at the start and end of the run. Not decoration.
             # Two runs of this harness were read as a QEMU regression -- nearly
             # every lap closing on a fatal signal, inputs delivered down 5.6x --
@@ -1385,6 +1471,20 @@ class FastLoop(Plugin):
                     f"of them left device sections unrestored ({names}). The "
                     f"device scope in force does not cover what this workload "
                     f"touches.")
+            elif self.degraded:
+                d = self.degraded[0]
+                out["verdict"] = (
+                    f"DEGRADED: the loop passed its arming probe and then came "
+                    f"apart at iteration {d['at_iteration']} "
+                    f"({d['why']}: {d['signal_fraction']:.1%} of the last "
+                    f"{d['window']} laps closed on a fatal signal, progress "
+                    f"{d['progress_delta']} of {d['progress_needed']:.0f}). "
+                    f"The {len(self.verifies)} verifications before that point "
+                    f"were clean, so this is not a reset that returns the "
+                    f"wrong bytes -- it is a loop that stopped being the same "
+                    f"loop, which is what state surviving the reset looks "
+                    f"like. The rate covers only the laps up to that "
+                    f"iteration.")
             elif self.allowed and dev_blind and not out.get("dev_diff_clean"):
                 out["verdict"] = (
                     f"INVALID: an allowlist was in force and the device "
