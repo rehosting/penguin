@@ -56,6 +56,7 @@ class FakeQemu:
         self.reset_us = 500
         self.diff_us = 48000
         self.restored = 128
+        self.code_pages = 3
         self.diff_pages_split = 341   # what the WRONG order sees
         self.diff_pages_combined = 0  # what the right order sees
         self._last_us = -1
@@ -125,6 +126,9 @@ class FakeQemu:
 
     def fastsnap_ram_restored_pages(self):
         return self.restored
+
+    def fastsnap_ram_restored_code_pages(self):
+        return self.code_pages
 
     def fastsnap_diff_pages(self):
         return self._diff_pages
@@ -322,6 +326,15 @@ def main():
         assert abs((a + b) - w) < 1.0, (a, b, w)
     print(f"ok  the round trip splits at the bottom half "
           f"({len(p.sched_ms)} laps, halves sum to the span)")
+
+    # Paired per lap, so one run can regress the post-resume cost against the
+    # page count instead of fitting a line through two runs' medians.
+    assert len(p.page_obs) == len(p.obs_ms), (len(p.page_obs), len(p.obs_ms))
+    for (pages, code, obs), o in zip(p.page_obs, p.obs_ms):
+        assert pages == q.restored and code == q.code_pages, (pages, code)
+        assert abs(obs - o) < 1e-5, (obs, o)
+    print("ok  restored pages, code pages and post-resume time are recorded "
+          "as one tuple per lap")
 
     p.uninit()
     import json

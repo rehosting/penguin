@@ -1395,6 +1395,7 @@ class QemuCompat:
         "penguin_fastsnap_diff_bytes_checked",
         "penguin_fastsnap_diff_report",
         "penguin_fastsnap_ram_restored_pages",
+        "penguin_fastsnap_ram_restored_code_pages",
         "penguin_fastsnap_ram_snapshot_bytes",
         "penguin_fastsnap_dirty_pages",
         "penguin_fastsnap_dirty_pages_scanned",
@@ -1636,6 +1637,17 @@ class QemuCompat:
         """Pages copied back by the last RAM_RESTORE/LOOP_RESET -- the size of
         the dirty set the reset actually paid for."""
         return int(self._fastsnap_fn("penguin_fastsnap_ram_restored_pages")())
+
+    def fastsnap_ram_restored_code_pages(self) -> int:
+        """Of the pages the last reset restored, how many held translated code.
+
+        The rest were data, and invalidating their translated blocks was work
+        with no effect. This exists because a reset's cost does not end when
+        the reset does: the guest pays afterwards to rebuild whatever the
+        invalidation threw away, and that cost is on nobody's clock.
+        """
+        return int(self._fastsnap_fn(
+            "penguin_fastsnap_ram_restored_code_pages")())
 
     def fastsnap_ram_snapshot_bytes(self) -> int:
         return int(self._fastsnap_fn("penguin_fastsnap_ram_snapshot_bytes")())
