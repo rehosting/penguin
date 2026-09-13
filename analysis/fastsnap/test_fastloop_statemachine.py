@@ -38,6 +38,8 @@ class FakeQemu:
     polling logic untestable and would pass a plugin that deadlocks.
     """
 
+    FASTSNAP_RESTORE = 1
+    FASTSNAP_RAM_RESTORE = 13
     FASTSNAP_LOOP_ARM = 15
     FASTSNAP_LOOP_RESET = 16
     FASTSNAP_LOOP_RESET_VERIFY = 17
@@ -147,7 +149,8 @@ class FakeQemu:
         self.completed.append(op)
         if op == self.FASTSNAP_LOOP_ARM:
             self._last_us = 175000
-        elif op == self.FASTSNAP_LOOP_RESET:
+        elif op in (self.FASTSNAP_LOOP_RESET, self.FASTSNAP_RESTORE,
+                    self.FASTSNAP_RAM_RESTORE):
             self._last_us = self.reset_us
         elif op == self.FASTSNAP_LOOP_RESET_VERIFY:
             self._last_us = self.reset_us
@@ -583,6 +586,35 @@ def main():
         assert not p.reset_us, (mode, p.reset_us)
         p.uninit()
         print(f"ok  mode={mode}: {p.n_iters} iterations, ops={q.ops}")
+
+    # ---- the measurement modes: half a reset, on purpose ---------------
+    # They exist to say WHICH HALF of a reset causes the ~0.5 ms that lands
+    # after the bottom half completes. Each must arm, schedule exactly one
+    # kind of half-reset per lap, never schedule a full one (which would
+    # reintroduce the thing being excluded), never claim soundness, and still
+    # report the two halves of the round trip it was built for.
+    for mode, op in (("devonly", FakeQemu.FASTSNAP_RESTORE),
+                     ("ramonly", FakeQemu.FASTSNAP_RAM_RESTORE)):
+        p, q = make(mode, tmp)
+        for _ in range(80):
+            if p.state == "done":
+                break
+            q.run_bottom_half()
+            hit(p)
+        p.uninit()
+        out = json.load(open(pathlib.Path(tmp) / "fastloop.json"))
+        assert p.n_iters == 10, (mode, p.n_iters)
+        loop_ops = [o for o in q.ops if o not in (q.FASTSNAP_LOOP_ARM,
+                                                  q.FASTSNAP_FORK_DROP)]
+        assert set(loop_ops) == {op}, (mode, set(loop_ops))
+        assert q.FASTSNAP_LOOP_RESET not in q.ops, mode
+        assert q.FASTSNAP_LOOP_RESET_VERIFY not in q.ops, mode
+        assert not p.verifies, mode
+        assert out["verdict"].startswith("MEASUREMENT MODE"), out["verdict"]
+        assert "not a rate" in out["verdict"], out["verdict"]
+        assert p.sched_ms and p.obs_ms, mode
+        print(f"ok  mode={mode}: {p.n_iters} laps of op {op} only, no oracle, "
+              f"verdict refuses to be read as a rate")
 
     print("\nPASS")
 

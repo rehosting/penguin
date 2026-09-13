@@ -132,14 +132,42 @@ class FastLoop(Plugin):
         # over 3,785 laps the slope is 0.81 us/page against a 631 us fixed
         # term. Keep the pairs -- they are what refuted it.
         self.page_obs = []
+        self.page_obs_max = 20000
         self._have_bh_clock = True
         self.t0 = time.perf_counter()
         self.want = int(self.get_arg("iters") or 200)
         self.verify_every = int(self.get_arg("verify_every") or 50)
         self.tag = self.get_arg("tag") or "fastloop"
 
-        if self.mode not in ("loop", "armed", "bare"):
+        # bare   : no arm, no reset. The floor -- guest work plus the
+        #          detector round trip.
+        # armed   : arm, never reset. Prices what arming costs on its own.
+        # loop    : the real thing, device block + dirty RAM every lap.
+        # devonly : arm, then restore ONLY the device block each lap.
+        # ramonly : arm, then restore ONLY the dirty RAM pages each lap.
+        #
+        # The last two are MEASUREMENT MODES and are unsound by construction.
+        # A device-only restore rewinds the CPU's page-table base into RAM that
+        # was never rewound; a RAM-only restore leaves device state drifting.
+        # Neither is a configuration anyone should run a campaign in, and the
+        # verdict says so rather than reporting a rate that looks quotable.
+        #
+        # They exist because an ordinary lap costs 0.782 ms of which the reset
+        # is 0.071 ms, and 0.638 ms lands AFTER the bottom half completes --
+        # against 0.111 ms for a bare lap. That ~0.5 ms is fixed per lap
+        # (measured: 0.81 us per restored page over 3,785 laps, so not
+        # per-page work) and appears only when a reset happened. These two
+        # modes are the cheapest cut that says which HALF of the reset causes
+        # it, and they need no new ABI: RESTORE and RAM_RESTORE already exist.
+        self.MEASUREMENT_MODES = ("devonly", "ramonly")
+        if self.mode not in ("loop", "armed", "bare") + self.MEASUREMENT_MODES:
             raise ValueError(f"fastloop: unknown mode {self.mode!r}")
+        if self.mode in self.MEASUREMENT_MODES:
+            self.logger.warning(
+                f"fastloop: mode={self.mode} is a MEASUREMENT MODE. It "
+                f"restores half a machine on purpose, so the guest is wrong "
+                f"by construction and the only numbers worth reading are the "
+                f"timings. Do not quote its exec/s as a rate.")
 
         # Keep ONLY these device sections in the block. The largest single
         # lever on reset cost -- measured, 17 sections restore in 0.752 ms and
@@ -166,6 +194,13 @@ class FastLoop(Plugin):
         self.deny_extra = ([x.strip() for x in extra.split(",") if x.strip()]
                            if extra else [])
 
+        self.loadavg0 = list(os.getloadavg())
+        if self.loadavg0[0] > 2.0:
+            self.logger.warning(
+                f"fastloop: host load average is {self.loadavg0[0]:.2f} at "
+                f"start. Timings from a contended host are not comparable "
+                f"with timings from an idle one, and the failure mode is not "
+                f"subtle: it looks like the guest crashing on every lap.")
         self.state = "warmup"
         self.hits = 0
         self.errors = []
@@ -464,7 +499,11 @@ class FastLoop(Plugin):
                 self.logger.info(
                     f"fastloop: armed in {self.arm_us} us, "
                     f"{self.snapshot_bytes} bytes of RAM snapshotted")
-                if self.mode == "armed":
+                if self.mode == "armed" or self.mode in self.MEASUREMENT_MODES:
+                    # The split-order control validates the ORACLE, and these
+                    # modes make no soundness claim for it to validate. Running
+                    # it would also mean one full LOOP_RESET in a run whose
+                    # whole point is that no full reset happens.
                     self.state = "loop"
                     self.t_iter = now
                     self.t_loop0 = now
@@ -558,7 +597,19 @@ class FastLoop(Plugin):
                 # guest RAM back through process_vm_readv() and costs ~80x the
                 # reset, so verifying every lap would report the oracle's rate
                 # as the loop's.
-                if (self.verify_every
+                if self.mode in self.MEASUREMENT_MODES:
+                    # No verification here, and not an oversight. The oracle is
+                    # only meaningful in the combined reset+diff op, which
+                    # exists for a COMPLETE reset and not for half of one --
+                    # and split across two bottom halves the guest runs in the
+                    # gap, so the diff reports ordinary kernel work and means
+                    # nothing. A half-reset is known-wrong anyway; asking an
+                    # oracle to confirm it would be theatre.
+                    self._pending_verify = None
+                    self._sched(self.panda.FASTSNAP_RESTORE
+                                if self.mode == "devonly"
+                                else self.panda.FASTSNAP_RAM_RESTORE)
+                elif (self.verify_every
                         and self.n_iters % self.verify_every == 0):
                     self._pending_verify = self.n_iters
                     self._sched(self.panda.FASTSNAP_LOOP_RESET_VERIFY)
@@ -608,7 +659,12 @@ class FastLoop(Plugin):
                 f"bh clock mismatch (sched={sched:.3f} ms, obs={obs:.3f} ms); "
                 f"the split is unavailable for this run")
             return
-        if not self._closed_by_signal and self._pending_verify is None:
+        if (not self._closed_by_signal and self._pending_verify is None
+                and len(self.page_obs) < self.page_obs_max):
+            # Capped. These are the raw pairs behind the per-page regression,
+            # and 20,000 of them settle a slope of 0.81 us/page as well as
+            # 250,000 would -- while a long run with no cap writes tuples into
+            # the report until the report is the largest artifact of the run.
             self.page_obs.append((self.restored[-1] if self.restored else -1,
                                   round(obs, 6)))
         if self._closed_by_signal:
@@ -761,6 +817,16 @@ class FastLoop(Plugin):
             "bh_to_observed_ms": _stats(self.obs_ms),
             "sched_to_bh_crash_ms": _stats(self.sched_crash_ms),
             "bh_to_observed_crash_ms": _stats(self.obs_crash_ms),
+            # HOST LOAD, at the start and end of the run. Not decoration.
+            # Two runs of this harness were read as a QEMU regression -- nearly
+            # every lap closing on a fatal signal, inputs delivered down 5.6x --
+            # and they were a busy machine. The same signature was used to
+            # convict a code change, on a run that followed a 50-minute build.
+            # A timing harness that does not record the load it ran under
+            # cannot tell those apart afterwards, and afterwards is when you
+            # ask.
+            "loadavg_start": self.loadavg0,
+            "loadavg_end": list(os.getloadavg()),
             "page_obs": self.page_obs,
             "sched_to_bh_verify_ms": _stats(self.sched_verify_ms),
             "bh_to_observed_verify_ms": _stats(self.obs_verify_ms),
@@ -800,7 +866,16 @@ class FastLoop(Plugin):
         out["device_scope"] = ("allow", self.allowed) if self.allowed else (
             ("deny", self.denied) if self.denied else ("all", []))
         out["dev_diff_clean"] = len(self.verifies) - len(dev_bad) - len(dev_blind)
-        if self.mode == "loop":
+        if self.mode in self.MEASUREMENT_MODES:
+            out["verdict"] = (
+                f"MEASUREMENT MODE ({self.mode}): half a reset, on purpose. "
+                f"The guest is wrong by construction -- a device-only restore "
+                f"rewinds the page-table base into RAM that was never rewound, "
+                f"a RAM-only restore leaves devices drifting -- so no "
+                f"correctness claim is made or implied and the rate is not a "
+                f"rate. Read sched_to_bh_ms and bh_to_observed_ms only.")
+            self.logger.info(f"fastloop: {out['verdict']}")
+        elif self.mode == "loop":
             if not self.verifies:
                 out["verdict"] = ("UNVERIFIED: the loop ran but the oracle "
                                   "never did, so nothing here says the reset "
