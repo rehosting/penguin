@@ -114,4 +114,157 @@ injection is a lap.
 
 ## Results
 
-_(pending)_
+All bugbench, mipsel/malta, `allow: cpu`, `reset_on_signal`, 240 s runs whose
+loop never stops resetting. Arm A is the control: the same new file with the
+lean path off.
+
+| run | arm | `fast` | lap ms | exec/s | `on_read` us | `signal_deliver` us | inputs | crash rate |
+|---|---|---|---|---|---|---|---|---|
+| 26 | pre-existing | -- | 0.7396 | 1,352 | -- | -- | 139,413 | 1.35% |
+| 28 | A | no | 0.7544 | 1,326 | **280.22** | 12,475 | 124,452 | 1.34% |
+| 31 | D | yes | 0.5492 | 1,821 | 87.22 | 13,752 | 135,202 | 1.34% |
+| 33 | F | yes + journal | **0.5321** | **1,879** | **85.26** | **326.5** | **145,533** | 1.34% |
+| 36 | I | yes + journal | 0.5276 | 1,895 | -- | -- | -- | -- |
+
+Run 36 is a repeat of run 33 and agrees with it -- 0.5276 ms over 121,000 laps
+-- but it is the first run ever to exhaust `iters: 200000`, after which the
+container sat past its own 240 s timeout and had to be stopped by hand, so its
+plugin reports are partial. It counts as a third clean draw below and is not
+used for anything else. (`core.timeout` not firing on a wedged container is a
+known hazard in this lane and is not a result.)
+
+**0.7544 -> 0.5321 ms, 1,326 -> 1,879 exec/s, +42%.** Against run 26 it is
++39%, and run 26 is the weaker comparison in the loop's favour: its loop reset
+for 13 s of a 240 s run, run 33's for 220 s, so run 33 delivered *more* inputs
+(145,533 vs 139,413) with every one of them under a reset.
+
+Nothing about the restore changed. Reset 64 -> 59 us, restored pages 25 -> 24,
+device scope identical, fork oracle clean on every verification in every run.
+
+### Where the 280.22 us went (run 28, 124,452 injections)
+
+| phase | mean us | share | fate |
+|---|---|---|---|
+| `resolve_fd` (portal) | 128.79 | 46% | **removed** -- learned from open/close |
+| `resolve_pid` (portal) | 73.73 | 26% | **removed** -- `syscall_event.pid` |
+| `generate` | 28.85 | 10% | kept (see `fast_rng` below) |
+| `inject` (portal) | 24.58 | 9% | kept -- it *is* the injection |
+| `bookkeeping` | 19.58 | 7% | kept |
+
+The pid was free the whole time. `struct syscall_event` already carries
+`current->pid`, and the driver header says why: *"denormalized so the host can
+identify the task without a separate OSI_PROC round-trip."* It is trusted only
+after agreeing with `get_proc()` on the first 200 injections -- 345/345 and
+226/226 across the runs, never once disagreeing -- because a field that is
+present and means something slightly else (a tgid where `signal_deliver`
+reports a thread id) would break the input-to-crash join silently.
+
+The fd is learned from the guest's own `open`/`openat` returning it and
+forgotten on `close`, keyed by `(pid, create_time, fd)`. Run 33: **145,215 of
+145,252 reads answered from the map**, 628 opens learned, 314 closes honoured.
+
+### Scoring the predictions
+
+- **P0 CONFIRMED.** 128.79 + 73.73 = 202.52 us of 280.22 = **72%**.
+- **P1 CONFIRMED.** 280.22 us, inside the 250-450 us window.
+- **P2 WRONG.** `inject` was fourth, not third; `generate` -- 36 `randrange()`
+  calls -- beat it at 28.85 us.
+- **P3 CONFIRMED, and by the stated mechanism.** The prediction was that the
+  lap would fall by the sum in P0 and that a much larger gain would mean the
+  timers were not measuring what they named. `bh_to_observed` went
+  0.6408 -> 0.4399 ms: **-0.2009 ms against a predicted 0.2025 ms.**
+- **P4 FALSIFIED.** See below.
+- **P5 CONFIRMED with `fast_rng` off**, falsified with it on. See below.
+- **P6 CONFIRMED.** Arm A at 0.7544 ms against run 26's 0.7396: the deque and
+  the lazy digests bought nothing measurable. They stay because they are free
+  and correct, not because they were worth a run.
+
+### P4, falsified: the first design was wrong and the audit is why we know
+
+The first attempt latched `(fd, pid)` on the reasoning that a snapshot loop
+returns the guest to one instant, so both are constants. They are -- **after**
+the loop arms. Before it the guest is an ordinary forward-running system whose
+victim crashes and restarts, and fd 3 is the dynamic loader's `libgcc_s.so.1`
+before it is the victim's request descriptor. The latch was earned in that
+window; **2,786 inputs went into the loader's read of its own shared library**,
+the exact failure the uncached resolve was written to avoid. The run ended with
+3,000 inputs where its control delivered 124,452.
+
+The audit caught it three times and it still ruined the run, which is the
+lesson: **a cache whose correctness rests on "the guest is in a state I believe
+it is in" is the wrong shape however carefully it is audited.** What replaced
+it derives both answers from the guest's own events and assumes nothing.
+
+The audit stayed, and caught its own bug next: in run 33 it reported the map
+corrupt twice when `get_fd_name()` had simply come back empty. An instrument
+that cannot look has said nothing in either direction -- the same distinction
+the fork oracle draws between -1 pages and 0. Blind audits are now counted
+apart from disagreements.
+
+### `fast_rng` is measured and NOT recommended
+
+Replacing 36 `randrange()` calls with one `randbytes()` is worth 22.8 us and
+changes the byte stream. Run 30 took it and came apart: crash rate 1.34% ->
+**3.61%**, 1,773 crashes at PC 0 from t=97 s to the end of the run, B3 lost,
+inputs down to 76,198. The single-variable control -- run 31, same lean path,
+original stream -- was clean at 1.34% and 135,202 inputs. **22.8 us is not
+worth changing what the fuzzer sends.** The flag stays, defaulted off, with
+this written next to it.
+
+### The crash lap is not the YAML dump, and that was my expectation
+
+`write_report()` re-dumped the whole growing crash list as YAML every 50
+crashes -- O(n^2), which is why the same callback measured 22.5 ms over 54
+crashes and 13.75 ms *mean* over 1,802. Replacing it with one appended JSONL
+line per crash took `signal_deliver` from **12,475 us to 326.5 us, 38x**, and
+delivered 17% more inputs.
+
+It did **not** move the crash lap: `crash_iter_ms` is 66.2 ms before and 69.9 ms
+after. So the ~24 s that came off was real throughput and the crash lap's cost
+is somewhere else entirely. At 1,632 crash laps of 70 ms that is **114 s of a
+220 s loop on 1.4% of the laps** -- now the largest unexplained cost in the
+whole measurement, and bigger than everything removed here.
+
+## Two findings this experiment was not looking for
+
+### `cpu_common` is a real scope miss
+
+Every run since the scoped oracle landed has ended `FAILED: ... left device
+sections unrestored (['cpu_common#2', 'mc146818rtc#13'])`, and it was not known
+whether `cpu_common` was genuinely outside the block or another section that
+cannot round-trip. Run 32 settles it: with `allow: cpu,cpu_common` the report
+drops to `['mc146818rtc#13']` alone -- the known-unrestorable one. **It was a
+real scope miss.**
+
+Widening to fix it is not free and not obviously right: the lap went
+0.5492 -> 2.1323 ms, exec/s 1,821 -> 469, restored pages 24 -> 59, and 38,006
+of 78,960 reads were the dynamic loader's rather than the victim's -- the
+workload got worse, not better. Same shape as run 16, where adding
+`mc146818rtc` halved throughput. Open.
+
+### The arming point does not just set the rate -- it can wedge the loop
+
+Runs 34 and 35, identical in effect to run 33 (the diff is the blind-audit
+counter, and `audits_blind` was 0 in both, so the new branch never ran),
+both came apart the same way: **26,377 and 26,614 inputs against run 33's
+145,533**, 9,110 and 9,056 crashes against 1,954, laps of 5.7 and 6.9 ms.
+In both, the PC-0 crash class begins in the bucket containing the arm.
+
+The loop armed at an instant where the victim was already broken, and then
+rewound to it 8,600 times. Run 30 reached the same state 72 s *after* arming.
+**Two wedged of five draws** at this scope and code (31, 33, 36 clean; 34, 35
+wedged), plus run 30 drifting in later.
+
+This is the lane's existing headline -- the arming point is a blind draw from
+the detector's interval distribution -- in a sharper form than
+`LOOP-RESULTS.md` records it. A bad draw does not give a slow lap. It gives a
+**permanently crashing** one, at full speed, with a clean fork oracle
+throughout, because the guest really is being restored byte-perfectly to a
+broken instant. Nothing in the harness currently notices; the rate simply
+reads 145 exec/s instead of 1,879.
+
+**The arm needs a health check** -- if the first N laps all close on a fatal
+signal, the draw was bad and the loop should re-arm rather than report a rate
+for it. That is the next thing to build, and it is worth more than any
+remaining microsecond on this page.
+
