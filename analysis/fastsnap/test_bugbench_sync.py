@@ -16,7 +16,7 @@ import re
 import pytest
 
 HERE = pathlib.Path(__file__).parent
-PLUGIN = HERE / "work" / "bugbench" / "proj" / "plugins.d" / "bugbench.py"
+PLUGIN = HERE / "bugbench.py"
 
 
 def _plugin_triggers():

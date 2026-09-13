@@ -28,7 +28,7 @@ import tempfile
 import types
 
 HERE = pathlib.Path(__file__).resolve().parent
-PLUGIN = HERE / "work" / "bugbench" / "proj" / "plugins.d" / "bugbench.py"
+PLUGIN = HERE / "bugbench.py"
 
 
 class FakeGuest:
