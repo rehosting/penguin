@@ -434,3 +434,77 @@ crash sites are numerous -- a stack smash with an input-derived return address,
 an ASLR'd process crashing repeatedly, a fuzzing campaign of any kind -- pays
 the same quadratic. The fix ships to every target and needs nothing from the
 guest.
+
+## Replaying the whole archive through the attribution
+
+The section above quoted `n=3` against `n=1`, with the caveat that one
+post-fix run is not a result. That caveat can be retired without spending
+another run, because the attribution is arithmetic over numbers every run
+already recorded. Every loop run in `work/bugbench/proj/results/` was replayed
+through it:
+
+| run | iters | span | med | wall | ratio | crash laps | crash lap | crash %laps | crash %wall | verify %wall | unacc |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 39 | 113,821 | 220.8 | 1,883 | 515 | 3.65 | 1,619 | — | 1.42% | 54.0% | 16.0% | 0.00% |
+| 40 | 120,486 | 221.3 | 1,894 | 544 | 3.48 | 1,635 | — | 1.36% | 52.3% | 16.9% | 0.00% |
+| 43 | 116,923 | 217.4 | 1,873 | 538 | 3.48 | 1,584 | 71.52 | 1.35% | 53.2% | 16.1% | 0.00% |
+| 44 | 88,063 | 222.9 | 1,891 | 395 | 4.79 | 1,993 | 80.89 | 2.26% | 66.8% | 12.2% | 0.00% |
+| 46 | 58,730 | 220.7 | 1,779 | 266 | 6.69 | 2,561 | 69.61 | 4.36% | 76.9% | 8.6% | 0.00% |
+| 49 | 120,810 | 221.2 | 1,849 | 546 | 3.38 | 1,636 | 70.64 | 1.35% | 52.2% | 16.3% | 0.00% |
+| 52 | 119,753 | 220.8 | 1,853 | 542 | 3.42 | 1,627 | 70.50 | 1.36% | 52.1% | 16.8% | 0.00% |
+| **53** | **200,000** | **173.4** | **1,879** | **1,153** | **1.63** | **2,670** | **0.93** | **1.33%** | **2.8%** | **35.4%** | **0.00%** |
+
+(Abridged; the full 39-run replay is reproducible from the archived
+`fastloop.json` files.)
+
+**The pre-fix population is thirteen runs, not three.** Runs 39-52:
+
+| | range across 13 runs |
+|---|---|
+| crash lap median | 65.2 - 80.9 ms |
+| crash share of wall clock | 51.2% - 76.9% |
+| crash share of *laps* | 1.35% - 4.36% |
+| wall rate | 266 - 548 laps/s |
+| `exec_per_s_median` | 1,779 - 1,916 |
+
+Against that, run 53's crash lap of 0.93 ms is **70-87x**, and it is a
+conservative comparison in three ways: run 53 had MORE crash laps (2,670) than
+any pre-fix run, it paid more oracle per second (5.8 verify laps/s against 2.7),
+and its crash laps are the only ones in the table whose median is under a
+millisecond. The 2.13x on throughput stands, and it no longer rests on n=1.
+
+### The median was flat across all thirteen
+
+`exec_per_s_median` spans 1,779-1,916 across runs whose real throughput spans
+266-1,153 laps/s. It is not that the headline number was wrong once. **It was
+uninformative in every run this lane has ever done**, and the disagreement is
+measurable: `exec_per_s_median / exec_per_s_wall_incl_oracle` is >= 1.5 in
+**38 of 39** runs.
+
+### The partition closes
+
+`unaccounted` -- span minus the three disjoint lap buckets -- has a maximum
+absolute value of **0.023%** across all 39 runs. The buckets really are
+disjoint and really do cover the span, on real data, which is the check that
+makes the shares worth reading at all.
+
+### What it now says is expensive
+
+Run 53's largest remaining cost is not the guest and not the reset. It is the
+**fork oracle: 35.4% of the wall clock from 0.5% of the laps**, at
+`verify_every: 200`. That is the instrument, not the loop, and it is a knob.
+The honest statement of the rate is therefore that it depends on how often you
+check it -- which is a thing worth saying out loud rather than a thing to tune
+away, since the alternative to checking is the unverified loop this lane exists
+to not ship.
+
+### Run 30, and why the lap-fraction test was not enough
+
+Run 30 is the mid-run wedge. It closed **4.7% of its laps on a fault -- a
+healthy crash rate** -- and spent **82% of its wall clock** on them, with a
+median ordinary lap of 0.51 ms throughout. A rolling check on the *fraction of
+laps* passes that run. Only a check on *time* catches it. Hence `_hot_class`:
+it fires when a lap class takes a majority of the clock while remaining a
+minority of the laps, and it deliberately does not fire for a target that
+genuinely crashes on most inputs, which is not sick -- it is a target that
+crashes.

@@ -575,6 +575,39 @@ def health_tests(tmp):
     assert out["degraded"] and out["health_window"] == 4, out["health_window"]
     print("ok  and the verdict is DEGRADED, not VALID-with-clean-verifications")
 
+    # ---- THE RUN-30 SIGNATURE, WHICH THE LAP-FRACTION TEST MISSES ------
+    # Replaying the archive through the wall attribution: run 30 closed 4.7%
+    # of its laps on a fault -- a HEALTHY crash rate, which the fraction test
+    # passes -- and spent 82% of its wall clock on them, with a median lap of
+    # 0.51 ms throughout. The cause was host-side and its price grew with the
+    # record count, so it was invisible early and dominant late. Thirteen runs
+    # carried it and none of them said anything.
+    p, q, prog = _health_loop(tmp, health_window=1000)
+    p._hw_n, p._hw_sig = 1000, 47
+    p._hw_ms, p._hw_ms_sig = 1000.0, 820.0
+    p._hot_class()
+    assert p.hot_class and p.hot_class["class"] == "crash", p.hot_class
+    assert p.hot_class["lap_share"] == 0.047, p.hot_class
+    # A COST problem, not a correctness one. Stopping a valid measurement
+    # over it would be worse than the cost.
+    assert p.state == "loop", p.state
+    assert not p.degraded, p.degraded
+    before = dict(p.hot_class)
+    p._hot_class()
+    assert p.hot_class == before, "reported more than once"
+    print("ok  a minority of laps eating a majority of the clock is reported "
+          "mid-run, once, without stopping the run")
+
+    # The falsifier, and it is the whole reason the test is two-termed: a
+    # target that genuinely crashes on most inputs is not sick, it is a
+    # target that crashes.
+    p, q, prog = _health_loop(tmp, health_window=1000)
+    p._hw_n, p._hw_sig = 1000, 900
+    p._hw_ms, p._hw_ms_sig = 1000.0, 900.0
+    p._hot_class()
+    assert p.hot_class is None, p.hot_class
+    print("ok  a target that really does crash on most inputs is not called hot")
+
     # ---- OFF IS OFF ----------------------------------------------------
     p, q, prog = _health_loop(tmp, health_window=0)
     p.fatal_signos = {11}

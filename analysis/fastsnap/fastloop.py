@@ -184,7 +184,15 @@ class FastLoop(Plugin):
         # 0 disables. `_num`, not `or`, so it can be.
         self.health_window = int(self._num("health_window", 1000))
         self.degraded = []
+        # A MINORITY OF LAPS TAKING A MAJORITY OF THE CLOCK is a different
+        # failure from a loop that came apart, and it needs a different
+        # answer. Reported once and the run continues: it is a cost problem,
+        # not a correctness one, and stopping a valid measurement over it
+        # would be worse than the cost.
+        self.health_time_frac = float(self._num("health_time_frac", 0.5))
+        self.hot_class = None
         self._hw_n = self._hw_sig = 0
+        self._hw_ms = self._hw_ms_sig = 0.0
         self._hw_progress0 = None
         self.arm_attempt = 0
         self.arm_history = []      # one row per draw, accepted or rejected
@@ -917,6 +925,7 @@ class FastLoop(Plugin):
                     f"forked reference (at {self.panda.fastsnap_diff_report()})")
             self._pending_verify = None
 
+        dt = None    # None on the first lap: there is no interval yet
         if self.t_iter is not None:
             dt = (now - self.t_iter) * 1000.0
             # A verified lap carries the oracle's ~48 ms as well as the reset,
@@ -946,7 +955,7 @@ class FastLoop(Plugin):
         if not self._probe_done:
             self._probe(was_crash)
         elif self.health_window and self.mode == "loop":
-            self._health(was_crash)
+            self._health(was_crash, dt)
         if self.state != "loop":
             return
         if self.n_iters >= self.want:
@@ -1074,7 +1083,7 @@ class FastLoop(Plugin):
         self._pending_verify = None
         self._closed_by_signal = False
 
-    def _health(self, was_crash):
+    def _health(self, was_crash, dt=None):
         """Re-ask the probe's question on a rolling window, for the whole run.
 
         WHAT A MID-RUN CHANGE MEANS, and it is not what a bad draw means.
@@ -1103,8 +1112,13 @@ class FastLoop(Plugin):
         self._hw_n += 1
         if was_crash:
             self._hw_sig += 1
+        if dt is not None:
+            self._hw_ms += dt
+            if was_crash:
+                self._hw_ms_sig += dt
         if self._hw_n < self.health_window:
             return
+        self._hot_class()
         frac = self._hw_sig / self._hw_n
         now_p = self._read_progress()
         delta = (None if (now_p is None or self._hw_progress0 is None)
@@ -1113,6 +1127,7 @@ class FastLoop(Plugin):
         idle = delta is not None and delta < need
         if frac <= self.arm_bad_frac and not idle:
             self._hw_n = self._hw_sig = 0
+            self._hw_ms = self._hw_ms_sig = 0.0
             self._hw_progress0 = None
             return
         self.degraded.append({
@@ -1141,6 +1156,40 @@ class FastLoop(Plugin):
             f"({'idle' if idle else f'{frac:.1%} faulting'})")
         self.state = "done"
 
+    def _hot_class(self):
+        """Say it mid-run when crash laps are eating the clock. Once.
+
+        THE SIGNATURE THIS IS FOR. Replaying the archive through the wall
+        attribution: run 30 closed 4.7% of its laps on a fault and spent 82%
+        of its wall clock on them, and every run in the 39-52 population spent
+        51-77%. The cause was host-side -- crashes.py re-serialising a growing
+        YAML report inside the vCPU thread -- and its cost grew with the
+        record count, so it was invisible early and dominant late. None of
+        those runs said anything: the lap-fraction test passes (4.7% is a
+        HEALTHY crash rate) and the median lap was 0.51 ms throughout.
+
+        So the test is on time, not on count, and it requires the class to be
+        a MINORITY of the laps -- a target that genuinely crashes on most
+        inputs is not sick, it is a target that crashes.
+        """
+        if self.hot_class is not None or self._hw_ms <= 0:
+            return
+        ms_share = self._hw_ms_sig / self._hw_ms
+        lap_share = self._hw_sig / self._hw_n
+        if ms_share < self.health_time_frac or lap_share > ms_share / 2.0:
+            return
+        self.hot_class = {"class": "crash", "at_iteration": self.n_iters,
+                          "window": self._hw_n, "wall_share": round(ms_share, 4),
+                          "lap_share": round(lap_share, 4)}
+        self.logger.warning(
+            f"fastloop: crash laps are {lap_share:.1%} of the last "
+            f"{self._hw_n} laps and {ms_share:.0%} of their wall clock "
+            f"(iteration {self.n_iters}). A cost that concentrates like that "
+            f"scales with something other than the loop -- host-side work "
+            f"whose price grows with the run, done on the vCPU thread. The "
+            f"resets are unaffected and the run continues; the rate it "
+            f"reports is not the loop's.")
+
     def _reset_measurements(self):
         """Throw away everything the rejected draw measured.
 
@@ -1159,6 +1208,7 @@ class FastLoop(Plugin):
         self.n_iters = 0
         self.signal_laps = 0
         self._hw_n = self._hw_sig = 0
+        self._hw_ms = self._hw_ms_sig = 0.0
         self._hw_progress0 = None
         self.t_iter = None
         self.t_loop0 = None
@@ -1358,6 +1408,7 @@ class FastLoop(Plugin):
             "arm_history": self.arm_history,
             "health_window": self.health_window,
             "degraded": self.degraded,
+            "hot_class": self.hot_class,
             # HOST LOAD, at the start and end of the run. Not decoration.
             # Two runs of this harness were read as a QEMU regression -- nearly
             # every lap closing on a fatal signal, inputs delivered down 5.6x --
