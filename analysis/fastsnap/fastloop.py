@@ -91,6 +91,17 @@ class FastLoop(Plugin):
         # detector hit, so WHERE the arm lands is the measurement.
         self.arm_after_s = float(self.get_arg("arm_after_s") or 0)
         self.reset_on_signal = bool(self.get_arg("reset_on_signal"))
+        # Registered unconditionally so a subscriber can bind before the
+        # first lap; published only in mode=loop. Registration failing is not
+        # fatal -- the loop is still a valid measurement without an audience.
+        self._publish_lap = True
+        try:
+            plugins.register(self, "on_lap")
+        except Exception as e:                              # noqa: BLE001
+            self._publish_lap = False
+            self.logger.warning(
+                f"fastloop: could not register on_lap ({e!r}); per-input "
+                f"scoping is unavailable for this run")
         self.signal_laps = 0
         self._closed_by_signal = False
         self.crash_iter_ms = []    # laps a crash ended
@@ -918,6 +929,8 @@ class FastLoop(Plugin):
         self.t_signal_mono = None
         self.n_iters += 1
         self.t_loopN = now
+        if self._publish_lap and self.mode == "loop":
+            self._lap_event(was_crash, was_verify)
         if not self._probe_done:
             self._probe(was_crash)
         if self.state != "loop":
@@ -1068,6 +1081,55 @@ class FastLoop(Plugin):
         self.t_loopN = None
         self.t_signal_mono = None
         self.split_diff = None
+
+    def _lap_event(self, was_crash, was_verify):
+        """Announce the iteration boundary, which is the only per-input seam.
+
+        THE SCOPE PROBLEM THIS EXISTS FOR. In a normal run a plugin's state is
+        run-scoped and that is correct: there is one execution and everything
+        accumulates into it. A snapshot loop is not that. Each lap is an
+        INDEPENDENT execution of the same instant with a different input, so
+        state a plugin would naturally accumulate -- a crash table, a counter,
+        a file map -- belongs to one input, and no plugin can tell where one
+        input ends and the next begins. Only the loop knows, because only the
+        loop performs the rewind.
+
+        `lap` is the index of the iteration NOW STARTING, deliberately, so a
+        subscriber can stamp it onto whatever it records without arithmetic.
+        `closed_by` says why the previous one ended: "signal" (the victim
+        faulted), "verify" (the oracle ran, so the lap carries ~48 ms that is
+        the instrument's and not the guest's), or "hit".
+
+        NOT `reset_state()`, and the difference is the point. plugin_manager
+        documents that hook for restore-many and crashes.py implements it as a
+        rewind, on the reasoning that repeated restores would "accumulate
+        across iterations that the guest never actually executed". That is
+        true of a replay, where every lap is the same execution. It is false
+        here: every lap really does execute, with a different input, so a
+        count of 4,343 is 4,343 inputs reaching one crash site and rewinding
+        it would destroy the campaign's only real result. What this mode needs
+        is not a rewind but an attribution, and attribution needs a boundary.
+
+        Published in mode=loop only. bare and armed never reset, so their laps
+        are not independent executions and announcing them as such would
+        invite exactly the mis-scoping this is meant to fix.
+        """
+        try:
+            plugins.publish(self, "on_lap", self.n_iters,
+                            "signal" if was_crash
+                            else ("verify" if was_verify else "hit"))
+        except Exception as e:                              # noqa: BLE001
+            # Disabled after the first failure rather than retried. This runs
+            # on the vCPU thread inside the loop: a subscriber that raises
+            # every lap would pay the exception on every one of them, and a
+            # measurement harness that quietly got slower in its own error
+            # path is worse than one that stops publishing and says so.
+            self._publish_lap = False
+            self.logger.error(
+                f"fastloop: on_lap publish failed ({e!r}); no further lap "
+                f"boundaries will be announced. Anything scoping itself per "
+                f"input is now silently run-scoped.")
+            self.errors.append(f"on_lap publish failed: {e!r}")
 
     def _wall_attribution(self, span):
         """Where the wall clock went, by lap class, as a share of the span.

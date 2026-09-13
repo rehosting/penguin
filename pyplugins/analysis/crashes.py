@@ -213,10 +213,22 @@ class Crashes(Plugin):
     #   it suffered before the snapshot. Without this the restored run starts
     #   blank and every pre-snapshot crash silently disappears from the
     #   report.
-    # - ``reset_state`` is the *restore-many* case a fuzzing loop builds:
-    #   restoring the same point repeatedly must rewind the report with the
-    #   guest, or dedup counts accumulate across iterations that the guest
-    #   never actually executed.
+    # - ``reset_state`` is the *restore-many* case where every lap re-executes
+    #   the SAME work: restoring the same point repeatedly must rewind the
+    #   report with the guest, or dedup counts accumulate across iterations
+    #   that the guest never distinctly executed.
+    #
+    #   THIS IS NOT WHAT A FUZZING LOOP WANTS, and the distinction cost a
+    #   while to see. A snapshot fuzzer restores the same point too, but feeds
+    #   a DIFFERENT input each lap, so every iteration is a real, distinct
+    #   execution -- ``count: 4343`` there means 4,343 inputs reached one
+    #   crash site, which is the campaign's actual result, and rewinding it
+    #   would throw that away. What such a loop is missing is not a rewind but
+    #   an *attribution*: which input produced this delivery. That needs a
+    #   per-iteration boundary, which no plugin can see because only the
+    #   driver performs the rewind. The driver is expected to publish one and
+    #   consumers to join on it; nothing here needs to change for that, which
+    #   is the point of noting it rather than adding a hook nobody calls.
     #
     # ``time`` is deliberately NOT rebased on restore: it is seconds since
     # emulation start on the timeline the delivery happened on, and a restored

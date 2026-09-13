@@ -121,6 +121,42 @@ class BugBench(Plugin):
         self.report_every = int(self.get_arg("report_every") or 50)
         self.on_disk = set()
         self.attributed = []      # joined crash rows
+
+        # ---- PER-INPUT SCOPE ----------------------------------------------
+        #
+        # In a normal run this plugin's state is run-scoped and that is right:
+        # one execution, everything accumulates into it. Under a snapshot loop
+        # it is wrong. Each lap is an independent execution of the same instant
+        # with a different input, and the join this plugin performs -- which
+        # input crashed the victim -- is a per-input question answered with a
+        # run-scoped table, `last_by_pid`.
+        #
+        # That table was catastrophically wrong once already, in the other
+        # direction (a latch keyed on (fd, pid) sent 2,786 inputs into the
+        # dynamic loader's read of libgcc_s.so.1). It is right now because it
+        # is rebuilt from the guest's own events -- but "the last input this
+        # pid saw" is still a guess about which execution a crash belongs to,
+        # and nothing was checking it.
+        #
+        # fastloop publishes `on_lap` at the one instant that answers it: the
+        # reset has completed and the guest is back at the armed point, so
+        # everything between two of those events belongs to exactly one input.
+        # Bound lazily (load order is config order, and fastloop may not exist
+        # yet) and at most once (a failed bind must not be retried on the vCPU
+        # thread on every read).
+        self.lap = None            # the iteration fastloop says we are in
+        self.lap_closed_by = None  # why the previous one ended
+        self._lap_bound = False
+        self._lap_rec = None       # the input delivered in this lap
+        self._lap_inputs = 0       # how many, to know when the join is exact
+        self.lap_multi = 0         # laps that delivered more than one input
+        self.n_join_lap = 0
+        self.n_join_pid = 0
+        # The cross-check. Both joins are available whenever a lap boundary
+        # exists, they answer the same question, and a disagreement means the
+        # pid join -- the only one available without fastloop, and the one
+        # every earlier run in this lane used -- named the wrong input.
+        self.n_join_disagree = 0
         self.t0 = time.time()
         self.p0 = time.perf_counter()
 
@@ -243,6 +279,46 @@ class BugBench(Plugin):
 
     # ---- attribution ------------------------------------------------------
 
+    def _bind_lap(self):
+        """Subscribe to fastloop's iteration boundary. Once, lazily, quietly.
+
+        `plugins.plugins` is read directly rather than `plugins.fastloop`,
+        which would LOAD fastloop if it were not configured -- turning a
+        missing measurement harness into a second instance of one, in the
+        middle of the run it is supposed to be measuring.
+        """
+        self._lap_bound = True
+        loop = getattr(plugins, "plugins", {}).get("fastloop")
+        if loop is None:
+            self.logger.info(
+                "bugbench: no fastloop in this run, so there is no iteration "
+                "boundary to scope inputs by; crashes join to the last input "
+                "the crashing pid received, as before.")
+            return
+        try:
+            plugins.subscribe(loop, "on_lap", self.on_lap)
+        except Exception as e:                              # noqa: BLE001
+            self.logger.warning(
+                f"bugbench: could not subscribe to fastloop.on_lap ({e!r}); "
+                f"falling back to the pid join")
+            return
+        self.logger.info("bugbench: scoping inputs per lap via fastloop.on_lap")
+
+    def on_lap(self, lap, closed_by):
+        """A new iteration is starting: the guest is back at the armed instant.
+
+        Everything after this and before the next one is one input's doing.
+        """
+        if self._lap_inputs > 1:
+            # Not fatal, but it makes the lap join no more exact than the pid
+            # join for that lap, and a count of these is the only way to know
+            # whether the detector really is one-input-per-lap on this target.
+            self.lap_multi += 1
+        self._lap_inputs = 0
+        self._lap_rec = None
+        self.lap = lap
+        self.lap_closed_by = closed_by
+
     def _phase(self, name, dt):
         s = self._ph.get(name)
         if s is None:
@@ -359,6 +435,11 @@ class BugBench(Plugin):
     # ---- hooks ------------------------------------------------------------
 
     def on_read(self, regs, proto, syscall, fd, buf, count):
+        if not self._lap_bound:
+            # First read, not __init__: plugin load order is config order, so
+            # fastloop may not have registered its event yet when this plugin
+            # was constructed. One boolean per injection thereafter.
+            self._bind_lap()
         rv = int(syscall.retval)
         limit = min(int(count), rv if rv > 0 else int(count))
         if limit <= 0:
@@ -483,6 +564,10 @@ class BugBench(Plugin):
             "seq": self.seq,
             "pid": pid,
             "comm": self.comm,
+            # The iteration this input belongs to. None when nothing is
+            # resetting the guest, which is the honest answer: without a
+            # rewind there are no independent executions to scope to.
+            "lap": self.lap,
             "len": len(payload),
             "payload": payload,
             "t": round(t - self.p0, 3),
@@ -504,6 +589,8 @@ class BugBench(Plugin):
                 self.recent.pop(next(iter(self.recent)))
         self.n_sent += 1
         self.sent.append(rec)
+        self._lap_rec = rec
+        self._lap_inputs += 1
         if pid is not None:
             self.last_by_pid[pid] = rec
         self.seq += 1
@@ -541,7 +628,36 @@ class BugBench(Plugin):
         if signame is None or event.drop:
             return
         pid = int(event.pid)
-        rec = self.last_by_pid.get(pid)
+        pid_rec = self.last_by_pid.get(pid)
+        # PREFER THE LAP, AND CHECK THE OTHER ONE AGAINST IT.
+        #
+        # The lap join is exact by construction when a lap delivered exactly
+        # one input: the crash happened between two rewinds and only one input
+        # was injected between them, so there is nothing to guess. The pid join
+        # is a heuristic -- "the last input this pid saw" -- that happens to be
+        # right most of the time and was silently wrong for 2,786 consecutive
+        # inputs once. Both are computed whenever both exist, precisely so the
+        # weaker one stops being trusted on faith.
+        if self.lap is not None:
+            # AUTHORITATIVE, INCLUDING WHEN IT SAYS NOTHING. A lap that
+            # crashed before any input reached the victim has no input to
+            # blame, and `last_by_pid` still holds the PREVIOUS lap's -- an
+            # input this execution never received. Falling back to the pid
+            # join here would reintroduce, at the only moment it matters,
+            # exactly the misattribution the boundary exists to remove. (The
+            # first draft of this did fall back, and the test below caught
+            # it naming seq 1 for a crash in lap 2.)
+            rec, join = self._lap_rec, "lap"
+            exact = rec is not None and self._lap_inputs == 1
+            if rec is not None:
+                self.n_join_lap += 1
+                if pid_rec is not None and pid_rec["seq"] != rec["seq"]:
+                    self.n_join_disagree += 1
+        else:
+            rec, join = pid_rec, "last-input-to-pid"
+            exact = pid_rec is not None and event.comm == self.comm
+            if pid_rec is not None:
+                self.n_join_pid += 1
         pc = int(event.pc)
         if pc == 0 and event.regs:
             pc = event.regs.get_pc()
@@ -553,8 +669,10 @@ class BugBench(Plugin):
             "t": round(t_enter - self.p0, 3),
             "pc": f"0x{pc:08x}",
             "attributed": rec is not None,
-            "join": "last-input-to-pid",
-            "join_exact": rec is not None and event.comm == self.comm,
+            "join": join,
+            "join_exact": exact,
+            "lap": self.lap,
+            "lap_inputs": self._lap_inputs if self.lap is not None else None,
         }
         if rec is not None:
             # The input that crashed it always goes to disk, whatever the cap.
@@ -647,6 +765,10 @@ class BugBench(Plugin):
                 "pid_agreed": self.n_pid_agree,
                 "revalidations": self.n_revalidated,
                 "audits_blind": self.n_audit_blind,
+                "join_by_lap": self.n_join_lap,
+                "join_by_pid": self.n_join_pid,
+                "join_disagreed": self.n_join_disagree,
+                "laps_with_multiple_inputs": self.lap_multi,
                 "cache_errors": self.cache_errors,
                 "phases": phases,
             }, fh, sort_keys=False)
@@ -655,6 +777,22 @@ class BugBench(Plugin):
             f"bugbench: RESULTS inputs={self.n_sent} "
             f"crashes={len(self.attributed)} attributed={n_att} "
             f"reads_skipped_wrong_fd={self.n_skipped}   <- CONTROL")
+        if self.n_join_lap:
+            self.logger.info(
+                f"bugbench: JOIN by_lap={self.n_join_lap} "
+                f"by_pid={self.n_join_pid} disagreed={self.n_join_disagree} "
+                f"laps_with_multiple_inputs={self.lap_multi}   <- CONTROL")
+        if self.n_join_disagree:
+            # Stated as a result, not a warning. Every run in this lane before
+            # the lap boundary existed used the pid join alone and had no way
+            # to know; this is the first number that can say how often it was
+            # naming the wrong input.
+            self.logger.warning(
+                f"bugbench: the pid join named a DIFFERENT input than the lap "
+                f"join on {self.n_join_disagree} of {self.n_join_lap} crashes "
+                f"({self.n_join_disagree / self.n_join_lap:.1%}). The lap join "
+                f"was used. Earlier runs of this harness had only the pid "
+                f"join and reported that fraction as fact.")
         self.logger.info(f"bugbench: fd names seen: {self._fdnames}   <- CONTROL")
         tot = phases.get("on_read total", {}).get("mean_us")
         self.logger.info(

@@ -237,8 +237,34 @@ def make(mode, tmpdir, missing=(), **args):
     # a different namespace than the plugin resolves against -- which is how
     # the first version of the idle-draw test silently scored nothing.
     mod.plugins = types.SimpleNamespace()
+
+    # A RECORDING PUB/SUB, not a bare namespace. The first version of the
+    # on_lap tests passed against a SimpleNamespace with no `register`: the
+    # plugin caught the AttributeError, disabled publishing for the run, and
+    # every assertion about lap boundaries was written against a feature that
+    # had turned itself off. A stub that silently absorbs the thing under test
+    # is the same failure as a counter name that resolves to nothing.
+    events = {"registered": [], "published": []}
+    mod._events = events
+
+    def _register(plugin, event):
+        events["registered"].append(event)
+
+    def _publish(plugin, event, *a):
+        events["published"].append((event,) + a)
+        for cb in events.get("subs", {}).get(event, []):
+            cb(*a)
+
+    def _subscribe(plugin, event, cb):
+        events.setdefault("subs", {}).setdefault(event, []).append(cb)
+
+    mod.plugins.register = _register
+    mod.plugins.publish = _publish
+    mod.plugins.subscribe = _subscribe
+
     p = Harnessed()
     p._test_mod = mod
+    p._test_events = events
     return p, qemu
 
 
@@ -464,6 +490,91 @@ def _valid_loop(tmp, iter_ms, crash_ms, verify_ms, n_iters, span):
     return json.load(open(os.path.join(tmp, "fastloop.json")))
 
 
+def lap_tests(tmp):
+    # ---- THE ONLY PER-INPUT SEAM --------------------------------------
+    # In a snapshot loop each lap is an independent execution of the same
+    # instant with a different input, and no plugin can see where one input
+    # ends: only the loop performs the rewind. So the loop has to say.
+    p, q = make("loop", tmp, verify_every=1000)
+    assert "on_lap" in p._test_events["registered"], p._test_events
+    assert p._publish_lap, "registration was absorbed by the stub"
+    to_loop(p, q)
+    p._test_events["published"].clear()
+
+    for _ in range(3):
+        q.run_bottom_half()
+        hit(p)
+    laps = [e for e in p._test_events["published"] if e[0] == "on_lap"]
+    assert len(laps) == 3, p._test_events["published"]
+    assert all(e[2] == "hit" for e in laps), laps
+    # The index is the lap NOW STARTING, so a subscriber stamps it onto what
+    # it records without arithmetic -- and it must advance by exactly one.
+    idx = [e[1] for e in laps]
+    assert idx == [idx[0], idx[0] + 1, idx[0] + 2], idx
+    assert idx[-1] == p.n_iters, (idx, p.n_iters)
+    print("ok  every lap announces the iteration now starting, exactly once")
+
+    # ---- WHY THE LAST ONE ENDED ---------------------------------------
+    # A lap that closed on a fault and a lap that carried the oracle's ~48 ms
+    # are different measurements; a subscriber attributing per input needs to
+    # know which it is holding.
+    p._test_events["published"].clear()
+    crash(p)
+    q.run_bottom_half()
+    hit(p)
+    laps = [e for e in p._test_events["published"] if e[0] == "on_lap"]
+    assert len(laps) == 1 and laps[0][2] == "signal", laps
+    print("ok  a lap closed by a fatal signal says so")
+
+    p, q = make("loop", tmp, verify_every=1)
+    to_loop(p, q)
+    p._test_events["published"].clear()
+    for _ in range(4):
+        q.run_bottom_half()
+        hit(p)
+    laps = [e for e in p._test_events["published"] if e[0] == "on_lap"]
+    assert laps and any(e[2] == "verify" for e in laps), laps
+    print("ok  a lap the oracle ran on is labelled verify, not hit")
+
+    # ---- NOT IN THE CONTROL ARMS --------------------------------------
+    # bare and armed never reset, so their laps are not independent
+    # executions. Announcing them as such would invite exactly the
+    # mis-scoping the event exists to fix.
+    for mode in ("bare", "armed"):
+        p, q = make(mode, tmp)
+        for _ in range(6):
+            q.run_bottom_half()
+            hit(p)
+        assert p.n_iters > 0, mode
+        assert not [e for e in p._test_events["published"] if e[0] == "on_lap"], \
+            f"mode={mode} announced a lap boundary it never rewound"
+    print("ok  the non-resetting control arms announce no lap boundaries")
+
+    # ---- A SUBSCRIBER THAT RAISES MUST NOT COST THE LOOP --------------
+    # This runs on the vCPU thread inside the loop. Retrying every lap would
+    # pay the exception on every one of them; a harness that quietly got
+    # slower in its own error path is worse than one that stops and says so.
+    p, q = make("loop", tmp, verify_every=1000)
+    to_loop(p, q)
+    boom = {"n": 0}
+
+    def _angry(plugin, event, *a):
+        boom["n"] += 1
+        raise RuntimeError("subscriber is unhappy")
+
+    p._test_mod.plugins.publish = _angry
+    for _ in range(5):
+        q.run_bottom_half()
+        hit(p)
+    assert boom["n"] == 1, f"kept publishing into a raising subscriber ({boom['n']})"
+    assert p._publish_lap is False
+    assert any("on_lap publish failed" in e for e in p.errors), p.errors
+    assert p.state == "loop", p.state
+    assert p.n_iters >= 5, p.n_iters
+    print("ok  a raising subscriber stops the event once, is recorded as an "
+          "error, and does not stop the loop")
+
+
 def wall_tests(tmp):
     # ---- THE NUMBER NOBODY DIVIDED ------------------------------------
     # This is the crashes.py run, to scale: 1% of the laps closing on a
@@ -524,6 +635,7 @@ def main():
     tmp = tempfile.mkdtemp()
     arm_tests(tmp)
     wall_tests(tmp)
+    lap_tests(tmp)
 
     # ---- mode=loop: the full path -------------------------------------
     p, q = make("loop", tmp)
