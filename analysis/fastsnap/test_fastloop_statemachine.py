@@ -21,6 +21,8 @@ assertions are about attribution -- which op each recorded number came from --
 not merely about not crashing.
 """
 import ast
+import json
+import os
 import pathlib
 import time
 import sys
@@ -211,9 +213,13 @@ def make(mode, tmpdir, missing=(), **args):
         def __init__(self):
             self.panda = qemu
             self.logger = FakeLogger()
+            # arm_clean_streak=0 by default: every test here that is not
+            # ABOUT the streak drives two warmup hits, and the gate would stop
+            # all of them at the arm. The gate has its own tests.
             self._args = dict(mode=mode, outdir=str(tmpdir), warmup=2,
                               iters=10, verify_every=3, comm="v",
-                              detector="read", **args)
+                              detector="read", arm_clean_streak=0)
+            self._args.update(args)
             super().__init__()
 
         def get_arg(self, k):
@@ -226,7 +232,13 @@ def make(mode, tmpdir, missing=(), **args):
             return lambda fn: fn
 
     mod.syscalls = _Sys()
+    # A stub `plugins` for the progress reader. load_class() builds a FRESH
+    # module every call, so a test that exec'd its own copy would be poking at
+    # a different namespace than the plugin resolves against -- which is how
+    # the first version of the idle-draw test silently scored nothing.
+    mod.plugins = types.SimpleNamespace()
     p = Harnessed()
+    p._test_mod = mod
     return p, qemu
 
 
@@ -242,9 +254,199 @@ def hit(p):
         pass
 
 
+def crash(p):
+    """One fatal signal delivery."""
+    class Ev:
+        sig = 11
+        drop = False
+    p.fatal_signos = {11}
+    p.on_fatal_signal(None, Ev())
+
+
+def to_loop(p, q):
+    """Drive warmup, arm and the split-order control until the loop is live."""
+    for _ in range(2):
+        hit(p)
+    for _ in range(6):
+        q.run_bottom_half()
+        hit(p)
+    assert p.state == "loop", p.state
+
+
+def arm_tests(tmp):
+    # ---- ARM ON EVIDENCE, NOT ON A CLOCK -----------------------------
+    # Rejecting a bad draw and waiting a fixed interval draws again from the
+    # same distribution: on the real target three consecutive draws were
+    # rejected at 200/200 probe laps. The preventive control is to require the
+    # victim to have just survived `arm_clean_streak` reads, which a victim
+    # that crashes on any input cannot do.
+    p, q = make("loop", tmp, warmup=2, arm_clean_streak=8)
+    for _ in range(20):
+        hit(p)
+        crash(p)                             # never a streak longer than 1
+    assert q.ops == [], "armed on a victim that died after every read"
+    assert p.state == "warmup", p.state
+    print("ok  the loop will not arm on a victim that dies after every read")
+
+    for _ in range(8):                       # now let it prove it is healthy
+        hit(p)
+    assert q.ops == [q.FASTSNAP_LOOP_ARM], q.ops
+    print("ok  and arms as soon as the victim survives the required streak")
+
+    # A fatal signal must reset the streak in EVERY state, not just in the
+    # loop: warmup and rearm_wait are precisely when the streak is load-bearing,
+    # and an early state check there would let it grow through a dying victim.
+    p, q = make("loop", tmp, warmup=2, arm_clean_streak=8)
+    for _ in range(7):
+        hit(p)
+    assert p._clean_streak == 7, p._clean_streak
+    crash(p)
+    assert p._clean_streak == 0, \
+        "a fatal signal in warmup did not reset the streak"
+    assert q.ops == [], q.ops
+    print("ok  a fatal signal resets the streak in warmup, where it matters")
+
+
+    # ---- THE ARM IS A DRAW, AND A BAD DRAW IS SILENT ------------------
+    # Two of five real draws armed on a victim that was already broken, and
+    # the loop then rewound to it several thousand times: 145 exec/s against
+    # 1,879, with every reset correct and every fork-oracle verification
+    # byte-identical. The oracles check that the reset is faithful, not that
+    # the instant is worth being faithful to, so nothing reported it.
+
+    p, q = make("loop", tmp, arm_probe=10, arm_retries=2, arm_backoff_s=0)
+    p.want = 10**6
+    to_loop(p, q)
+    for _ in range(12):                      # a healthy draw: no crashes
+        q.run_bottom_half()
+        hit(p)
+    assert p.arm_attempt == 1, p.arm_attempt
+    assert [r["verdict"] for r in p.arm_history] == ["accepted"], p.arm_history
+    print("ok  a healthy draw is accepted on the first attempt and not re-armed")
+
+    # A poisoned draw: every probe lap closes on a fatal signal.
+    p, q = make("loop", tmp, arm_probe=10, arm_retries=3, arm_backoff_s=0)
+    p.want = 10**6
+    to_loop(p, q)
+    for _ in range(10):
+        q.run_bottom_half()
+        crash(p)
+    assert p.state == "rearm_wait", p.state
+    assert p.arm_history[-1]["verdict"] == "rejected, re-arming", p.arm_history
+    # The rejected draw's laps must be GONE, not averaged in: thousands of
+    # 5-7 ms laps left in the buckets would drag the accepted draw's median
+    # toward a configuration that was explicitly refused.
+    assert p.n_iters == 0 and not p.iter_ms and not p.crash_iter_ms, \
+        (p.n_iters, len(p.iter_ms), len(p.crash_iter_ms))
+    assert p.signal_laps == 0, p.signal_laps
+    print("ok  a poisoned draw is rejected and everything it measured is discarded")
+
+    ops_before = len(q.ops)
+    hit(p)                                   # backoff is 0, so it re-arms now
+    assert q.ops[ops_before:] == [q.FASTSNAP_LOOP_ARM], q.ops[ops_before:]
+    assert p.arm_attempt == 2 and p.state == "arming"
+    print("ok  the loop draws again rather than reporting the draw it refused")
+
+    # ---- AND THE MIRROR IMAGE: A DRAW THAT DOES NO WORK --------------
+    # Requiring a clean streak fixed the wedged draw and produced its opposite
+    # on the very next run: 200,000 laps, 0.294 ms, 3,396 exec/s, 0 of 200
+    # probe laps on a fatal signal -- a loop resetting a guest that was not
+    # being fuzzed. "The victim did not die" is not "the loop is doing work",
+    # and a check that only looks for death selects for idleness.
+    p, q = make("loop", tmp, arm_probe=10, arm_retries=3, arm_backoff_s=0,
+                arm_progress="inj.n_sent", arm_progress_frac=0.5)
+    p.want = 10**6
+    inj = types.SimpleNamespace(n_sent=0)
+    p._test_mod.plugins.inj = inj
+    to_loop(p, q)
+    for _ in range(11):                      # healthy, but the injector is
+        q.run_bottom_half()                  # frozen: no input is delivered
+        hit(p)
+        if p.arm_history:                    # stop at the verdict; driving on
+            break                            # would start the next draw
+    assert p.arm_history, "the probe never ran"
+    assert p.arm_history[-1]["verdict"].startswith("idle"), p.arm_history[-1]
+    assert p.state == "rearm_wait", p.state
+    assert p.n_iters == 0 and not p.iter_ms, (p.n_iters, len(p.iter_ms))
+    print("ok  a draw that delivers no input is rejected, not reported as a rate")
+
+    # The same probe accepts a draw that IS delivering.
+    p2, q2 = make("loop", tmp, arm_probe=10, arm_retries=3, arm_backoff_s=0,
+                  arm_progress="inj.n_sent", arm_progress_frac=0.5)
+    p2.want = 10**6
+    inj2 = types.SimpleNamespace(n_sent=0)
+    p2._test_mod.plugins.inj = inj2
+    to_loop(p2, q2)
+    for _ in range(11):
+        inj2.n_sent += 1
+        q2.run_bottom_half()
+        hit(p2)
+    assert p2.arm_history[-1]["verdict"] == "accepted", p2.arm_history[-1]
+    print("ok  and accepts one that is")
+
+    # An unreadable counter is unscored, never assumed healthy.
+    p3, q3 = make("loop", tmp, arm_probe=10, arm_retries=3, arm_backoff_s=0,
+                  arm_progress="nosuch.counter")
+    p3.want = 10**6
+    to_loop(p3, q3)
+    for _ in range(11):
+        q3.run_bottom_half()
+        hit(p3)
+    assert p3.arm_history[-1]["verdict"].startswith("refused"), \
+        p3.arm_history[-1]
+    assert p3.state == "done" and not p3.iter_ms, (p3.state, len(p3.iter_ms))
+    assert any("arm_progress" in e for e in p3.errors), p3.errors
+    p3.uninit()
+    out3 = json.load(open(os.path.join(tmp, "fastloop.json")))
+    assert out3["verdict"].startswith("INVALID"), out3["verdict"]
+    assert out3["exec_per_s_median"] is None
+    print("ok  a progress counter that cannot be read REFUSES the run, rather "
+          "than quietly not checking")
+
+    # Out of retries: refuse to report a rate at all.
+    p, q = make("loop", tmp, arm_probe=20, arm_retries=2, arm_backoff_s=0)
+    p.want = 10**6
+    to_loop(p, q)
+    for _ in range(200):
+        if p.arm_gave_up or p.state == "done":
+            break
+        if p.state == "rearm_wait":
+            hit(p)                           # re-arm now (backoff 0)
+            for _ in range(6):               # arm + split control
+                q.run_bottom_half()
+                hit(p)
+            continue
+        q.run_bottom_half()
+        crash(p)
+    assert p.arm_gave_up, (p.arm_attempt, p.arm_history)
+    assert p.arm_attempt == 2, p.arm_attempt
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    assert out["verdict"].startswith("INVALID"), out["verdict"]
+    assert out["exec_per_s_median"] is None, out["exec_per_s_median"]
+    assert len(out["arm_history"]) == 2, out["arm_history"]
+    print("ok  when every draw is poisoned the run reports INVALID, not a rate")
+
+    # ---- the crash lap splits at the fault ----------------------------
+    p, q = make("loop", tmp, arm_probe=10**6)
+    p.want = 10**6
+    to_loop(p, q)
+    for _ in range(5):
+        q.run_bottom_half()
+        crash(p)
+    assert len(p.crash_to_sig_ms) == len(p.crash_after_sig_ms) > 0
+    for i in range(len(p.crash_to_sig_ms)):
+        total = p.crash_to_sig_ms[i] + p.crash_after_sig_ms[i]
+        assert abs(total - p.obs_crash_ms[i]) < 1e-6, (i, total,
+                                                       p.obs_crash_ms[i])
+    print(f"ok  the crash lap splits at the fault and the halves sum "
+          f"({len(p.crash_to_sig_ms)} laps)")
+
+
 def main():
     import tempfile
     tmp = tempfile.mkdtemp()
+    arm_tests(tmp)
 
     # ---- mode=loop: the full path -------------------------------------
     p, q = make("loop", tmp)

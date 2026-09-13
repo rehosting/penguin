@@ -268,3 +268,93 @@ signal, the draw was bad and the loop should re-arm rather than report a rate
 for it. That is the next thing to build, and it is worth more than any
 remaining microsecond on this page.
 
+
+---
+
+# The arm, conquered — and the crash lap, finally attributed
+
+Two things were outstanding above: a bad arming draw that silently reports a
+13x wrong number, and a 70 ms crash lap that was 114 s of a 220 s loop and that
+I could not account for. Both are settled.
+
+## The arm needs TWO health criteria, and finding the second cost a run
+
+**Detection works and is not enough.** The probe went in first: score the first
+200 laps, reject a draw where the signal fraction is absurd. It fired on the
+first real run and rejected **three draws in a row at 200/200 probe laps**, then
+reported `iters=0, exec_per_s=None` rather than 145 exec/s. Correct, and
+useless -- rejecting and waiting a fixed interval draws again from the same
+distribution.
+
+**So arm on evidence: require the victim to have just survived
+`arm_clean_streak` (64) reads.** A victim that crashes on any input cannot
+produce a clean streak, which targets the observed failure exactly.
+
+**And that immediately produced the mirror image.** The next run:
+
+```
+arm 1 accepted -- 0/200 probe laps closed on a fatal signal (0.0%)
+RESULTS iters=200000 iter_median_ms=0.2944 exec_per_s=3396
+```
+
+The best numbers this lane has ever produced, and worthless: 27 signal laps in
+200,000 where 1.3% was expected, a clean streak of **193,309** reads, and the
+crash record showing a 100-second window with **zero crashes** covering the
+whole loop. The draw armed on a span that never reaches the injector, so the
+loop was faithfully resetting a guest that was not being fuzzed.
+
+I optimised for "the victim did not die" and got an arm that does nothing. A
+health check that only looks for death **selects for idleness**.
+
+The probe is now two-sided: the draw must also show PROGRESS, named as
+`plugin.attribute` (`bugbench.n_sent`) rather than hardcoded, advancing on at
+least half the probe laps. And -- the lane's standing rule -- a configured
+counter that cannot be read **refuses the run** instead of warning. That rule
+earned itself immediately: on its first run the counter was inert, because the
+registry key is the plugin's FILE name and `bug_bench` is the logger's name for
+the class. The draw was scored on the signal fraction alone and nobody would
+have known.
+
+With both criteria:
+
+```
+arm 1 accepted -- 2/200 probe laps closed on a fatal signal (1.0%)
+RESULTS iters=113310 iter_median_ms=0.5311 exec_per_s=1883
+bugbench: inputs=141104 crashes=1960 attributed=1960   <- 1.39%
+```
+
+**1,883 exec/s**, agreeing with runs 33 (1,879) and 36 (1,895). The 3,396 is now
+rejected automatically.
+
+## The crash lap is guest-side, and none of it is ours
+
+Split at the fault, over 1,624 crash laps:
+
+| span | median ms |
+|---|---|
+| reset done -> the guest faults | **71.4406** |
+| the fault seen -> the lap closes | **0.0099** |
+
+**99.99% of a crash lap is the guest getting from the restored instant to a
+fault.** The harness closes the lap 10 microseconds after seeing the signal.
+
+That retires a guess and redirects the work. Every host-side removal in this
+document -- the injector's O(n^2) YAML dump at 12.5 ms a crash included -- was
+never the crash lap, which is exactly what the measurement said when removing
+it moved throughput and left `crash_iter_ms` at 70 ms. The cost is inside the
+guest: resume, read, parse, fault, kernel signal delivery, driver hook.
+
+For scale: the same span on a **non**-crashing lap is 0.43 ms, because
+`detector: read` closes an ordinary lap at the next read's ENTRY -- before the
+parse. So the fault-and-deliver path costs ~71 ms of guest execution that an
+ordinary lap never pays and never measured.
+
+**The next target, and it is bigger than everything above.** 1,624 laps at
+71 ms is 115 s of a 220 s loop -- on 1.4% of the laps. Halving it is worth more
+than every microsecond removed in this document put together. The first thing
+to look at is the one open question this lane already has: the reset invalidates
+translated code on every restored page (`tb_invalidate_phys_range`), and the
+kernel's fault-and-signal path is precisely code that a crash lap needs and an
+ordinary lap does not. `FASTSNAP_TB_SKIP_NOCODE` exists, defaults off, and has
+never been A/B'd on an idle host. That is now a much more interesting experiment
+than it was when it was filed.

@@ -94,6 +94,88 @@ class FastLoop(Plugin):
         self.signal_laps = 0
         self._closed_by_signal = False
         self.crash_iter_ms = []    # laps a crash ended
+
+        # THE ARM IS A BLIND DRAW, AND SOME DRAWS ARE POISON.
+        #
+        # An iteration is the span from the armed instant to the next detector
+        # hit, so WHERE the arm lands is the measurement -- that is this lane's
+        # oldest finding. What was not known until it was looked for is that a
+        # bad draw does not merely give a slow lap. It gives a PERMANENTLY
+        # CRASHING one: the loop can arm at an instant where the victim is
+        # already broken, and then rewind to it several thousand times. Two of
+        # five draws did exactly that, at 145 exec/s against 1,879, and the
+        # run reported the number without complaint -- every reset correct,
+        # every fork-oracle verification byte-identical, because the guest
+        # really is being restored perfectly to a broken instant.
+        #
+        # Nothing else in the harness can see it. The oracles check that the
+        # reset is faithful, not that the instant is worth being faithful to.
+        #
+        # So: probe the first `arm_probe` laps. A healthy draw closes ~1.4% of
+        # laps on a fatal signal; a poisoned one closes essentially all of
+        # them, so the threshold is nowhere near either population and does not
+        # need tuning. On a bad draw, stop resetting (which lets the guest's
+        # own restart loop produce a live victim again), wait, and draw again.
+        # Measurements from a rejected draw are DISCARDED, not averaged in.
+        # `x or default`, the idiom used elsewhere in this file, is wrong for
+        # every one of these: 0 is a legitimate value for all four (re-arm
+        # immediately, never re-arm, reject any signal at all) and `0 or 3.0`
+        # is 3.0. Caught by a test that set arm_backoff_s=0 and waited 3 s.
+        # ARM ON EVIDENCE, NOT ON A CLOCK. The probe below is the detective
+        # control and it works -- it rejected three draws in a row at 200/200
+        # probe laps and refused to report a rate. But rejecting and then
+        # waiting a fixed 3 s draws again from the same distribution, and all
+        # three draws failed, so detection alone does not get a measurement.
+        #
+        # The preventive control is to require the victim to have just done
+        # `arm_clean_streak` consecutive detector hits with no fatal signal
+        # between them. That targets the observed failure exactly: the wedged
+        # runs crash on uniformly random opcodes, i.e. on ANY input, and a
+        # victim that crashes on any input cannot produce a clean streak. It
+        # also rules out arming mid-loader or on a process about to die.
+        #
+        # It is a filter on the draw, not a guarantee: the arm lands one bottom
+        # half after the streak, and nothing here says the next input is
+        # survivable. The probe stays as the backstop.
+        # AND THE OTHER SIDE OF IT, which cost a run to learn. Requiring a
+        # clean streak fixed the wedged draw and immediately produced its
+        # mirror image: an arm whose replayed span delivers NO INPUT. That run
+        # looked like the best result in the lane -- 200,000 laps, 0.294 ms,
+        # 3,396 exec/s, 0 of 200 probe laps on a fatal signal -- and it was a
+        # loop resetting a guest that was not being fuzzed. 27 signal laps in
+        # 200,000 where 1.3% was expected, and a clean streak of 193,309 reads,
+        # which no victim under random input achieves.
+        #
+        # "The victim did not die" is not "the loop is doing work", and a
+        # health check that only looks for death selects for idleness. So the
+        # probe also requires PROGRESS, named as `plugin.attribute` (e.g.
+        # `bug_bench.n_sent`) rather than hardcoded: fastloop has no business
+        # knowing what an injector is called, and any counter that should
+        # advance once per lap will do. Unset means the check cannot run, which
+        # is reported rather than assumed to be fine.
+        self.arm_progress = self.get_arg("arm_progress")
+        self.arm_progress_frac = float(self._num("arm_progress_frac", 0.5))
+        self._progress0 = None
+        self.arm_clean_streak = int(self._num("arm_clean_streak", 64))
+        self._clean_streak = 0
+        self._best_streak = 0
+        self.arm_probe = int(self._num("arm_probe", 200))
+        self.arm_bad_frac = float(self._num("arm_bad_frac", 0.5))
+        self.arm_retries = int(self._num("arm_retries", 3))
+        self.arm_backoff_s = float(self._num("arm_backoff_s", 3.0))
+        self.arm_attempt = 0
+        self.arm_history = []      # one row per draw, accepted or rejected
+        self._probe_n = 0
+        self._probe_sig = 0
+        self._probe_done = False
+        self._rearm_at = None
+        self.arm_gave_up = False
+        if (self.get_arg("mode") or "loop").lower() != "loop":
+            # bare/armed do no resets to rewind INTO a bad instant, and the two
+            # measurement modes are known-broken by construction -- probing
+            # them would reject every draw and refuse a run whose whole purpose
+            # is to time half a reset.
+            self._probe_done = True
         self.t_sched = None
         self.t_sched_mono = None
         # Wall time from scheduling a reset to first SEEING it finished.
@@ -123,6 +205,21 @@ class FastLoop(Plugin):
         self.obs_ms = []
         self.sched_crash_ms = []
         self.obs_crash_ms = []
+        # THE CRASH LAP, SPLIT AT THE SIGNAL. bh_to_observed_crash is 99.86% of
+        # a crash lap (69.85 ms of 69.91 ms), so the reset is not in it -- but
+        # "after the bottom half" still covers two entirely different spans
+        # with opposite fixes:
+        #   reset done -> the guest faults        (guest work: parse, fault,
+        #                                          kernel signal delivery)
+        #   the fault seen -> the lap closes      (host work: the signal
+        #                                          subscribers, then another
+        #                                          reset and resume)
+        # Removing the injector's YAML dump from the signal callback took it
+        # from 12.5 ms to 0.33 ms and did NOT move the crash lap, which is how
+        # I know one number for the whole span is not enough to aim at.
+        self.crash_to_sig_ms = []
+        self.crash_after_sig_ms = []
+        self.t_signal_mono = None
         self.sched_verify_ms = []
         self.obs_verify_ms = []
         # PAIRED, per lap. The two-run comparison that raised this question
@@ -323,6 +420,11 @@ class FastLoop(Plugin):
             f"detector={self.detector} warmup={self.warmup} iters={self.want} "
             f"verify_every={self.verify_every}")
 
+    def _num(self, name, default):
+        """get_arg with a default that survives a legitimate zero."""
+        v = self.get_arg(name)
+        return default if v is None else v
+
     @classmethod
     def _api_names_used(cls):
         import re
@@ -439,6 +541,9 @@ class FastLoop(Plugin):
         """The syscall hook. penguin's machinery drives this with `yield from`,
         so it must stay a generator even though nothing in it yields."""
         self.hits += 1
+        self._clean_streak += 1
+        if self._clean_streak > self._best_streak:
+            self._best_streak = self._clean_streak
         self._step(time.perf_counter())
         return
         yield
@@ -460,14 +565,26 @@ class FastLoop(Plugin):
         rewinds past the crash to a live victim, and the next input goes in
         without a process ever being created.
         """
-        if self.state != "loop" or self.mode == "bare":
+        if self.mode == "bare":
             return
         try:
             if int(event.sig) not in self.fatal_signos or event.drop:
                 return
         except Exception:                                   # noqa: BLE001
             return
+        # BEFORE the state check, which is the point. The streak gates arming,
+        # and arming happens in warmup and rearm_wait -- the two states an
+        # early `state != "loop"` return would have skipped, leaving the streak
+        # to grow through a victim that was dying repeatedly.
+        self._clean_streak = 0
+        if self.state != "loop":
+            return
         self.signal_laps += 1
+        # The FIRST fault of this lap. _step can return without closing (the
+        # bottom half may not have run yet), so a later fault must not
+        # overwrite the instant the guest actually broke.
+        if self.t_signal_mono is None:
+            self.t_signal_mono = time.clock_gettime(time.CLOCK_MONOTONIC)
         self._closed_by_signal = True
         self._step(time.perf_counter())
 
@@ -475,13 +592,16 @@ class FastLoop(Plugin):
         try:
             if self.state == "warmup":
                 if (self.hits >= self.warmup
-                        and (now - self.t0) >= self.arm_after_s):
+                        and (now - self.t0) >= self.arm_after_s
+                        and (self.mode != "loop"
+                             or self._clean_streak >= self.arm_clean_streak)):
                     if self.mode == "bare":
                         self.state = "loop"
                         self.t_iter = now
                         self.t_loop0 = now
                     else:
                         self._apply_scoping()
+                        self.arm_attempt = 1
                         self.state = "arming"
                         self._sched(self.panda.FASTSNAP_LOOP_ARM)
 
@@ -555,6 +675,19 @@ class FastLoop(Plugin):
                 self.state = "loop"
                 self.t_iter = now
                 self.t_loop0 = now
+
+            elif self.state == "rearm_wait":
+                # No reset outstanding: the guest is running forward under its
+                # own restart loop, which is what produces a live victim to
+                # arm on. Every detector hit just checks the clock.
+                if (now < self._rearm_at
+                        or self._clean_streak < self.arm_clean_streak):
+                    return
+                self.arm_attempt += 1
+                self._probe_n = self._probe_sig = 0
+                self._probe_done = False
+                self.state = "arming"
+                self._sched(self.panda.FASTSNAP_LOOP_ARM)
 
             elif self.state == "loop":
                 if self.mode in ("bare", "armed"):
@@ -670,6 +803,17 @@ class FastLoop(Plugin):
         if self._closed_by_signal:
             self.sched_crash_ms.append(sched)
             self.obs_crash_ms.append(obs)
+            if self.t_signal_mono is not None:
+                to_sig = (self.t_signal_mono - bh) * 1000.0
+                after = (now_mono - self.t_signal_mono) * 1000.0
+                # Dropped rather than clamped if either is negative: the fault
+                # can predate the bottom half when the signal arrived while a
+                # reset was still outstanding, and a negative span reported as
+                # a small positive one is exactly the kind of number that gets
+                # quoted.
+                if to_sig >= 0 and after >= 0:
+                    self.crash_to_sig_ms.append(to_sig)
+                    self.crash_after_sig_ms.append(after)
         elif self._pending_verify is not None:
             # A verified lap's bottom half carries the oracle's ~50 ms, which
             # lands wholly inside sched_to_bh. Left in the ordinary bucket it
@@ -771,13 +915,159 @@ class FastLoop(Plugin):
             else:
                 self.iter_ms.append(dt)
         self.t_iter = now
+        self.t_signal_mono = None
         self.n_iters += 1
         self.t_loopN = now
+        if not self._probe_done:
+            self._probe(was_crash)
+        if self.state != "loop":
+            return
         if self.n_iters >= self.want:
             self.state = "done"
             self.logger.info(f"fastloop: finished {self.n_iters} iterations")
             if self.mode != "bare":
                 self.panda.fastsnap_schedule(self.panda.FASTSNAP_FORK_DROP)
+
+    def _read_progress(self):
+        """Sample the named counter, or None if it cannot be read.
+
+        None is propagated, never coerced to 0: "the injector has not moved"
+        and "I cannot see the injector" are different findings and only the
+        first is evidence about the draw.
+        """
+        if not self.arm_progress:
+            return None
+        try:
+            name, attr = self.arm_progress.split(".", 1)
+            return int(getattr(getattr(plugins, name), attr))
+        except Exception as e:                              # noqa: BLE001
+            if "progress" not in " ".join(self.errors):
+                self.errors.append(f"arm_progress {self.arm_progress!r}: {e!r}")
+            return None
+
+    def _probe(self, was_crash):
+        """Score the draw over its first `arm_probe` laps.
+
+        The populations are not close: a healthy draw closes ~1.4% of laps on
+        a fatal signal and a poisoned one closes essentially all of them, so
+        any threshold between them works and this one does not need tuning.
+        """
+        if self._probe_n == 0:
+            self._progress0 = self._read_progress()
+        self._probe_n += 1
+        if was_crash:
+            self._probe_sig += 1
+        if self._probe_n < self.arm_probe:
+            return
+        self._probe_done = True
+        frac = self._probe_sig / self._probe_n
+        now_p = self._read_progress()
+        delta = (None if (now_p is None or self._progress0 is None)
+                 else now_p - self._progress0)
+        need = self.arm_progress_frac * self._probe_n
+        row = {"attempt": self.arm_attempt, "armed_at_s": self.t_arm_s,
+               "probe_laps": self._probe_n, "probe_signal_laps": self._probe_sig,
+               "signal_fraction": round(frac, 4),
+               "progress_counter": self.arm_progress,
+               "progress_delta": delta, "progress_needed": need}
+        idle = delta is not None and delta < need
+        if idle:
+            self.logger.warning(
+                f"fastloop: arm {self.arm_attempt} made no work -- "
+                f"{self.arm_progress} advanced by {delta} over "
+                f"{self._probe_n} probe laps, needing {need:.0f}. The span "
+                f"this draw replays does not reach the injector, so the loop "
+                f"would reset a guest that is not being fuzzed and report an "
+                f"excellent rate for it.")
+        elif delta is None and self.arm_progress:
+            # FATAL, where this warned. The caller asked for the progress
+            # check, and a run that quietly proceeds without it is exactly the
+            # run this whole mechanism exists to prevent -- an idle draw
+            # reporting 3,396 exec/s with nothing being injected. An inert
+            # check is worse than no check, because it reads as one.
+            #
+            # (It was inert on its first run: the registry key is the plugin's
+            # FILE name, so `bug_bench.n_sent` -- the logger's name for the
+            # class -- resolved to nothing and the draw was scored on the
+            # signal fraction alone.)
+            self.logger.error(
+                f"fastloop: REFUSING THE RUN - arm_progress "
+                f"{self.arm_progress!r} could not be read, so a draw that "
+                f"delivers no input would pass the probe. Name it as "
+                f"<plugin-file-name>.<attribute>.")
+            self.errors.append(f"arm_progress unreadable: {self.arm_progress!r}")
+            row["verdict"] = "refused, progress counter unreadable"
+            self.arm_history.append(row)
+            self._reset_measurements()
+            self.state = "done"
+            return
+        if frac <= self.arm_bad_frac and not idle:
+            row["verdict"] = "accepted"
+            self.arm_history.append(row)
+            self.logger.info(
+                f"fastloop: arm {self.arm_attempt} accepted -- "
+                f"{self._probe_sig}/{self._probe_n} probe laps closed on a "
+                f"fatal signal ({frac:.1%})")
+            return
+        if self.arm_attempt >= self.arm_retries:
+            row["verdict"] = ("idle, out of retries" if idle
+                              else "rejected, out of retries")
+            self.arm_history.append(row)
+            self.arm_gave_up = True
+            # Discarded here too, and for a sharper reason than on a retry: a
+            # refused run that still carries an exec_per_s_median is one grep
+            # away from being quoted, and the verdict beside it will not
+            # travel with the number.
+            self._reset_measurements()
+            self.logger.error(
+                f"fastloop: {self.arm_attempt} draws in a row were "
+                f"unusable (last: {frac:.1%} of probe laps on a fatal signal, "
+                f"progress {delta}). Not reporting a rate for this: the reset "
+                f"is fine and the instant it restores is not.")
+            self.errors.append(
+                f"every arm ({self.arm_attempt}) landed on a broken victim")
+            self.state = "done"
+            return
+        row["verdict"] = "idle, re-arming" if idle else "rejected, re-arming"
+        self.arm_history.append(row)
+        self.logger.warning(
+            f"fastloop: arm {self.arm_attempt} REJECTED -- "
+            + (f"the draw is idle (progress {delta} < {need:.0f})."
+               if idle else
+               f"{self._probe_sig} of {self._probe_n} probe laps closed on a "
+               f"fatal signal ({frac:.1%}). This draw armed on a victim that "
+               f"was already broken, so every lap rewinds to it.")
+            + f" Backing off "
+            f"{self.arm_backoff_s}s to let the guest restart it, then drawing "
+            f"again. Everything measured from this draw is discarded.")
+        self._reset_measurements()
+        self._rearm_at = time.perf_counter() + self.arm_backoff_s
+        self.state = "rearm_wait"
+        self.pending_reset = False
+        self._pending_verify = None
+        self._closed_by_signal = False
+
+    def _reset_measurements(self):
+        """Throw away everything the rejected draw measured.
+
+        Not optional and not tidiness: a rejected draw contributes thousands of
+        laps at 5-7 ms, and left in the buckets they would drag the median of
+        the accepted draw toward a configuration that was explicitly refused.
+        The history row keeps the fact that it happened.
+        """
+        for name in ("iter_ms", "crash_iter_ms", "verify_iter_ms",
+                     "bh_wall_ms", "bh_wall_crash_ms", "sched_ms", "obs_ms",
+                     "sched_crash_ms", "obs_crash_ms", "sched_verify_ms",
+                     "obs_verify_ms", "crash_to_sig_ms", "crash_after_sig_ms",
+                     "reset_us", "restored", "verifies", "page_obs"):
+            getattr(self, name).clear()
+        self.n_iters = 0
+        self.signal_laps = 0
+        self.t_iter = None
+        self.t_loop0 = None
+        self.t_loopN = None
+        self.t_signal_mono = None
+        self.split_diff = None
 
     # ---- report -----------------------------------------------------------
 
@@ -817,6 +1107,17 @@ class FastLoop(Plugin):
             "bh_to_observed_ms": _stats(self.obs_ms),
             "sched_to_bh_crash_ms": _stats(self.sched_crash_ms),
             "bh_to_observed_crash_ms": _stats(self.obs_crash_ms),
+            # The crash lap, split at the fault. Same reason the round trip is
+            # split at the bottom half: "the guest is slow to crash" and "the
+            # harness is slow to notice" have opposite fixes and one number
+            # cannot tell them apart.
+            "crash_bh_to_signal_ms": _stats(self.crash_to_sig_ms),
+            "crash_signal_to_close_ms": _stats(self.crash_after_sig_ms),
+            "arm_attempts": self.arm_attempt,
+            "arm_clean_streak_required": self.arm_clean_streak,
+            "arm_progress_counter": self.arm_progress,
+            "longest_clean_streak": self._best_streak,
+            "arm_history": self.arm_history,
             # HOST LOAD, at the start and end of the run. Not decoration.
             # Two runs of this harness were read as a QEMU regression -- nearly
             # every lap closing on a fatal signal, inputs delivered down 5.6x --
@@ -876,7 +1177,21 @@ class FastLoop(Plugin):
                 f"rate. Read sched_to_bh_ms and bh_to_observed_ms only.")
             self.logger.info(f"fastloop: {out['verdict']}")
         elif self.mode == "loop":
-            if not self.verifies:
+            if any(r["verdict"].startswith("refused")
+                   for r in self.arm_history):
+                out["verdict"] = (
+                    f"INVALID: the arm_progress counter "
+                    f"{self.arm_progress!r} could not be read, so a draw that "
+                    f"delivered no input would have passed the probe. Name it "
+                    f"as <plugin-file-name>.<attribute>.")
+            elif self.arm_gave_up:
+                out["verdict"] = (
+                    f"INVALID: {self.arm_attempt} arming draws in a row landed "
+                    f"on a victim that was already broken, so every lap "
+                    f"rewound to a crash. The resets were correct and the "
+                    f"instant they restored was not; there is no rate here to "
+                    f"report. See arm_history.")
+            elif not self.verifies:
                 out["verdict"] = ("UNVERIFIED: the loop ran but the oracle "
                                   "never did, so nothing here says the reset "
                                   "was correct")
@@ -926,6 +1241,13 @@ class FastLoop(Plugin):
                     + (f". {len(dev_unres)} sections on this machine never "
                        f"serialise identically and are excluded by name: "
                        f"{dev_unres}" if dev_unres else ""))
+            rejected = [r for r in self.arm_history
+                        if r["verdict"].startswith("rejected")]
+            if rejected and not self.arm_gave_up:
+                out["verdict"] += (
+                    f" Reached on draw {self.arm_attempt} of "
+                    f"{len(self.arm_history)}: {len(rejected)} earlier "
+                    f"draw(s) armed on a broken victim and were discarded.")
             self.logger.info(f"fastloop: {out['verdict']}")
 
         path = os.path.join(self.outdir, "fastloop.json")
