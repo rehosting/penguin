@@ -126,11 +126,11 @@ class FastLoop(Plugin):
         self.sched_verify_ms = []
         self.obs_verify_ms = []
         # PAIRED, per lap. The two-run comparison that raised this question
-        # fitted a line through exactly two points, which any two points admit.
-        # Recording (restored_pages, code_pages, obs_ms) together lets one run
-        # answer it: if the post-resume cost is per restored page, the scatter
-        # says so, and if it is per restored CODE page it says that instead --
-        # a distinction the medians cannot make.
+        # fitted a line through exactly two points, which any two points admit,
+        # and the line it gave (23.9 us per restored page) was wrong: the two
+        # runs differed in device scope as well as page count. Within one run
+        # over 3,785 laps the slope is 0.81 us/page against a 631 us fixed
+        # term. Keep the pairs -- they are what refuted it.
         self.page_obs = []
         self._have_bh_clock = True
         self.t0 = time.perf_counter()
@@ -543,11 +543,6 @@ class FastLoop(Plugin):
                     self.reset_us.append(self.panda.fastsnap_last_us())
                     pages = self.panda.fastsnap_ram_restored_pages()
                     self.restored.append(pages)
-                    try:
-                        self._code_pages = (
-                            self.panda.fastsnap_ram_restored_code_pages())
-                    except Exception:                       # noqa: BLE001
-                        self._code_pages = -1
                     self.pending_reset = False
                     self._mark(now)
                     if self.state != "loop":
@@ -615,7 +610,6 @@ class FastLoop(Plugin):
             return
         if not self._closed_by_signal and self._pending_verify is None:
             self.page_obs.append((self.restored[-1] if self.restored else -1,
-                                  getattr(self, "_code_pages", -1),
                                   round(obs, 6)))
         if self._closed_by_signal:
             self.sched_crash_ms.append(sched)
@@ -768,9 +762,6 @@ class FastLoop(Plugin):
             "sched_to_bh_crash_ms": _stats(self.sched_crash_ms),
             "bh_to_observed_crash_ms": _stats(self.obs_crash_ms),
             "page_obs": self.page_obs,
-            "restored_code_pages": _stats(
-                [c for _, c, _ in self.page_obs if c >= 0]),
-            "tb_guard": os.environ.get("FASTSNAP_TB_GUARD", "1"),
             "sched_to_bh_verify_ms": _stats(self.sched_verify_ms),
             "bh_to_observed_verify_ms": _stats(self.obs_verify_ms),
             "reset_us": _stats(self.reset_us),
