@@ -358,3 +358,79 @@ kernel's fault-and-signal path is precisely code that a crash lap needs and an
 ordinary lap does not. `FASTSNAP_TB_SKIP_NOCODE` exists, defaults off, and has
 never been A/B'd on an idle host. That is now a much more interesting experiment
 than it was when it was filed.
+
+---
+
+# The crash lap was never the guest: 2.13x, host-side, guest untouched
+
+`TB-SKIP-AB.md` eliminated TB invalidation and said there was "no cheap
+hypothesis left" for the 71 ms crash lap, and that the next candidates needed
+instrumenting inside the guest. Both halves of that were wrong, and the data to
+show it was already on disk.
+
+## The measurement that settles it, from existing runs
+
+`crashes_attributed.yaml` records `input_to_crash_ms` per crash, in order. Cut
+three healthy runs into quarters against the number of distinct crash PCs seen
+so far -- which is the size of the shipped `crashes` plugin's records dict,
+since its key is `(proc, signal, pc)` and B1's return address comes from the
+input:
+
+| quarter | input->crash ms | distinct PCs |
+|---|---|---|
+| 1st | 19 / 20 / 19 | 111 / 110 / 108 |
+| 2nd | 47 / 48 / 48 | 209 / 207 / 206 |
+| 3rd | 73 / 74 / 73 | 313 / 309 / 307 |
+| 4th | 101 / 101 / 102 | 409 / 404 / 404 |
+
+**Linear in the record count, ~0.25 ms per record, identical across three
+independent runs.** The "71 ms crash lap" was the midpoint of a ramp from 19 ms
+to 101 ms. Nothing about the guest changes over a run; the host's aggregate
+does.
+
+`pyplugins/analysis/crashes.py` re-serialised every record as YAML on **every**
+delivery, on the vCPU thread. Its docstring stated the premise out loud:
+
+> The file is rewritten on every recorded delivery (**crashes are rare**), so it
+> is always current
+
+A snapshot fuzzing loop is precisely the workload that falsifies "crashes are
+rare" -- 1,967 of them in 220 s, each rewriting a dict that never stops
+growing.
+
+## The fix, and what it bought
+
+Eager writes while they are cheap (up to `report_eager_max` records), time
+throttled above that, forced at startup, teardown, restore and reset so the
+file is exact where it must be; plus `yaml.CSafeDumper` where libyaml exists.
+No new output files, no change to the contract, nothing target-specific.
+
+| | old (n=3) | new | |
+|---|---|---|---|
+| crash lap | 70.5 ms | **0.93 ms** | 76x |
+| input->crash across a run | 19 -> 101 ms | **0 -> 0 ms** | flat |
+| laps/s, wall clock | 543 | **1,153** | **2.13x** |
+| ordinary lap (median) | 0.533 ms | 0.532 ms | unchanged |
+| `exec_per_s_median` | 1,876 | 1,879 | unchanged |
+
+## The median was healthy the whole time, and the cross-check was already there
+
+The last two rows are the point. `exec_per_s_median` never moved, because crash
+laps are bucketed apart from the median -- a separation this harness makes
+deliberately, and which is right. But it means the headline number read 1,876
+while the loop was actually delivering 543 laps a second, because **half the
+wall clock was going to a YAML dump on 1.4% of the laps.**
+
+fastloop already computes the cross-check. `exec_per_s_wall_incl_oracle` exists
+for exactly this, with a comment saying that if it and the median disagree by
+more than the verify laps can account for, the median is hiding a tail. They
+disagreed by 3.4x for the whole session and I did not read it. The instrument
+was right and unread, which is a worse failure than not having it.
+
+## And it is a shipped-plugin bug, not a lane artifact
+
+`crashes.py` is penguin's, enabled on ordinary rehosting runs. Any target whose
+crash sites are numerous -- a stack smash with an input-derived return address,
+an ASLR'd process crashing repeatedly, a fuzzing campaign of any kind -- pays
+the same quadratic. The fix ships to every target and needs nothing from the
+guest.

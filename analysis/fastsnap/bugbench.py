@@ -617,8 +617,13 @@ class BugBench(Plugin):
                 pass
             self._jsonl = None
         self.write_report()
+        # SNAPSHOT FIRST. uninit() runs on the timeout thread while the vCPU
+        # thread is still injecting, so iterating the live ring raises
+        # "deque mutated during iteration" and loses the whole report. The
+        # race predates the deque -- a list was being iterated too, it just
+        # failed silently by dropping entries instead of raising.
         rows = []
-        for rec in self.sent:
+        for rec in list(self.sent):
             sha, head = self._digest(rec)
             rows.append({k: v for k, v in rec.items() if k != "payload"}
                         | {"sha256": sha, "head_hex": head})

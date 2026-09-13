@@ -29,9 +29,26 @@ Output ``crashes.yaml``::
       time: 12.481      # host wall-clock seconds since emulation start
       count: 3          # de-duplicated identical (proc, signal, pc)
 
-The file is rewritten on every recorded delivery (crashes are rare), so it
-is always current; an empty ``crashes: []`` is written at startup so
-downstream consumers can rely on the file existing.
+The file is kept current as deliveries arrive; an empty ``crashes: []`` is
+written at startup so downstream consumers can rely on the file existing.
+
+It used to be rewritten on *every* delivery, on the premise stated here that
+"crashes are rare". A snapshot fuzzing loop falsifies that premise, and the
+cost is not linear: the report is a full YAML re-serialisation of every
+record, the key is ``(proc, signal, pc)``, and a stack-smash whose return
+address comes from the input gives almost every crash its own pc -- so the
+dict grows without bound and each write costs more than the last. Measured on
+such a loop, signal-delivery latency rose linearly with the record count
+across three independent runs, from 19 ms at 111 records to 101 ms at 409,
+and the rewriting accounted for over half the run's wall clock. This happens
+on the vCPU thread, so every millisecond of it is a millisecond the guest is
+not running.
+
+So writes are now eager only while they are cheap (up to ``report_eager_max``
+records) and time-throttled above that, with a forced write at
+startup, teardown, restore and reset. A consumer reading mid-run sees a file
+at most ``report_interval_s`` stale instead of one that is exact and
+quadratic.
 
 Caveats
 -------
@@ -75,6 +92,11 @@ from penguin import plugins, Plugin, PluginArgs
 
 CRASHES_FILE = "crashes.yaml"
 
+# libyaml where it exists: the same output, produced by C rather than by the
+# pure-Python emitter, which is most of the constant factor in the cost
+# described above. Falls back cleanly on a build without libyaml.
+_DUMPER = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
+
 # Fatal-by-default signals that indicate a program fault (man signal(7):
 # default action terminates the process with a core dump), minus the
 # debugger/profiling ones (SIGTRAP, SIGXCPU, SIGXFSZ, SIGQUIT) that are not
@@ -104,6 +126,15 @@ class Crashes(Plugin):
         # (proc, signal, pc) -> record dict; insertion-ordered
         self.records = {}
 
+        # See write_report(). Defaults chosen so an ordinary target -- a few
+        # distinct crash sites, seconds apart -- writes on every delivery
+        # exactly as before, and only an aggregate large enough to be
+        # expensive starts batching.
+        self.report_eager_max = int(self.get_arg("report_eager_max") or 64)
+        self.report_interval_s = float(self.get_arg("report_interval_s") or 2.0)
+        self._last_report = 0.0
+        self._report_pending = False
+
         # Records handed back by load_state() on a snapshot restore, applied in
         # on_restore() once every plugin has loaded. None when not restoring.
         self._restore_data = None
@@ -118,7 +149,7 @@ class Crashes(Plugin):
             self.signames.setdefault(num, name)
 
         # Write an empty report up front so consumers can rely on the file.
-        self.write_report()
+        self.write_report(force=True)
 
         plugins.subscribe(plugins.signal_monitor, "signal_deliver", self.on_signal_deliver)
         # One guest hook per watched signal, so only these deliveries trap
@@ -215,16 +246,37 @@ class Crashes(Plugin):
             rec["pre_restore"] = True
             key = (rec["proc"], int(rec["signal"]), int(rec["pc"], 16))
             self.records[key] = rec
-        self.write_report()
+        self.write_report(force=True)
 
     def reset_state(self) -> None:
         """Rewind to a pristine report for restore-many (fuzzing) loops."""
         self.records = {}
-        self.write_report()
+        self.write_report(force=True)
 
-    def write_report(self):
+    def write_report(self, force=False):
+        """Serialise the report, eagerly while that is cheap.
+
+        The cost is proportional to the number of records, so the throttle is
+        tied to the number of records rather than to a delivery count: a target
+        with a handful of distinct crash sites keeps the old
+        write-on-every-delivery behaviour exactly, and only a run that has
+        grown a large aggregate -- which is the run where the cost matters --
+        starts batching.
+
+        `force` is for the four points where the file must be exact regardless:
+        startup, teardown, restore and reset.
+        """
+        now = time.time()
+        if (not force
+                and len(self.records) > self.report_eager_max
+                and (now - self._last_report) < self.report_interval_s):
+            self._report_pending = True
+            return
         with open(join(self.outdir, CRASHES_FILE), "w") as f:
-            yaml.safe_dump({"crashes": list(self.records.values())}, f, sort_keys=False)
+            yaml.dump({"crashes": list(self.records.values())}, f,
+                      Dumper=_DUMPER, sort_keys=False)
+        self._last_report = now
+        self._report_pending = False
 
     def uninit(self):
-        self.write_report()
+        self.write_report(force=True)

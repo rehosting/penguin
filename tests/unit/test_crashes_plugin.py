@@ -41,12 +41,12 @@ class FakeEvent:
         self.regs = regs
 
 
-def _load(tmp_path, signals=("SIGSEGV", "SIGABRT")):
+def _load(tmp_path, signals=("SIGSEGV", "SIGABRT"), **extra):
     Path(tmp_path).mkdir(parents=True, exist_ok=True)
     return load_pyplugin(
         str(CRASHES),
         outdir=str(tmp_path),
-        args={"signals": list(signals)},
+        args={"signals": list(signals), **extra},
         doubles={"signals": FakeSignals()},
     )
 
@@ -212,3 +212,61 @@ def test_load_state_without_restore_does_not_touch_the_report(tmp_path):
                                        "time": 0.0, "count": 9}]})
     (rec,) = _records(tmp_path)
     assert rec["proc"] == "httpd"
+
+
+# ---------------------------------------------------------------------------
+# Report cost. The plugin used to re-serialise every record on every delivery,
+# which is quadratic in a run where crashes are common -- and its own docstring
+# said "crashes are rare" as the justification. Measured on a snapshot fuzzing
+# loop, delivery latency rose linearly with the record count across three
+# independent runs, 19 ms at 111 records to 101 ms at 409, and the rewriting
+# took over half the run's wall clock. It happens on the vCPU thread, so it is
+# time the guest is not running.
+# ---------------------------------------------------------------------------
+
+def _deliver(lp, n, base_pc=0x1000, pid=1):
+    """n deliveries, each at a distinct pc, so each makes a new record --
+    which is what a stack smash whose return address comes from the input
+    does, and what makes the aggregate grow."""
+    for i in range(n):
+        lp.plugin.on_signal_deliver(None, FakeEvent(11, "v", pid, base_pc + i))
+
+
+def test_small_aggregate_still_writes_on_every_delivery(tmp_path):
+    # The behaviour an ordinary target relies on is unchanged: while the report
+    # is cheap to write, it is written every time and is exact.
+    lp = _load(tmp_path, report_eager_max=64)
+    _deliver(lp, 10)
+    assert len(_records(tmp_path)) == 10
+    lp.plugin.on_signal_deliver(None, FakeEvent(11, "v", 1, 0x9999))
+    assert len(_records(tmp_path)) == 11
+
+
+def test_large_aggregate_stops_rewriting_on_every_delivery(tmp_path):
+    # Above the eager threshold the writes batch, so the cost per delivery
+    # stops scaling with the number of records already held.
+    lp = _load(tmp_path, report_eager_max=8, report_interval_s=3600)
+    _deliver(lp, 8)
+    assert len(_records(tmp_path)) == 8
+    _deliver(lp, 200, base_pc=0x8000)
+    on_disk = len(_records(tmp_path))
+    assert lp.plugin._report_pending, "nothing was deferred"
+    assert on_disk < 208, f"still rewriting every delivery ({on_disk} on disk)"
+    # Nothing is LOST -- it is held, and the forced write at teardown is exact.
+    assert len(lp.plugin.records) == 208
+    lp.plugin.uninit()
+    assert len(_records(tmp_path)) == 208
+    assert not lp.plugin._report_pending
+
+
+def test_throttle_does_not_apply_to_restore_or_reset(tmp_path):
+    # The four points where the file must be exact regardless of cost.
+    lp = _load(tmp_path, report_eager_max=8, report_interval_s=3600)
+    _deliver(lp, 50)
+    lp.plugin.reset_state()
+    assert _records(tmp_path) == [], "reset left a stale report on disk"
+    lp.plugin.load_state({"records": [
+        {"proc": "p", "pid": 1, "signal": 11, "signame": "SIGSEGV",
+         "pc": "0x00001234", "time": 1.0, "count": 2}]})
+    lp.plugin.on_restore("t")
+    assert len(_records(tmp_path)) == 1, "restore left a stale report on disk"
