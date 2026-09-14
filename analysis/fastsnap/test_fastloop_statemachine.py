@@ -1229,11 +1229,25 @@ def replay_fidelity_tests(tmp):
 
     # Right at the bound, both sides.
     p.arm_forward_ms = 10.0
-    assert p._replay_fidelity({"iter_ms": {"median": 99.0}})["class"] == "faithful"
-    assert p._replay_fidelity({"iter_ms": {"median": 101.0}})["class"] == "slower"
-    assert p._replay_fidelity({"iter_ms": {"median": 1.01}})["class"] == "faithful"
-    assert p._replay_fidelity({"iter_ms": {"median": 0.99}})["class"] == "faster"
+    assert p._replay_fidelity({"iter_ms": {"median": 29.0}})["class"] == "faithful"
+    assert p._replay_fidelity({"iter_ms": {"median": 31.0}})["class"] == "slower"
+    assert p._replay_fidelity({"iter_ms": {"median": 3.45}})["class"] == "faithful"
+    assert p._replay_fidelity({"iter_ms": {"median": 3.20}})["class"] == "faster"
     print("ok  replay fidelity: the bound is symmetric in ratio, not in ms")
+
+    # The reporting bound is SEPARATE from the cost axis's, and tighter.
+    # Reusing the cost bound called target C FAITHFUL at 8.03x -- a replay
+    # eight times its own forward traversal, clean because it sat under a
+    # threshold chosen for deciding whether to re-arm.
+    p, _ = make("loop", tmp)
+    p.arm_forward_ms = 2.3282
+    r = p._replay_fidelity({"iter_ms": {"median": 18.7034}})
+    assert r["class"] == "slower", (
+        f"{r} -- 8x its own forward traversal is not a faithful replay")
+    assert r["bound"] == 3.0 and p.arm_cost_fwd_mult == 10.0, (r, p.arm_cost_fwd_mult)
+    print(f"ok  replay fidelity: {r['ratio']:.1f}x is called divergent, and the "
+          f"reporting bound ({r['bound']}) is independent of the re-arm bound "
+          f"({p.arm_cost_fwd_mult})")
 
     # No baseline, no claim.
     p.arm_forward_ms = None

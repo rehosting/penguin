@@ -223,6 +223,10 @@ class FastLoop(Plugin):
         # reads from inside the boundary the victim simply goes idle.
         self.pin_exclusive = bool(self._num("pin_exclusive", 0))
         self.pin_settle_hits = int(self._num("pin_settle_hits", 200))
+        # How far a lap may sit from its own forward traversal before the
+        # verdict calls the replay divergent. Reporting only -- the cost
+        # axis's own bound is arm_cost_fwd_mult. See _replay_fidelity().
+        self.fidelity_bound = float(self._num("fidelity_bound", 3.0))
         self.arm_bad_frac = float(self._num("arm_bad_frac", 0.5))
         self.arm_retries = int(self._num("arm_retries", 3))
         self.arm_backoff_s = float(self._num("arm_backoff_s", 3.0))
@@ -2161,7 +2165,17 @@ class FastLoop(Plugin):
         if not fwd or not lap or fwd <= 0 or lap <= 0:
             return None
         ratio = lap / fwd
-        k = self.arm_cost_fwd_mult if self.arm_cost_fwd_mult > 0 else 10.0
+        # A SEPARATE bound from the cost axis's, and deliberately tighter.
+        #
+        # Reusing arm_cost_fwd_mult (10x) called target C's run FAITHFUL at
+        # 8.03x -- a replay eight times its own forward traversal, reported as
+        # clean because it sat under a threshold chosen for a different job.
+        # Rejecting a draw is an action with a cost, so that one stays
+        # conservative; SAYING a replay diverged costs nothing but ink, so it
+        # fires where the evidence does. One forward sample against a median
+        # of many laps can carry a factor of two or so honestly; it cannot
+        # carry eight.
+        k = self.fidelity_bound
         row = {"forward_ms": round(fwd, 4), "lap_ms": round(lap, 4),
                "ratio": round(ratio, 6), "bound": k}
         if ratio > k:
