@@ -935,3 +935,65 @@ listening. Both vendor httpds in this lane import exactly
 Target B's number went DOWN, and that is the point. 160 exec/s was a verified,
 byte-identical, ten-times-certified measurement of a span whose input had
 already arrived. 27.9 is a measurement of the span that was armed.
+
+## The census answers what three hypotheses could not
+
+Fifteen counting hooks, no intervention. Target A, one run:
+
+```
+close 3181, epoll_wait 2848, accept 1331 (=accept4 1331, one call under two
+names), shutdown 304, recvmsg 6, poll 5, sendto 4, futex 2
+```
+
+**`epoll_wait`, 2848 calls.** That is what lighttpd blocks in. Not `select` --
+which is why target B's select handler, correctly registered and enabled, fired
+exactly zero times. The hypothesis had the right shape (the victim waits before
+it reaches `read`) and the wrong syscall, and no amount of reasoning was going
+to fix that; one census run did.
+
+Target C's census says something different and equally decisive:
+
+```
+close 733, accept 542 (=accept4 542), recvfrom 6
+```
+
+**A connection-per-request server.** 542 accepts, 733 closes, one fed read each,
+and `recvfrom` appearing six times in five minutes. Its request boundary is
+`accept()`, and every C run in this document armed on `read` -- which for C is
+usually a FILE read. That is why `snapfeed.n_sent` never advanced across 200
+probe laps and the idle axis refused the run: correctly, and for a reason no
+other axis would have caught.
+
+### Two ways this data was misread, both here
+
+- **`recvfrom: 6` was read as "C reads its sockets with recvfrom."** Six calls
+  in five minutes is never; 675 of C's 681 feeds came through `read()`. A whole
+  run was queued against a detector the victim barely calls before the
+  magnitude was checked. A name being present is not a mechanism.
+- **`accept` and `accept4` at identical counts were nearly added together.**
+  One syscall under two names, 542 and not 1,084.
+
+Both are now flagged in the output (`census_aliases`, `census_top`). Having the
+instrument is not the same as reading it.
+
+### What a closed loop on B would take, and why it is not built here
+
+`epoll_wait` would have to be answered the way `select` now is. That is a
+bigger change than it sounds and should not be written at the end of a long
+session:
+
+- `epoll_ctl` has to be tracked to learn which fds are registered against which
+  epfd -- `epoll_wait` names neither.
+- The reply is an array of `struct epoll_event`, whose layout is
+  arch-dependent: packed to 12 bytes on x86-64, 16 bytes on 32-bit ARM where
+  the `u64` member forces alignment. Writing the wrong stride into guest memory
+  corrupts the victim rather than accelerating it, and would do so silently.
+
+The evidence for doing it is strong and specific. The evidence that it must be
+done carefully is the rest of this document.
+
+### Neither target needs it to be measured
+
+Target B already has an honest rate in the client-driven shape -- **27.9
+exec/s**, fidelity 1.685, VALID across 2.16 GB. The closed loop is an
+optimisation on top of a working measurement, not a prerequisite for one.
