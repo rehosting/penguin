@@ -213,6 +213,9 @@ class FastLoop(Plugin):
         # One extra lap, and it is the only baseline the run can compare
         # its own laps against. On by default for that reason.
         self.arm_forward_probe = bool(self._num("arm_forward_probe", 1))
+        # Forward spans to time before the first reset. The baseline every
+        # divergence claim is measured against, so not 1 -- see _fwd_finish().
+        self.arm_forward_n = max(1, int(self._num("arm_forward_n", 5)))
         # Pin the guest to the process the arm lands in, immediately before
         # the snapshot. See _pin_apply(). Default OFF: it needs a driver new
         # enough to carry the op, and on an older one the loop must still run.
@@ -276,7 +279,9 @@ class FastLoop(Plugin):
         # So: after the arm and BEFORE the first reset of any kind, let the
         # guest run forward exactly one span and time it. Costs one lap.
         self.arm_forward_ms = None      # the FIRST arm's, for reporting
-        self.arm_forward_ms_all = []    # every arm's, in order
+        self.arm_forward_ms_all = []    # every arm's median, in order
+        self.arm_forward_samples = []   # ...and the raw samples behind each
+        self._fwd_samples = []
         self._fwd_this_arm = None       # this arm's, the cost reference
         self._rearm_at = None
         self.arm_gave_up = False
@@ -565,8 +570,14 @@ class FastLoop(Plugin):
             self.state = "done"
             at = "enter"
         self.detector_at = at
+        # pin_filter only MATTERS once a pin is set, and a pin is set at arm
+        # time -- but the hook is registered here, long before. Asking for it
+        # up front is safe because an unset pin matches every task; asking for
+        # it conditionally is what keeps an older driver working, since the
+        # field is only sent when requested.
         syscalls.syscall(f"on_sys_{self.detector}_{at}",
-                         comm_filter=self.comm)(self.on_hit)
+                         comm_filter=self.comm,
+                         pin_filter=self.pin_process)(self.on_hit)
 
         # A fatal signal is an iteration boundary too. Registered here rather
         # than left to the detector because a crashed victim makes no more
@@ -666,6 +677,41 @@ class FastLoop(Plugin):
         return out
 
     # ---- plumbing ---------------------------------------------------------
+
+    def _fwd_finish(self, now):
+        """Close the forward baseline: the MEDIAN of the samples, not one.
+
+        One sample was defensible while it was reproducible -- three arms on
+        target A returned 4.15, 4.15 and 4.22 ms. It stopped being defensible
+        the moment a run came back at 1054 ms because the single span it
+        happened to time caught a connection setup, and the fidelity check
+        then reported the loop as 244x FASTER than its own baseline. The
+        baseline is the thing every divergence claim is measured against, so
+        it is the last number that should rest on n=1.
+
+        The samples are still consecutive spans of the same draw, taken before
+        any reset, so the median costs a few more milliseconds of forward
+        execution and nothing else.
+        """
+        self._fwd_this_arm = statistics.median(self._fwd_samples)
+        self.arm_forward_ms_all.append(round(self._fwd_this_arm, 4))
+        self.arm_forward_samples.append([round(x, 4) for x in self._fwd_samples])
+        if self.arm_forward_ms is None:
+            self.arm_forward_ms = self._fwd_this_arm
+        spread = (max(self._fwd_samples) / min(self._fwd_samples)
+                  if min(self._fwd_samples) > 0 else None)
+        self.logger.info(
+            f"fastloop: baseline -- the armed span traverses FORWARD in "
+            f"{self._fwd_this_arm:.3f} ms (median of {len(self._fwd_samples)}: "
+            f"{[round(x, 2) for x in self._fwd_samples]}), un-reset. Every lap "
+            f"below replays this same span, so the two are comparable and the "
+            f"difference is what the reset costs the guest."
+            + ("" if spread is None or spread < 4 else
+               f" NOTE: those samples span {spread:.0f}x, so this draw's "
+               f"forward cost is not a stable quantity and any ratio against "
+               f"it should be read with that in mind."))
+        self.state = "split_control"
+        self._sched(self.panda.FASTSNAP_LOOP_RESET)
 
     def _cpu_sample(self):
         """CPU time consumed, against the wall clock it was consumed in.
@@ -1149,21 +1195,24 @@ class FastLoop(Plugin):
                     self.state = "split_control"
                     self._sched(self.panda.FASTSNAP_LOOP_RESET)
 
+            elif self.state == "fwd_probe_more":
+                # Another forward span, un-reset, for the same draw.
+                self._fwd_samples.append((now - self._t_fwd0) * 1000.0)
+                if len(self._fwd_samples) < self.arm_forward_n:
+                    self._t_fwd0 = now
+                    return
+                self._fwd_finish(now)
+
             elif self.state == "fwd_probe":
                 # The next detector hit closes the forward span. Nothing is
                 # scheduled here on purpose: any bottom half would perturb the
                 # very traversal being timed.
-                self._fwd_this_arm = (now - self._t_fwd0) * 1000.0
-                self.arm_forward_ms_all.append(round(self._fwd_this_arm, 4))
-                if self.arm_forward_ms is None:
-                    self.arm_forward_ms = self._fwd_this_arm
-                self.logger.info(
-                    f"fastloop: baseline -- the armed span traverses FORWARD "
-                    f"in {self._fwd_this_arm:.3f} ms, un-reset. Every lap "
-                    f"below replays this same span, so the two are comparable "
-                    f"and the difference is what the reset costs the guest.")
-                self.state = "split_control"
-                self._sched(self.panda.FASTSNAP_LOOP_RESET)
+                self._fwd_samples = [(now - self._t_fwd0) * 1000.0]
+                if self.arm_forward_n > 1:
+                    self._t_fwd0 = now
+                    self.state = "fwd_probe_more"
+                    return
+                self._fwd_finish(now)
 
             elif self.state == "split_control":
                 if not self._bh_done():
@@ -1284,7 +1333,13 @@ class FastLoop(Plugin):
                 self.pending_reset = True
         except Exception as e:                              # noqa: BLE001
             if len(self.errors) < 5:
-                self.errors.append(repr(e))
+                # The repr alone names the type and loses the line, and this
+                # handler swallows every state-machine bug in the plugin --
+                # which is precisely the class of failure that reports a
+                # number instead of an error. Keep the traceback.
+                import traceback
+                self.errors.append(
+                    f"{e!r} @ {traceback.format_exc().strip().splitlines()[-2].strip()}")
             self.state = "done"
 
     @staticmethod
@@ -1623,21 +1678,27 @@ class FastLoop(Plugin):
         knows whether it will re-arm or accept out of retries -- so counting
         here too would double every rejection.
         """
+        over = (f"{lap_med / thresh:.0f}x over" if thresh else "over")
         when = (f"after {n_laps} of {self.arm_probe} probe laps -- the draw is "
-                f"already {lap_med / thresh:.0f}x over and waiting out the "
-                f"probe would cost {(self.arm_probe - n_laps) * lap_med / 1000:.0f} s"
+                f"already {over} and waiting out the probe would cost "
+                f"{(self.arm_probe - n_laps) * lap_med / 1000:.0f} s"
                 if early else f"over {n_laps} probe laps")
+        # thresh is None when the axis fired on the RATIO alone, which needs no
+        # warmup distribution at all.
+        against = (f"a {thresh:.2f} ms ceiling ("
+                   f"{self.arm_cost_mult * self.arm_cost_relax ** (self.arm_attempt - 1):.1f}x "
+                   f"the {self.arm_cost_pctl:.0f}th percentile of "
+                   f"{len(self.warm_gaps_ms)} forward gaps)"
+                   if thresh is not None else
+                   f"its own forward traversal of "
+                   f"{self._fwd_this_arm:.2f} ms (no warmup ceiling yet)")
         self.logger.warning(
             f"fastloop: arm {self.arm_attempt} REJECTED on COST {when} -- the "
-            f"probe replays a {lap_med:.2f} ms span, against a "
-            f"{thresh:.2f} ms ceiling ("
-            f"{self.arm_cost_mult * self.arm_cost_relax ** (self.arm_attempt - 1):.1f}x "
-            f"the {self.arm_cost_pctl:.0f}th percentile of "
-            f"{len(self.warm_gaps_ms)} forward gaps). The "
+            f"probe replays a {lap_med:.2f} ms span, against {against}. The "
             f"span is chosen by WHERE the arm landed, and on a real image "
             f"the cheap and expensive modes differ by a factor of eighty. "
             f"Drawing again, against a ceiling widened by "
-            f"{self.arm_cost_relax:.0f} percentile points.")
+            f"{self.arm_cost_relax}x.")
         self._reset_measurements()
         self._rearm_at = time.perf_counter() + self.arm_backoff_s
         self.state = "rearm_wait"
@@ -1697,7 +1758,14 @@ class FastLoop(Plugin):
                          "probe_laps": self._probe_n,
                          "probe_signal_laps": self._probe_sig,
                          "probe_lap_median_ms": round(lap_med, 4),
-                         "cost_threshold_ms": round(thresh, 4),
+                         # None when the axis fired on the RATIO alone: the
+                         # absolute ceiling needs arm_cost_min_gaps of warmup
+                         # and the ratio needs none, so "costly" does not
+                         # imply a ceiling exists. Rounding it unguarded threw
+                         # TypeError straight into the handler that swallows
+                         # state-machine bugs and ends the run.
+                         "cost_threshold_ms": (None if thresh is None
+                                               else round(thresh, 4)),
                          "warmup_gaps": len(self.warm_gaps_ms),
                          "forward_ms": (None if self._fwd_this_arm is None
                                         else round(self._fwd_this_arm, 4)),
@@ -1974,6 +2042,7 @@ class FastLoop(Plugin):
         # traversal. Keeping the rejected draw's would score the new one
         # against a baseline measured somewhere else entirely.
         self._fwd_this_arm = None
+        self._fwd_samples = []
         # The next draw arms in its own process; counting this draw's
         # cross-process hits against it would describe the wrong span.
         self.hits_other_proc = 0
@@ -2350,6 +2419,7 @@ class FastLoop(Plugin):
             # differed from each other, and the ratio axis scored each lap
             # against its OWN entry rather than against the first.
             "arm_forward_ms_all": self.arm_forward_ms_all,
+            "arm_forward_samples": self.arm_forward_samples,
             "arm_cost_fwd_mult": self.arm_cost_fwd_mult,
             "pin_process": self.pin_process,
             "pin_exclusive": self.pin_exclusive,

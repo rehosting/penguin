@@ -108,6 +108,7 @@ class SnapFeed(Plugin):
         self.swallow_writes = bool(int(self._arg("swallow_writes", 1)))
         # iovec is two pointer-sized fields; 4 on every target in this lane.
         self.ptr_size = int(self._arg("ptr_size", 4))
+        self.pin_filter = bool(int(self._arg("pin_filter", 0)))
 
         self.n_sent = 0          # deliveries -- fastloop's arm_progress
         self.n_pass = 0          # CONTROL: reads left to the host
@@ -121,10 +122,19 @@ class SnapFeed(Plugin):
         self.t_last = None
         self._warned_unmatched = False
 
-        syscalls.syscall("on_sys_accept_return", comm_filter=self.comm)(self.on_accept)
-        syscalls.syscall("on_sys_accept4_return", comm_filter=self.comm)(self.on_accept)
-        syscalls.syscall("on_sys_read_enter", comm_filter=self.comm)(self.on_read_enter)
-        syscalls.syscall("on_sys_writev_enter", comm_filter=self.comm)(self.on_writev_enter)
+        # `comm` alone would also feed a forked worker carrying the same
+        # name, which is a different process than the loop armed in. pin_filter
+        # confines every one of these to the pinned subtree once a pin exists,
+        # and is inert before that.
+        pf = self.pin_filter
+        syscalls.syscall("on_sys_accept_return", comm_filter=self.comm,
+                         pin_filter=pf)(self.on_accept)
+        syscalls.syscall("on_sys_accept4_return", comm_filter=self.comm,
+                         pin_filter=pf)(self.on_accept)
+        syscalls.syscall("on_sys_read_enter", comm_filter=self.comm,
+                         pin_filter=pf)(self.on_read_enter)
+        syscalls.syscall("on_sys_writev_enter", comm_filter=self.comm,
+                         pin_filter=pf)(self.on_writev_enter)
         self.logger.info(
             f"snapfeed: armed on comm={self.comm!r}, passthrough="
             f"{self.passthrough} (0.0 means nothing reaches the host), "

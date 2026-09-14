@@ -97,7 +97,7 @@ def make(tmpdir, **args):
     class FakeSyscalls:
         def syscall(self, name, **kw):
             def deco(fn):
-                registered.append(name)
+                registered.append((name, kw))
                 return fn
             return deco
 
@@ -131,17 +131,31 @@ def main():
 
     # ---- THE HOOKS IT CLAIMS TO REGISTER ------------------------------
     p, mem, registered = make(tmp)
-    assert "on_sys_read_enter" in registered, registered
-    assert "on_sys_accept_return" in registered, registered
-    assert "on_sys_accept4_return" in registered, registered
-    assert "on_sys_writev_enter" in registered, registered
-    assert not any("writev_return" in r for r in registered), (
+    names = [n for n, _ in registered]
+    assert "on_sys_read_enter" in names, names
+    assert "on_sys_accept_return" in names, names
+    assert "on_sys_accept4_return" in names, names
+    assert "on_sys_writev_enter" in names, names
+    assert not any("writev_return" in n for n in names), (
         "hooking writev RETURN means the response already went to a socket "
-        "whose peer exclusive mode has frozen: " + str(registered))
-    assert not any("read_return" in r for r in registered), (
+        "whose peer exclusive mode has frozen: " + str(names))
+    assert not any("read_return" in n for n in names), (
         "hooking read RETURN would mean the real read already ran and the "
-        "host-side dependence this plugin removes is still there: " + str(registered))
+        "host-side dependence this plugin removes is still there: " + str(names))
     print("ok  snapfeed: hooks read ENTER, not read return")
+
+    # THE PIN HAS TO BE ASKED FOR.
+    # The driver's pin is inert unless a hook sets pin_filter_enabled, and a
+    # pin that nothing consults reports active=1 with hits_in=0 and hits_out=0
+    # -- which is exactly what a correctly-working pin would look like if you
+    # only checked that it was set. Measured on a real run before this
+    # assertion existed.
+    p2, _, reg2 = make(tmp, pin_filter=1)
+    assert all(kw.get("pin_filter") for _, kw in reg2), reg2
+    p3, _, reg3 = make(tmp)
+    assert not any(kw.get("pin_filter") for _, kw in reg3), reg3
+    print("ok  snapfeed: pin_filter=1 makes every hook opt into the pin, and "
+          "the default asks for nothing")
 
     # ---- LEARNING THE CONNECTION FDS ----------------------------------
     p, mem, _ = make(tmp)

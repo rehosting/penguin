@@ -961,6 +961,16 @@ class Syscalls(Plugin):
             "filter_pid": pid_filter if pid_filter is not None else 0,
 
             # Nested structs and arrays are passed as lists of dicts
+            # Fuzzing process pin (portal/fuzzpin.h). Added ONLY when a hook
+            # asks for it: the struct is built from the driver's DWARF, so
+            # naming a field an older driver does not have would fail to
+            # construct -- and doing that unconditionally would break every
+            # syscall hook in Penguin against an older module, not just the
+            # one that wanted the pin. A caller that asks for it needs the new
+            # driver anyway, so the incompatibility stays confined to them.
+            **({"pin_filter_enabled": True}
+               if hook_config.get("pin_filter") else {}),
+
             "arg_filters": arg_filters_init,
             "retval_filter": (yield from _parse_filter(hook_config.get("retval_filter", None)))
         }
@@ -986,7 +996,8 @@ class Syscalls(Plugin):
         retval_filter: Optional[Union[ValueFilter, str, int]] = None,
         enabled: bool = True,
         read_only: bool = False,
-        scope_filter: Optional[bool] = None
+        scope_filter: Optional[bool] = None,
+        pin_filter: bool = False
     ) -> Callable:
         """
         Decorator for registering syscall callbacks.
@@ -1011,6 +1022,11 @@ class Syscalls(Plugin):
             Whether the hook is enabled.
         read_only : bool
             Whether the hook modifies arguments (set to True to optimize).
+        pin_filter : bool, optional
+            Fire only for the pinned process subtree, when the host has set a
+            fuzzing pin. Default False. Confines a hook to the process a
+            snapshot-fuzzing loop armed in, so another process carrying the
+            same comm cannot close its iterations.
         scope_filter : bool, optional
             Whether to restrict this hook to the firmware-under-analysis process
             subtree when analysis scoping is enabled. Defaults to True (firmware
@@ -1117,6 +1133,7 @@ class Syscalls(Plugin):
                 # None => default to firmware-only scope (see register_syscall_hook);
                 # set False on hooks that must also run for Penguin infrastructure.
                 "scope_filter": scope_filter,
+                "pin_filter": pin_filter,
             }
 
             # Create a unique wrapper handle for this registration
