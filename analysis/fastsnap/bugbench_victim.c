@@ -179,6 +179,119 @@ int main(void)
     dispatch(req, n);
     return 0;
 }
+#elif defined(BUGBENCH_BENCH)
+/*
+ * Rate-measurement mode, used only by `usermode_bench.py` to price this victim
+ * under qemu-user against the full-system snapshot loop. It lives here, behind
+ * an ifdef, rather than in a file of its own: a second copy of the victim would
+ * turn the comparison into a comparison of two programs. Nothing above this
+ * line changes, so the ground-truth manifest is unaffected.
+ *
+ * argv[1] selects the shape:
+ *   "persist"  every record dispatched in this process. No isolation between
+ *              inputs -- the upper bound for a user-mode loop, and the
+ *              counterpart of the loop's `bare` arm.
+ *   "fork"     every record dispatched in a fresh child. AFL's forkserver
+ *              shape: the ELF is loaded and the code translated once, in the
+ *              parent, and each input runs against a copy-on-write clone.
+ *
+ * Records are fixed-size and read from stdin, which the harness points at a
+ * regular file, so no driver process sits inside the measured loop.
+ */
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define BENCH_REC 16
+
+/* Report the record count on stderr without stdio, which the rest of this file
+ * also avoids. A run that consumed nothing must not read as a fast one, so the
+ * harness checks this against the number of records it wrote. */
+static void write_count(long v)
+{
+    char digits[24];
+    char out[26];
+    int t = 0, k = 0;
+
+    if (v == 0) {
+        digits[t++] = '0';
+    }
+    while (v > 0) {
+        digits[t++] = (char)('0' + (v % 10));
+        v /= 10;
+    }
+    while (t > 0) {
+        out[k++] = digits[--t];
+    }
+    out[k++] = '\n';
+    if (write(2, out, (unsigned)k) < 0) {
+        return;
+    }
+}
+
+int main(int argc, char **argv)
+{
+    unsigned char req[BENCH_REC];
+    int do_fork = (argc > 1 && strcmp(argv[1], "fork") == 0);
+    long touch_mb = (argc > 2) ? atol(argv[2]) : 0;
+    long done = 0;
+
+    /* argv[2] is how many MB to allocate and TOUCH before the loop starts.
+     * It is the whole point of the scaling experiment: fork must copy the page
+     * tables of everything mapped, so its cost grows with the address space,
+     * while a dirty-page snapshot reset pays for the pages an iteration wrote.
+     * Touching matters -- an untouched mapping has no page table entries to
+     * copy, and would show fork as free. */
+    if (touch_mb > 0) {
+        long bytes = touch_mb * 1024L * 1024L;
+        char *blob = (char *)malloc((size_t)bytes);
+        long i;
+
+        if (blob == (char *)0) {
+            return 3;
+        }
+        for (i = 0; i < bytes; i += 4096) {
+            blob[i] = (char)(i & 0xff);
+        }
+    }
+
+    for (;;) {
+        int got = 0;
+
+        /* A short read is not end of input on every fd the harness might pass,
+         * so fill the record before deciding the stream ended. */
+        while (got < BENCH_REC) {
+            int r = (int)read(0, req + got, (unsigned)(BENCH_REC - got));
+            if (r <= 0) {
+                break;
+            }
+            got += r;
+        }
+        if (got < BENCH_REC) {
+            break;
+        }
+
+        if (do_fork) {
+            pid_t p = fork();
+
+            if (p == 0) {
+                dispatch(req, BENCH_REC);
+                _exit(0);
+            }
+            if (p < 0) {
+                return 2;
+            }
+            waitpid(p, (int *)0, 0);
+        } else {
+            dispatch(req, BENCH_REC);
+        }
+        done++;
+    }
+
+    write_count(done);
+    return 0;
+}
 #else
 int main(void)
 {
@@ -202,4 +315,4 @@ int main(void)
     close(fd);
     return 0;
 }
-#endif /* BUGBENCH_STDIN */
+#endif /* BUGBENCH_STDIN / BUGBENCH_BENCH */
