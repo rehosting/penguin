@@ -516,3 +516,49 @@ target C -- 38 pages, 0.461 ms reset against a 0.837 ms lap, where the reset is
 **55% of the iteration** rather than under 1%. If the lane ever optimises for
 that regime, re-measure the overbreadth fraction there first: it is not
 measured on target C, and 13% on a 177-page restore does not predict it.
+
+## A prediction, written before the forward-baseline runs report
+
+Target B has now armed twice, independently, in runs whose only configured
+difference was the cost axis:
+
+| | forward gaps during warmup | loop replays at | ceiling | verdict |
+|---|---|---|---|---|
+| cost=off | n=10844 (target A), median 5.30, p10 2.31, p90 16.05, max 502 | 27.35 ms | -- | -- |
+| target B cost=off | -- | 6.216 ms | -- | -- |
+| target B cost=on | n=218, **median 182.8**, p10 5.53, p90 464.3, max 1334 | 6.258 ms | 16.89 ms | arm 1 accepted, 0 rejects |
+
+Target B's forward distribution has a **median of 182.8 ms** and a p10 of
+5.53 ms. Its loop replays at **6.26 ms** -- sitting essentially ON the p10.
+And the previous run, with the axis off entirely and therefore no selection
+pressure at all, landed at **6.216 ms**: the same place.
+
+Twice, from a distribution where roughly ninety percent of forward gaps are
+above 16.9 ms. That is not a draw landing lucky twice. It is structural, and
+it means the "the arm draws uniformly from the forward distribution" framing
+this document has been using is at best incomplete.
+
+The obvious mechanism: arming stops the vCPU for ~250 ms. Whatever the client
+had in flight queues up, so the first span after resume is a request already
+waiting -- the cheap, pipelined mode -- rather than a fresh connection.
+
+**Prediction, recorded before `arm_forward_ms` reports.** If arming
+systematically lands on the cheap mode, the single forward traversal timed at
+the arming point will come back near **6 ms on target B, not near 182 ms**,
+and the replay cost `iter_ms / arm_forward_ms` will be close to 1. If instead
+it comes back near the forward median, the reset really does change which span
+follows, and the cheap replay is an artifact of the restore rather than of the
+arm.
+
+The two readings are opposite and the measurement distinguishes them, which is
+the only reason this is worth writing down in advance.
+
+### What it would mean for the cost axis either way
+
+If arming lands cheap by construction, the cost axis is worth much less than
+the 70x headline: it would be selecting among draws that are already good, and
+target B's two accepted arms -- 6.216 and 6.258 ms, with and without the axis
+-- are the evidence. The axis's remaining value is then as a GUARD, catching
+the target A case where the arm landed in virtio-blk I/O at 2,625 ms, rather
+than as a source of speedup. That is still worth having; it is just a different
+claim, and a much smaller one.
