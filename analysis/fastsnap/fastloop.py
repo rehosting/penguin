@@ -2433,7 +2433,23 @@ class FastLoop(Plugin):
             # both cases, which is why this exists.
             "lap_cpu_frac": _stats(self.lap_cpu_frac),
             "lap_proc_frac": _stats(self.lap_proc_frac),
+            # READ hits_in/hits_out AS PER-LAP, NOT PER-RUN. The counters live
+            # in driver memory, which is guest RAM, which the snapshot captures
+            # and every reset RESTORES -- so they are rewound along with
+            # everything else. A run that fed 303,315 inputs reported
+            # hits_in=1: not a broken pin, but the single hook firing between
+            # setting the pin and taking the snapshot, replayed forever after.
+            #
+            # This is the property that makes the pin work at all -- captured
+            # by the snapshot, so every lap begins pinned -- turned against its
+            # own statistics. A non-zero hits_out still means something real
+            # (some lap fired a hook outside the armed subtree); it just cannot
+            # be totalled over a run.
             "pin_report": self.pin_report,
+            "pin_report_note": (
+                None if not self.pin_report else
+                "hits_in/hits_out are rewound by every reset because they live "
+                "in guest RAM; read them as this lap's counts, not the run's"),
             "degraded_notes": self.degraded_notes,
             # WHICH PROCESS the detector fired in. `comm` is a name, not an
             # identity. None throughout means the driver does not report pid,
