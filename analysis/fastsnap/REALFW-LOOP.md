@@ -437,3 +437,82 @@ What survives, and it is the part worth keeping:
   pages and 403 MB-2.16 GB. That is measured directly as `sched_to_bh`, not
   inferred from a difference, and it is the same on all three targets.
 - everything else in a lap is the span, and the span is chosen by the arm.
+
+## The TCG counters: the reset discards zero translated blocks
+
+The translation hypothesis had survived only by not being measured. `tbskip`
+tested it by *removing* work and found no speedup, which is weak evidence: it
+cannot distinguish "the work was cheap" from "the work was never happening".
+
+QEMU already maintains the counters that settle it -- `tb_ctx.tb_flush_count`,
+`tb_ctx.tb_phys_invalidate_count`, and `cpu->neg.tlb.c.{full,part,elide}_flush_count`.
+Exporting them through the fastsnap ABI and sampling at bottom-half-done and at
+lap close gives the work each reset does and the work the guest then does,
+separately. `FASTSNAP_COUNT_UNCHANGED=1` additionally memcmps each restored page
+against the live one before overwriting it, counting dirty-but-identical pages
+without changing behaviour.
+
+Both targets, cost axis off, `penguin:fstcg`:
+
+| per reset | target A (armel) | target B (mips-BE) |
+|---|---|---|
+| pages restored | 177 | 282 |
+| `sched_to_bh` | 386 us | 556 us |
+| **`tb_phys_invalidate`** | **0** | **0** |
+| **`tb_flush`** | **0** | **0** |
+| **`tlb_full_flush`** | **0** | **0** |
+| pages dirty-but-identical | 23 (13.0%) | 25 (8.9%) |
+
+**The reset discards no translated block on either target**, despite calling
+`tb_invalidate_phys_range()` once per restored page. Every one of those calls
+finds nothing, because the restored set is pure data -- stack, heap, buffers. A
+code page is never written, so it is never dirty, so it is never restored.
+
+Three things follow, all now measured rather than argued:
+
+- **Translation is not the cost.** With `tb_invalidate` and `tb_flush` both zero
+  the guest resumes with a fully warm TB cache and re-translates nothing. This
+  is the direct form of the evidence `tbskip` only gestured at -- and it
+  retroactively explains why `tbskip` changed nothing: there was nothing to skip.
+- **The softmmu TLB is not the cost either.** `tlb_full_flush` = 0 replaces the
+  indirect `devonly` argument with a count.
+- **The over-invalidation instinct was half right, and now has a number.** No
+  live translation is being killed, but 23 of 177 (13.0%) and 25 of 282 (8.9%)
+  pages were copied and invalidated while already byte-identical. Skipping those
+  saves ~10% of the copy -- on the order of 40-50 us of a 386-556 us reset -- and
+  nothing in invalidation, since invalidation finds nothing either way.
+
+### The caution these runs also carry
+
+The target A arm here came out at **27.35 ms / 177 pages**; the earlier arm of
+the same config came out at **69.54 ms / 227 pages**. Same target, same plugin,
+cost axis off in both. A 2.5x swing between draws is one more measurement of the
+same finding -- the draw dominates -- and a standing caution that any
+single-arm lap number in this document carries that much variance.
+
+### What these counters cannot answer
+
+They measure work the reset does and work the guest does, both after the
+snapshot. They do not compare against the guest *before* any reset, which is the
+comparison the replay-cost question needs. `arm_forward_probe` adds that: one
+forward traversal of the span, timed at the same arming point, before the first
+reset runs.
+
+### Decision on the skip-if-identical change: measured, and not worth making
+
+The obvious follow-on is to act on the count -- skip the copy and the
+invalidate when the memcmp says the bytes already match. The counters argue
+against it:
+
+- the saving is ~10% of the copy, so **40-50 us of a 386-556 us reset**;
+- the reset is 0.5 ms of a 6-70 ms lap on targets A and B, so the saving is
+  **under 1% of an iteration**;
+- it is not free. The memcmp is a 4 KB read per page in the identical case and
+  a wasted partial read in the other 87-91%, so a chunk of the 10% is spent
+  earning it back.
+
+It stays **counted and not acted on**. The one regime where it could matter is
+target C -- 38 pages, 0.461 ms reset against a 0.837 ms lap, where the reset is
+**55% of the iteration** rather than under 1%. If the lane ever optimises for
+that regime, re-measure the overbreadth fraction there first: it is not
+measured on target C, and 13% on a 177-page restore does not predict it.
