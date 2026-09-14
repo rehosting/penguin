@@ -451,6 +451,22 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
             host_path=f"{guesthopper_dir}/guesthopper.{guesthopper_name}",
             mode=0o755,
         )
+        # Give the interactive vsock console the same shell UX the old serial
+        # console had: the colored `user@project ... (penguin shell)` prompt,
+        # /igloo/utils on PATH, and busybox applet aliases (so `ls`, `ps`, ...
+        # resolve). All of that lives in igloo_profile, which the old ttyS1
+        # console sourced via `ENV=/igloo/utils/igloo_profile /igloo/utils/console`
+        # (src/resources/source.d/50_launch_root_shell.sh). The vsock agent spawns
+        # the shell itself, so it must set ENV too (below). Stage the profile here
+        # so the UX works even on targets whose base config doesn't already stage
+        # it -- but don't clobber a target that stages its own copy.
+        igloo_profile_guest = "/igloo/utils/igloo_profile"
+        if igloo_profile_guest not in config["static_files"]:
+            config["static_files"][igloo_profile_guest] = dict(
+                type="host_file",
+                host_path="/igloo_static/guest-utils/scripts/igloo_profile",
+                mode=0o755,
+            )
         config["static_files"]["/igloo/init.d/guesthopper"] = dict(
             type="inline_file",
             # init.sh execs each init.d entry directly, so it needs a shebang --
@@ -465,10 +481,18 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
             # so a persistently-failing agent can't peg the emulated CPU. `sleep`
             # resolves via busybox's standalone-shell applet even with no PATH.
             # The whole loop is backgrounded (`&`) so init.sh continues past it.
+            #
+            # ENV=/igloo/utils/igloo_profile makes the interactive pty shells the
+            # agent spawns source igloo_profile (busybox only sources $ENV for
+            # interactive shells, so the non-interactive `sh -c` of the exec verb
+            # is unaffected -- same asymmetry the serial console had). PROJ_NAME is
+            # still exported in this init.d context (init.sh scrubs it only later,
+            # in the igloo_init hand-off), so the prompt shows user@project.
             contents=(
                 "#!/igloo/utils/sh\n"
                 "while true; do\n"
-                "  RUST_LOG=info /igloo/utils/guesthopper --shell /igloo/utils/sh\n"
+                "  RUST_LOG=info ENV=/igloo/utils/igloo_profile"
+                " /igloo/utils/guesthopper --shell /igloo/utils/sh\n"
                 "  sleep 1\n"
                 "done &\n"
             ),
