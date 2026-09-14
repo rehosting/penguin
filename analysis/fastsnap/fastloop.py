@@ -371,7 +371,7 @@ class FastLoop(Plugin):
         # this class actually reaches for, read out of its own bytecode rather
         # than from a hand-kept list -- a list that has to be updated in
         # lockstep with the code it guards will fall out of lockstep.
-        need = self._api_names_used()
+        need = self._api_names_used() - self.API_OPTIONAL
         if not need:
             self.logger.error("fastloop: the API preflight found no fastsnap "
                               "names -- it is inert and will not catch a stale "
@@ -451,6 +451,33 @@ class FastLoop(Plugin):
             f"fastloop: mode={self.mode} comm={self.comm} "
             f"detector={self.detector} warmup={self.warmup} iters={self.want} "
             f"verify_every={self.verify_every}")
+
+    # REPORTING-ONLY ACCESSORS, exempt from the stale-image refusal.
+    #
+    # The preflight reads the names this class reaches for out of its own
+    # bytecode, deliberately, because a hand-kept list of required names falls
+    # out of lockstep with the code it guards. An EXCLUSION list has the
+    # opposite failure mode -- it can only weaken the check, and only for names
+    # written down here -- which is why it is three entries long and why the
+    # rule for adding one is narrow:
+    #
+    #   a name belongs here only if the run is a valid measurement without it.
+    #
+    # These three say HOW the fork oracle reached its answer (pages proven
+    # equal by PFN identity versus pages read back). An image that predates
+    # them measures exactly the same reset at exactly the same rate; all that
+    # is lost is the method breakdown. Refusing such a run would make a
+    # reporting improvement retroactively invalidate every older image, which
+    # is a worse failure than a missing field.
+    #
+    # `test_optional_api_names_really_are_optional` drives the plugin with a
+    # QEMU that has none of them and asserts a complete run, so the claim above
+    # is checked rather than asserted.
+    API_OPTIONAL = frozenset({
+        "fastsnap_diff_pages_proved",
+        "fastsnap_diff_pages_read",
+        "fastsnap_diff_pagemap_status",
+    })
 
     def _num(self, name, default):
         """get_arg with a default that survives a legitimate zero."""
@@ -877,11 +904,24 @@ class FastLoop(Plugin):
                 dev_report = self.panda.fastsnap_dev_diff_report()
             except Exception as e:                          # noqa: BLE001
                 dev_n, dev_unres, dev_report = -1, -1, repr(e)
+            # HOW the oracle reached its answer, not only what it was. Pages
+            # proven equal by PFN identity were never read; a clean result over
+            # 281 MB means something different depending on the split, and a
+            # verdict quoting bytes_checked alone hides it.
+            try:
+                proved = self.panda.fastsnap_diff_pages_proved()
+                pmread = self.panda.fastsnap_diff_pages_read()
+                pmstat = self.panda.fastsnap_diff_pagemap_status()
+            except Exception:                               # noqa: BLE001
+                proved, pmread, pmstat = 0, 0, None
             self.verifies.append({
                 "iter": self._pending_verify,
                 "diff_pages": d,
                 "bytes_checked": self.panda.fastsnap_diff_bytes_checked(),
                 "diff_us": self.panda.fastsnap_diff_us(),
+                "pages_proved": proved,
+                "pages_read": pmread,
+                "pagemap_status": pmstat,
                 "report": self.panda.fastsnap_diff_report() if d else "",
                 "dev_diff_sections": dev_n,
                 "dev_unrestorable_sections": dev_unres,
@@ -1485,6 +1525,28 @@ class FastLoop(Plugin):
                             for n in v.get("dev_diff_report", "").split(",")
                             if n.startswith("*") or n.startswith("!*")})
         out["dev_unrestorable"] = dev_unres
+        # THE ORACLE'S OWN COST AND METHOD. It was 34-35% of the wall clock on
+        # every run this lane has measured, so how it reached its answer is a
+        # first-class part of the result rather than a footnote.
+        pm_stats = [v for v in self.verifies if v.get("pagemap_status") is not None]
+        if pm_stats:
+            last = pm_stats[-1]
+            tot = (last.get("pages_proved", 0) or 0) + (last.get("pages_read", 0) or 0)
+            out["oracle_method"] = {
+                "pagemap_status": last["pagemap_status"],
+                "pages_proved": last.get("pages_proved"),
+                "pages_read": last.get("pages_read"),
+                "proved_frac": ((last.get("pages_proved", 0) or 0) / tot) if tot else None,
+            }
+            if last["pagemap_status"] == -1:
+                # LOUDLY. The filter asked for and not delivered costs MORE and
+                # changes no answer, so nothing else in this report would say
+                # so. That is the shape of instrument failure this lane keeps
+                # writing checks against.
+                self.errors.append(
+                    "pagemap prefilter unavailable (PFNs read as zero without "
+                    "CAP_SYS_ADMIN); the oracle read all of RAM and paid for "
+                    "the pagemap on top")
         dev_blind = [v for v in self.verifies
                      if v.get("dev_diff_sections", 0) < 0]
         out["device_scope"] = ("allow", self.allowed) if self.allowed else (
@@ -1589,6 +1651,21 @@ class FastLoop(Plugin):
             # of the crashes.py fix is that a number nobody has to read is a
             # number nobody reads; putting this anywhere but in the sentence
             # that gets quoted would reproduce the failure it exists to catch.
+            om = out.get("oracle_method")
+            if om and om.get("proved_frac") is not None:
+                if om["pagemap_status"] == 1:
+                    out["verdict"] += (
+                        f" Of the bytes that verdict covers, "
+                        f"{om['proved_frac']:.2%} of pages were proven equal by "
+                        f"PFN identity rather than read back -- a kernel "
+                        f"guarantee, not a shortcut, and the remaining "
+                        f"{om['pages_read']} pages were compared byte for byte.")
+                elif om["pagemap_status"] == -1:
+                    out["verdict"] += (
+                        " The PFN prefilter was unavailable (no CAP_SYS_ADMIN),"
+                        " so every page was read back and the oracle paid for"
+                        " the pagemap on top. Pass"
+                        " --extra_docker_args \"--cap-add=SYS_ADMIN\".")
             notes = self._wall_notes(out)
             if notes:
                 out["wall_notes"] = notes

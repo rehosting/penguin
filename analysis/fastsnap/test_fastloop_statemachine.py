@@ -73,6 +73,9 @@ class FakeQemu:
         self.dev_unrestorable_sections = 0
         self.dev_diff_report = ""
         self.allowlist = None
+        self.pagemap_status = 1
+        self._pages_proved = 65628
+        self._pages_read = 256
 
     # -- the API the plugin uses --
     def fastsnap_available(self):
@@ -135,6 +138,19 @@ class FakeQemu:
 
     def fastsnap_diff_bytes_checked(self):
         return self.ram_bytes
+
+    # The oracle's METHOD, not just its answer. Defaults model a build with
+    # the PFN prefilter active; `pagemap_status` is settable so a test can
+    # build the case that matters -- asked for, unavailable, silently costing
+    # more and changing nothing.
+    def fastsnap_diff_pages_proved(self):
+        return self._pages_proved
+
+    def fastsnap_diff_pages_read(self):
+        return self._pages_read
+
+    def fastsnap_diff_pagemap_status(self):
+        return self.pagemap_status
 
     def fastsnap_diff_us(self):
         return self._diff_us
@@ -508,6 +524,75 @@ def _health_loop(tmp, **kw):
     return p, q, prog
 
 
+def oracle_method_tests(tmp):
+    # ---- HOW THE ORACLE GOT ITS ANSWER --------------------------------
+    # "byte-identical across 281 MB" means something different when 99.6% of
+    # the pages were proven equal by PFN identity and 0.4% were compared. A
+    # verdict that quotes the first number without the second hides the
+    # mechanism that produced it.
+    p, q = make("loop", tmp)
+    to_loop(p, q)
+    for _ in range(12):
+        q.run_bottom_half()
+        hit(p)
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    om = out["oracle_method"]
+    assert om["pagemap_status"] == 1 and om["pages_proved"] == 65628, om
+    assert abs(om["proved_frac"] - 65628 / (65628 + 256)) < 1e-9, om
+    assert "proven equal by" in out["verdict"], out["verdict"]
+    assert "99.61%" in out["verdict"], out["verdict"]
+    print("ok  a clean verdict says what fraction of it was proven rather "
+          "than compared")
+
+    # ---- ASKED FOR AND NOT DELIVERED ----------------------------------
+    # The failure with no symptom: without CAP_SYS_ADMIN every PFN reads zero,
+    # every page falls through to the memcmp, and the oracle costs slightly
+    # MORE while producing exactly the same answer. Nothing else in the report
+    # would say so.
+    p, q = make("loop", tmp)
+    q.pagemap_status = -1
+    q._pages_proved = 0
+    q._pages_read = 65634
+    to_loop(p, q)
+    for _ in range(12):
+        q.run_bottom_half()
+        hit(p)
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    assert out["oracle_method"]["pagemap_status"] == -1
+    assert any("pagemap prefilter unavailable" in e for e in out["errors"]), \
+        out["errors"]
+    assert "CAP_SYS_ADMIN" in out["verdict"], out["verdict"]
+    print("ok  a prefilter asked for and unavailable is named in the verdict, "
+          "not left to be noticed as a cost")
+
+    # ---- THE EXEMPTION HAS TO BE TRUE ---------------------------------
+    # API_OPTIONAL weakens the stale-image refusal, so the claim that these
+    # names are optional is checked rather than asserted: a QEMU with none of
+    # them must still produce a complete run.
+    p, q = make("loop", tmp)
+    for n in FastLoopAPIOptional:
+        assert hasattr(q, n), n
+        delattr(type(q), n)
+    try:
+        to_loop(p, q)
+        for _ in range(12):
+            q.run_bottom_half()
+            hit(p)
+        p.uninit()
+        out = json.load(open(os.path.join(tmp, "fastloop.json")))
+        assert p.state in ("loop", "done"), p.state
+        assert not any("stale image" in e for e in out["errors"]), out["errors"]
+        assert out["verdict"].startswith("VALID"), out["verdict"]
+        assert out.get("oracle_method") is None, out["oracle_method"]
+    finally:
+        for n, fn in _OPTIONAL_SAVED.items():
+            setattr(FakeQemu, n, fn)
+    print("ok  an image with none of the optional accessors still produces a "
+          "complete, VALID run")
+
+
 def health_tests(tmp):
     # ---- THE PROBE LOOKS ONCE ------------------------------------------
     # arm_probe scores the first 200 laps and never asks again. Two runs
@@ -786,6 +871,11 @@ def wall_tests(tmp):
     print("ok  the wall shares partition the span exactly")
 
 
+_CLS, _MOD = load_class()
+FastLoopAPIOptional = sorted(_CLS.API_OPTIONAL)
+_OPTIONAL_SAVED = {n: getattr(FakeQemu, n) for n in FastLoopAPIOptional}
+
+
 def main():
     import tempfile
     tmp = tempfile.mkdtemp()
@@ -793,6 +883,7 @@ def main():
     wall_tests(tmp)
     lap_tests(tmp)
     health_tests(tmp)
+    oracle_method_tests(tmp)
 
     # ---- mode=loop: the full path -------------------------------------
     p, q = make("loop", tmp)

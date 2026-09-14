@@ -1632,6 +1632,39 @@ class QemuCompat:
         fn = self._fastsnap_fn("penguin_fastsnap_diff_report")
         return self.ffi.string(fn()).decode("utf-8", "replace")
 
+    def fastsnap_diff_pages_proved(self) -> int:
+        """Pages the last FORK_DIFF proved equal by PFN identity rather than by
+        reading them back.
+
+        Parent and child share a physical frame until copy-on-write breaks, and
+        two mappings on the same PFN are byte-identical by kernel guarantee. A
+        clean oracle over 281 MB means something different when 99.6% of it was
+        proven this way and 0.4% was compared, and a report that quotes
+        bytes_checked without this hides which happened.
+
+        0 on a build that predates the counter -- which is why it is separated
+        from an ACTIVE status rather than inferred from it.
+        """
+        fn = self._lib_symbol("penguin_fastsnap_diff_pages_proved")
+        return int(fn()) if fn is not None else 0
+
+    def fastsnap_diff_pages_read(self) -> int:
+        """Pages the last FORK_DIFF actually read back and memcmp'd."""
+        fn = self._lib_symbol("penguin_fastsnap_diff_pages_read")
+        return int(fn()) if fn is not None else 0
+
+    def fastsnap_diff_pagemap_status(self) -> int:
+        """1 the PFN prefilter is active, 0 disabled by FASTSNAP_FORK_PAGEMAP,
+        -1 unavailable (PFNs read as zero without CAP_SYS_ADMIN), None on a
+        build with no such filter.
+
+        -1 is the case worth surfacing: the oracle then costs slightly MORE
+        than it used to and produces exactly the same answer, so nothing in the
+        result says anything is wrong.
+        """
+        fn = self._lib_symbol("penguin_fastsnap_diff_pagemap_status")
+        return int(fn()) if fn is not None else None
+
     def fastsnap_ram_restored_pages(self) -> int:
         """Pages copied back by the last RAM_RESTORE/LOOP_RESET -- the size of
         the dirty set the reset actually paid for."""
