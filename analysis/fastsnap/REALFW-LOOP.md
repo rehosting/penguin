@@ -997,3 +997,50 @@ done carefully is the rest of this document.
 Target B already has an honest rate in the client-driven shape -- **27.9
 exec/s**, fidelity 1.685, VALID across 2.16 GB. The closed loop is an
 optimisation on top of a working measurement, not a prerequisite for one.
+
+## Target C: five misconfigurations deep, and still not measured
+
+C was configured throughout by analogy to A and B, and it is a different kind
+of server. Each assumption was invisible until a control refused to report a
+number:
+
+| # | assumption | reality | caught by |
+|---|---|---|---|
+| 1 | answers with `writev` | answers with `write` | empty response tally -> false "wedged victim" |
+| 2 | reads with `read` | **675 of 681 feeds came via `read`; `recvfrom` appears 6 times** | `FED NOTHING`, 556 accepts / 8 reads |
+| 3 | request boundary is a read | connection-per-request; boundary is `accept` | `idle, out of retries` x3 -- laps were closing on FILE reads |
+| 4 | keep-alive client | closes after one request, so the 20-request pipeline wasted 19 and `nc -w 3` sat out its timeout | accept-to-accept = **1042 ms** |
+| 5 | `swallow_writes` helps | C is client-driven like B; the response IS the engine | (queued, not yet reported) |
+
+**Not one of those produced a wrong rate.** Four runs were refused, each naming
+a different reason. The alternative -- a loop reporting 41.5 exec/s and letting
+a reader believe it -- is what this lane had before the arm axes and the
+fidelity check existed.
+
+### The unresolved part, stated rather than guessed at
+
+After rewriting the load generator to four parallel connection-per-request
+loops, the run came back with a census **identical to the digit** to the run
+before it -- `accept 949/949, close 732, recvfrom 6`, `n_sent 684` -- despite a
+different drive script. The new script is present in that run's merged
+`core_config.yaml`, and the guest console shows
+`[IGLOO] user init dispatched /igloo/init.d/zz_fastsnap_drive` and
+`FASTSNAP_DRIVE_START ... waited=4s`, so something ran. Two readings fit:
+
+- the guest received the OLD script (a `static_files` write to
+  `/igloo/init.d/` that does not take effect without re-initialising the
+  project), and the identical census is simply the same workload twice;
+- or the ~2.26 accepts/sec being counted are the firmware's own internal
+  traffic and the drive script's connections never reach the hooked `httpd` at
+  all.
+
+The first is testable by diffing the file inside the guest; the second by
+attributing accepts to a peer. Neither was run. **C's rate is unknown, and
+nothing in this document should be read as measuring it.**
+
+### Why stop here
+
+A and B have honest rates. C has five fixed misconfigurations and a sixth
+question that wants a different kind of investigation than "queue another
+run" -- which is what the previous five each cost. Handing it over as a named
+open question is worth more than a sixth guess at 5am.
