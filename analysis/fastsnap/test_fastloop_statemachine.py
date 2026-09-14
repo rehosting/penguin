@@ -869,6 +869,73 @@ def arm_cost_tests(tmp):
     assert p._cost_threshold() is None
     print("ok  arm cost: arm_cost_mult=0 turns the axis off")
 
+    # ---- THE LADDER MUST NOT GIVE UP ----------------------------------
+    # The ceiling relaxes so the run stops on a draw it chose rather than on
+    # whichever draw the budget ran out on. But relaxation that walks the
+    # PERCENTILE steps across the gap between the modes -- p50 x 3 is 683 ms
+    # on this distribution -- and hands back exactly the 450 ms draw the axis
+    # exists to reject. Every rung must still refuse the expensive mode.
+    p, _ = armed()
+    rungs = [p._cost_threshold(a) for a in range(1, p.arm_retries + 2)]
+    assert all(r is not None for r in rungs), rungs
+    assert rungs == sorted(rungs) and rungs[0] < rungs[-1], rungs
+    assert all(r < 450.0 for r in rungs), (
+        f"a rung at {max(rungs):.1f} ms accepts the 450 ms mode outright")
+    assert all(r > 5.5 for r in rungs), rungs
+    print(f"ok  arm cost: the ladder widens {rungs[0]:.1f} -> {rungs[-1]:.1f} ms "
+          f"and still refuses the 450 ms mode at every rung")
+
+    # Out of retries is still reachable, and still ACCEPTS -- the relaxation
+    # must not quietly turn "accepted anyway" into "accepted".
+    p, _ = armed()
+    p.arm_attempt = p.arm_retries
+    p._probe_laps_ms = [5000.0] * 40
+    p._probe(False, 5000.0)
+    assert "accepted anyway" in p.arm_history[-1]["verdict"], p.arm_history[-1]
+    print("ok  arm cost: a draw over even the last rung is still accepted-anyway")
+
+    # ---- THE EARLY FIRE -----------------------------------------------
+    # Scoring over a fixed lap count makes the axis slowest exactly where it
+    # matters most. This is the measured case: target A replayed 2,625 ms laps
+    # against a 9.4 ms ceiling and finished with arm_cost_rejects = 0, because
+    # 200 probe laps would have taken 8.75 minutes and the run ended at 102.
+    p, _ = armed()
+    p._probe_n = 0                      # nowhere near arm_probe
+    p.arm_attempt = 1                   # retries left
+    for _ in range(p.arm_cost_min_laps):
+        p._probe(False, 2625.0)
+    assert p.state == "rearm_wait", (
+        f"state {p.state}: the axis waited out {p.arm_probe} laps of a draw "
+        f"already 280x over its ceiling")
+    assert p.arm_history[-1]["verdict"] == "costly, re-arming (early)", \
+        p.arm_history[-1]
+    assert p.arm_history[-1]["probe_laps"] < p.arm_probe, p.arm_history[-1]
+    assert p.arm_cost_rejects == 1, p.arm_cost_rejects
+    print(f"ok  arm cost: a catastrophic draw is rejected after "
+          f"{p.arm_history[-1]['probe_laps']} laps, not {p.arm_probe}")
+
+    # The early fire must not pre-empt the out-of-retries ACCEPT, which is the
+    # branch that keeps a usable measurement of a genuinely expensive span.
+    p, _ = armed()
+    p._probe_n = 0
+    p.arm_attempt = p.arm_retries       # no retries left
+    for _ in range(p.arm_cost_min_laps * 3):
+        p._probe(False, 2625.0)
+    assert p.state == "loop", p.state
+    assert p.arm_cost_rejects == 0, p.arm_cost_rejects
+    print("ok  arm cost: with no retries left the early fire stands down and "
+          "the full probe still decides")
+
+    # A cheap draw must never trip the early fire.
+    p, _ = armed()
+    p._probe_n = 0
+    p.arm_attempt = 1
+    for _ in range(p.arm_cost_min_laps * 4):
+        p._probe(False, 5.6)
+    assert p.state == "loop", p.state
+    assert p.arm_cost_rejects == 0, p.arm_cost_rejects
+    print("ok  arm cost: a cheap draw does not trip the early fire")
+
 
 def oracle_method_tests(tmp):
     # ---- HOW THE ORACLE GOT ITS ANSWER --------------------------------

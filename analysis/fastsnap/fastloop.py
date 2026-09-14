@@ -194,6 +194,16 @@ class FastLoop(Plugin):
         self.arm_cost_mult = float(self._num("arm_cost_mult", 3.0))
         self.arm_cost_pctl = float(self._num("arm_cost_pctl", 25))
         self.arm_cost_min_gaps = int(self._num("arm_cost_min_gaps", 50))
+        # Factor the cost ceiling widens by per rejected draw. 1.0 holds it
+        # fixed, which is the behaviour that ends on an unselected last draw.
+        # Applied to the multiplier, NOT the percentile -- see
+        # _cost_threshold() for why the percentile version is a trap.
+        self.arm_cost_relax = float(self._num("arm_cost_relax", 1.5))
+        # Probe laps the cost axis needs before it may fire EARLY. A
+        # median over this few is noisy, but the axis only ever spends a
+        # re-arm on it, and the alternative is waiting out `arm_probe`
+        # laps of a draw already known to be catastrophic.
+        self.arm_cost_min_laps = int(self._num("arm_cost_min_laps", 5))
         # One extra lap, and it is the only baseline the run can compare
         # its own laps against. On by default for that reason.
         self.arm_forward_probe = bool(self._num("arm_forward_probe", 1))
@@ -1283,13 +1293,31 @@ class FastLoop(Plugin):
                 self.errors.append(f"arm_progress {self.arm_progress!r}: {e!r}")
             return None
 
-    def _cost_threshold(self):
+    def _cost_threshold(self, attempt=1):
         """What a draw's replayed lap may cost, from the forward distribution.
 
         Relative to a LOW percentile, because the distribution is not unimodal.
         On a 50/50 bimodal the median is the expensive mode, so scoring against
         the median would accept exactly the draw worth rejecting; p25 lands on
         the cheap mode whenever one exists.
+
+        The ceiling RELAXES as the retry budget burns, by `arm_cost_relax` per
+        attempt. This is not a nicety: an arming point is a moment in guest
+        time, and a declined draw is gone -- there is no going back to it. So
+        the axis is an online stopping problem, not a best-of-N. Held at a
+        fixed ceiling, every attempt fails with the same probability and the
+        run ends on whatever the LAST draw happens to be, which is a fresh
+        random draw rather than a selected one.
+
+        The widening is applied to the MULTIPLIER and deliberately not to the
+        percentile, which is the obvious alternative and is wrong. On the
+        measured bimodal, walking p25 -> p50 -> p75 steps straight across the
+        gap between the modes: p50 x 3 is 683 ms and p75 x 3 is 1350 ms,
+        either of which accepts the 450 ms mode outright. One attempt in and
+        the axis would have given up while still reporting a ceiling. Widening
+        the multiplier instead gives 16.5 -> 24.8 -> 37.1 -> 55.7 ms, which
+        forgives a draw that is merely close and still refuses the expensive
+        mode at every rung.
 
         None when there is not enough warmup data to say -- and None means the
         axis does not fire, never that the draw passed.
@@ -1302,7 +1330,41 @@ class FastLoop(Plugin):
                 max(0, min(98, int(self.arm_cost_pctl) - 1))]
         except Exception:                                   # noqa: BLE001
             return None
-        return base * self.arm_cost_mult
+        slack = self.arm_cost_relax ** max(0, attempt - 1)
+        return base * self.arm_cost_mult * slack
+
+    def _cost_rearm(self, lap_med, thresh, n_laps, early):
+        """Drop this draw and go back for another, on the cost axis.
+
+        Shared by the two places the axis fires: the full probe, and the
+        early short-circuit in _probe() that does not wait for it.
+
+        Deliberately does NOT touch arm_cost_rejects. That counter means
+        "draws seen over the ceiling" -- the full path increments it before it
+        knows whether it will re-arm or accept out of retries -- so counting
+        here too would double every rejection.
+        """
+        when = (f"after {n_laps} of {self.arm_probe} probe laps -- the draw is "
+                f"already {lap_med / thresh:.0f}x over and waiting out the "
+                f"probe would cost {(self.arm_probe - n_laps) * lap_med / 1000:.0f} s"
+                if early else f"over {n_laps} probe laps")
+        self.logger.warning(
+            f"fastloop: arm {self.arm_attempt} REJECTED on COST {when} -- the "
+            f"probe replays a {lap_med:.2f} ms span, against a "
+            f"{thresh:.2f} ms ceiling ("
+            f"{self.arm_cost_mult * self.arm_cost_relax ** (self.arm_attempt - 1):.1f}x "
+            f"the {self.arm_cost_pctl:.0f}th percentile of "
+            f"{len(self.warm_gaps_ms)} forward gaps). The "
+            f"span is chosen by WHERE the arm landed, and on a real image "
+            f"the cheap and expensive modes differ by a factor of eighty. "
+            f"Drawing again, against a ceiling widened by "
+            f"{self.arm_cost_relax:.0f} percentile points.")
+        self._reset_measurements()
+        self._rearm_at = time.perf_counter() + self.arm_backoff_s
+        self.state = "rearm_wait"
+        self.pending_reset = False
+        self._pending_verify = None
+        self._closed_by_signal = False
 
     def _probe(self, was_crash, dt=None):
         """Score the draw over its first `arm_probe` laps.
@@ -1311,8 +1373,13 @@ class FastLoop(Plugin):
         draw is BROKEN, and a run that only has broken draws is not worth
         reporting, so they refuse. The third asks whether it is SLOW, and a
         slow draw is perfectly valid: it just replays an expensive span. That
-        difference is why exhausting the retries on cost ACCEPTS the cheapest
-        draw seen rather than refusing the run.
+        difference is why exhausting the retries on cost ACCEPTS rather than
+        refusing the run.
+
+        What it accepts is the LAST draw, not the cheapest one seen. It cannot
+        be the cheapest: an arming point is a moment in guest time and a
+        declined draw is gone. The ceiling relaxes per attempt precisely
+        because of that -- see _cost_threshold().
         """
         if self._probe_n == 0:
             self._progress0 = self._read_progress()
@@ -1322,6 +1389,38 @@ class FastLoop(Plugin):
         if dt is not None:
             self._probe_laps_ms.append(dt)
         if self._probe_n < self.arm_probe:
+            # The cost axis on a TIME budget rather than a lap count. Scoring
+            # over a fixed `arm_probe` laps makes the axis slowest exactly
+            # where it matters most: a 6 ms draw is judged in 1.2 s, while a
+            # 2,625 ms draw needs 200 laps = 8.75 MINUTES to reach the same
+            # verdict -- and a run that ends before then reports the
+            # catastrophic draw with the axis never having fired at all.
+            #
+            # That is measured, not hypothetical. Target A's first cost=on arm
+            # replayed 2,625 ms laps against a 9.4 ms ceiling and finished with
+            # arm_cost_rejects = 0, because it only ever completed 102 of the
+            # 200 laps the axis was waiting for.
+            #
+            # A draw this far over needs no further evidence, and a rejected
+            # draw costs nothing but a re-arm. So fire early -- but only with a
+            # retry left to spend, because the out-of-retries branch ACCEPTS
+            # and the other two axes still deserve their full sample before a
+            # draw is kept.
+            if (self.arm_attempt < self.arm_retries
+                    and len(self._probe_laps_ms) >= self.arm_cost_min_laps):
+                thresh = self._cost_threshold(self.arm_attempt)
+                lap_med = statistics.median(self._probe_laps_ms)
+                if thresh is not None and lap_med > thresh:
+                    self.arm_history.append(
+                        {"attempt": self.arm_attempt, "armed_at_s": self.t_arm_s,
+                         "probe_laps": self._probe_n,
+                         "probe_signal_laps": self._probe_sig,
+                         "probe_lap_median_ms": round(lap_med, 4),
+                         "cost_threshold_ms": round(thresh, 4),
+                         "warmup_gaps": len(self.warm_gaps_ms),
+                         "verdict": "costly, re-arming (early)"})
+                    self.arm_cost_rejects += 1
+                    self._cost_rearm(lap_med, thresh, self._probe_n, early=True)
             return
         self._probe_done = True
         frac = self._probe_sig / self._probe_n
@@ -1340,7 +1439,7 @@ class FastLoop(Plugin):
         # reject a good draw.
         lap_med = (statistics.median(self._probe_laps_ms)
                    if self._probe_laps_ms else None)
-        thresh = self._cost_threshold()
+        thresh = self._cost_threshold(self.arm_attempt)
         costly = (lap_med is not None and thresh is not None
                   and lap_med > thresh)
         row["probe_lap_median_ms"] = (round(lap_med, 4)
@@ -1393,8 +1492,8 @@ class FastLoop(Plugin):
         # what happens when the retries run out. A faulting or idle draw makes
         # the run's numbers meaningless, so those refuse. A costly draw is
         # perfectly valid -- it replays an expensive span and reports an honest,
-        # low rate -- so running out of retries here takes the best draw seen
-        # and says so, rather than throwing away a usable measurement.
+        # low rate -- so running out of retries here keeps the draw rather than
+        # throwing away a usable measurement.
         if costly and frac <= self.arm_bad_frac and not idle:
             self.arm_cost_rejects += 1
             if self.arm_attempt >= self.arm_retries:
@@ -1405,24 +1504,14 @@ class FastLoop(Plugin):
                     f"{lap_med:.2f} ms span against a {thresh:.2f} ms ceiling, "
                     f"and there are no retries left. ACCEPTING it: a costly "
                     f"draw is a valid measurement of an expensive span, not a "
-                    f"broken one. The rate below is real and low.")
+                    f"broken one. The rate below is real and low. Note this is "
+                    f"the LAST draw, not the cheapest of the "
+                    f"{self.arm_attempt} -- a declined arming point cannot be "
+                    f"returned to -- so read it as an unselected sample.")
                 return
             row["verdict"] = "costly, re-arming"
             self.arm_history.append(row)
-            self.logger.warning(
-                f"fastloop: arm {self.arm_attempt} REJECTED on COST -- the "
-                f"probe replays a {lap_med:.2f} ms span, against a "
-                f"{thresh:.2f} ms ceiling ({self.arm_cost_mult}x the "
-                f"{self.arm_cost_pctl:.0f}th percentile of "
-                f"{len(self.warm_gaps_ms)} forward gaps). The span is chosen "
-                f"by WHERE the arm landed, and on a real image the cheap and "
-                f"expensive modes differ by a factor of eighty. Drawing again.")
-            self._reset_measurements()
-            self._rearm_at = time.perf_counter() + self.arm_backoff_s
-            self.state = "rearm_wait"
-            self.pending_reset = False
-            self._pending_verify = None
-            self._closed_by_signal = False
+            self._cost_rearm(lap_med, thresh, self._probe_n, early=False)
             return
         if self.arm_attempt >= self.arm_retries:
             row["verdict"] = ("idle, out of retries" if idle
@@ -1835,9 +1924,17 @@ class FastLoop(Plugin):
             # the median means the cheap and expensive modes are far apart,
             # and the draw decides which one the loop replays forever.
             "warm_gaps_ms": _stats(self.warm_gaps_ms),
+            # The ceiling the ACCEPTED draw actually faced, which is not the
+            # opening one once the ladder has relaxed. `arm_cost_ladder_ms`
+            # carries every rung so a reader can see how far it had to widen.
             "arm_cost_threshold_ms": (
-                round(self._cost_threshold(), 4)
-                if self._cost_threshold() is not None else None),
+                round(self._cost_threshold(self.arm_attempt), 4)
+                if self._cost_threshold(self.arm_attempt) is not None else None),
+            "arm_cost_ladder_ms": [
+                (None if self._cost_threshold(a) is None
+                 else round(self._cost_threshold(a), 4))
+                for a in range(1, self.arm_retries + 2)],
+            "arm_cost_relax": self.arm_cost_relax,
             "arm_cost_rejects": self.arm_cost_rejects,
             # The same span, un-reset, timed once before any restore. The
             # ratio against iter_ms is the reset's cost TO THE GUEST, and it
