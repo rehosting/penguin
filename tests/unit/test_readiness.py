@@ -29,6 +29,37 @@ def test_on_readiness_writes_marker_and_publishes_once(tmp_path):
     assert len(lp.published) == published_before
 
 
+def test_shell_endpoints_lists_telnet_and_ssh_for_vsock(tmp_path, monkeypatch):
+    # The vsock console brings up BOTH a telnet and an ssh front door, so the
+    # READY line must advertise both (standard ports elide the port suffix).
+    monkeypatch.setenv("CONTAINER_IP", "192.168.7.2")
+    lp = load_pyplugin(
+        str(READINESS), outdir=tmp_path,
+        args=dict(root_shell_enabled=True, root_shell_backend="vsock",
+                  telnet_port=23, ssh_port=22),
+    )
+    assert lp.plugin._shell_endpoints() == "telnet=192.168.7.2 ssh=root@192.168.7.2"
+
+
+def test_shell_endpoints_backends_and_ports(tmp_path, monkeypatch):
+    monkeypatch.setenv("CONTAINER_IP", "10.0.0.5")
+
+    def ep(**a):
+        return load_pyplugin(str(READINESS), outdir=tmp_path, args=a).plugin._shell_endpoints()
+
+    # Non-standard ports are shown explicitly (telnet <ip>:port, ssh root@<ip>:port).
+    assert ep(root_shell_enabled=True, root_shell_backend="vsock",
+              telnet_port=2323, ssh_port=2222) == "telnet=10.0.0.5:2323 ssh=root@10.0.0.5:2222"
+    # Legacy telnet (serial) backend has no ssh door.
+    assert ep(root_shell_enabled=True, root_shell_backend="telnet",
+              telnet_port=23) == "telnet=10.0.0.5"
+    # A vsock console whose ssh door didn't come up advertises telnet only.
+    assert ep(root_shell_enabled=True, root_shell_backend="vsock",
+              telnet_port=23, ssh_port=None) == "telnet=10.0.0.5"
+    # No root shell -> nothing to advertise.
+    assert ep() == ""
+
+
 def test_on_readiness_ignores_other_kinds(tmp_path):
     lp = load_pyplugin(str(READINESS), outdir=tmp_path)
     assert lp.plugin.on_readiness("something_else", "x") == (0, "")
