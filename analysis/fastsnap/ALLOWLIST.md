@@ -14,6 +14,16 @@ round trip and its controls, but **has not re-measured the timings**.
 
 ## 1. The correct device allowlist for an iteration is {cpu, timer}
 
+> **Superseded, on two counts.** `{cpu, timer}` is aarch64-shaped and does not
+> transfer: malta's equivalent came out as `cpu` plus `cpu_common`, and `timer`
+> never appeared in its diff at all. And the set an iteration *dirties* is not
+> the set a reset must *cover* -- `cpu_common` diverged on only 0.1-4.7% of
+> laps, which is exactly why a diff over a window can miss it and a run can be
+> scoped wrong and still report VALID. The `cpu`/`cpu_common` pair is now
+> completed in code (`fastloop.COMPANIONS`); see `SCOPE-AB.md`. The timings
+> below stand -- they are what the 17.5x is measured from.
+
+
 Restoring only `cpu` costs 0.039 ms against 0.728 ms for all 17 sections, but
 that was a floor, not a configuration. Diffing per-section device blocks across
 a window of guest execution gives the set an iteration actually dirties:

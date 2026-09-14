@@ -188,12 +188,17 @@ class FakeQemu:
 class FakeLogger:
     def __init__(self):
         self.errors = []
+        # Recorded, not dropped. A warning is this plugin's channel for
+        # "your configuration is not what you wrote" -- the COMPANIONS
+        # completion, the measurement-mode banner, the host-load notice --
+        # and a stub that swallowed them made every one of those untestable.
+        self.warnings = []
 
     def info(self, *a):
         pass
 
     def warning(self, *a):
-        pass
+        self.warnings.append(" ".join(str(x) for x in a))
 
     def error(self, *a):
         self.errors.append(" ".join(str(x) for x in a))
@@ -1160,13 +1165,68 @@ def main():
         pp.uninit()
         return pp, qq, json.load(open(pathlib.Path(tmp) / "fastloop.json"))
 
+    # `cpu_common` is not in the string and IS in the block: see COMPANIONS.
     pv, qv, out = run_scoped(allow="cpu,timer")
     qv2 = qv
-    assert qv.allowlist == ["cpu", "timer"], qv.allowlist
-    assert out["device_scope"] == ["allow", ["cpu", "timer"]], out["device_scope"]
+    assert qv.allowlist == ["cpu", "timer", "cpu_common"], qv.allowlist
+    assert out["device_scope"] == ["allow", ["cpu", "timer", "cpu_common"]], \
+        out["device_scope"]
+    assert out["allowed"] == ["cpu", "timer", "cpu_common"], out["allowed"]
+    assert out["allow_implied"] == ["cpu_common"], out["allow_implied"]
     assert out["verdict"].startswith("VALID"), out["verdict"]
     print("ok  an allowlist reaches the C side and a clean device oracle "
           "keeps the run VALID")
+
+    # ---- COMPANIONS ----------------------------------------------------
+    #
+    # An allowlist naming `cpu` and not `cpu_common` leaves `halted` and
+    # `interrupt_request` at whatever the previous lap made them. The miss
+    # shows up on 0.1-4.7% of laps, so a run can be configured wrong and
+    # come back VALID; completing the pair is what stops that, and these
+    # check it is completed, reported, and still overridable.
+
+    def scoped(**kw):
+        """Drive a fresh plugin just far enough to apply its device scope.
+
+        Scoping happens at the arm, not in __init__, so a test that only
+        constructs the plugin sees allowlist=None and asserts nothing.
+        """
+        pp, qq = make("loop", tmp, **kw)
+        for _ in range(6):
+            if pp.state != "warmup":
+                break
+            hit(pp)
+        assert pp.state != "warmup", "never armed, so never scoped"
+        return pp, qq
+
+    pp, qq = scoped(allow="cpu")
+    assert qq.allowlist == ["cpu", "cpu_common"], qq.allowlist
+    assert pp.allow_implied == ["cpu_common"], pp.allow_implied
+    assert any("cpu_common" in w for w in pp.logger.warnings), pp.logger.warnings
+    print("ok  companion: allow=cpu puts cpu_common in the block and says so")
+
+    # Already named: nothing added, nothing warned. The completion must be
+    # idempotent or every correctly-configured run grows a spurious warning.
+    pp, qq = scoped(allow="cpu,cpu_common")
+    assert qq.allowlist == ["cpu", "cpu_common"], qq.allowlist
+    assert pp.allow_implied == [], pp.allow_implied
+    print("ok  companion: an allowlist that already names both is unchanged")
+
+    # Not implicated: `timer` has no companion, and the completion must not
+    # reach for the CPU just because cpu_common exists on the machine.
+    pp, qq = scoped(allow="timer")
+    assert qq.allowlist == ["timer"], qq.allowlist
+    assert pp.allow_implied == [], pp.allow_implied
+    print("ok  companion: a section with no companion pulls nothing in")
+
+    # The escape hatch, which is what keeps the uncovered case measurable.
+    # Without it the A/B that priced cpu_common at 18% could not be re-run.
+    pp, qq = scoped(allow="cpu,timer", allow_exact=True)
+    assert qq.allowlist == ["cpu", "timer"], qq.allowlist
+    assert pp.allow_implied == [], pp.allow_implied
+    assert any("allow_exact" in w for w in pp.logger.warnings), pp.logger.warnings
+    print("ok  companion: allow_exact keeps the uncovered case measurable, "
+          "and warns that it is uncovered")
 
     # The control that matters. RAM is byte-perfect on EVERY lap and the run
     # must still fail, because two device sections never came back.

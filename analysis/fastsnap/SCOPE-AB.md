@@ -295,3 +295,43 @@ iteration is the span from the armed instant to the next detector hit, and
 arming at read-return rewinds to an instant where the kernel has already filled
 the buffer. Same crash rate, same oracle, but a different instant, and 4% is
 not enough to change a measurement's meaning for.
+
+# Decision: the CPU's two sections are one section, and the code now says so
+
+Taken, at the measured 18%. `fastloop` completes an allowlist rather than
+trusting one: `COMPANIONS = {"cpu": ("cpu_common",)}`, applied in
+`_apply_scoping()`, so `allow: cpu,mc146818rtc` puts `cpu_common` in the block
+and warns that it did.
+
+This is not a bugbench-shaped fix. `cpu` is the arch's legacy vmsd --
+`target/*/machine.c`, `.name = "cpu"` on every target in the tree, mips
+included -- and `cpu_common` is `vmstate_cpu_common`, which
+`cpu_vmstate_register()` (`hw/core/cpu-system.c`) registers for the *same*
+`CPUState` alongside it. The split is about where the fields live, `CPUState`
+versus the arch struct, not about what a reset should cover. Naming one and
+not the other is a scope miss on any target, so completing the pair is
+target-agnostic. The completion filters against the machine's actual section
+list, so a CPU that carries a qdev vmsd -- and therefore registers no
+`cpu_common` at all, see the `qdev_get_vmsd` test in `cpu_vmstate_register` --
+adds nothing.
+
+**Why complete rather than warn.** Everything else in this file refuses a
+scope it cannot apply, on the grounds that the scope *is* what the run
+measures. Auto-widening cuts against that. It wins here because the failure it
+prevents is the one this whole document is about: the miss shows up on 0.1-4.7%
+of laps, so a wrong configuration comes back VALID often enough to be believed.
+Run 58 FAILED on 1/1000 and run 61 returned VALID on 0/1000 from the same
+configuration. A warning on a run that reports VALID is a warning nobody acts
+on.
+
+**`allow_exact: true`** turns the completion off and warns that the pair is
+split. It exists because an auto-completion no experiment can disable makes the
+uncovered case unmeasurable -- and the uncovered case is the entire evidence
+for completing it. The A/B above stays re-runnable.
+
+**And the scope is now in the artifact.** `fastloop.json` carried `denied` and
+the machine's section list, and nothing else: an allowlisted run recorded
+`denied: []` and never said which sections were actually in the block. It now
+reports `allowed` (as applied, companions included), `allow_implied` (what was
+added), and `allow_exact`. A result whose scope is wider than its configuration
+now says so in the file, not only in the log.

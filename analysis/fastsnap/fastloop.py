@@ -322,6 +322,13 @@ class FastLoop(Plugin):
         extra = self.get_arg("deny_extra")
         self.deny_extra = ([x.strip() for x in extra.split(",") if x.strip()]
                            if extra else [])
+        # Take the allowlist literally, adding no companion section (see
+        # COMPANIONS in _apply_scoping). This exists so the A/B that measured
+        # what the companion costs can still be run -- an auto-completion no
+        # experiment can turn off makes the uncovered case unmeasurable, and
+        # the uncovered case is what justifies the completion.
+        self.allow_exact = bool(self.get_arg("allow_exact"))
+        self.allow_implied = []
 
         self.loadavg0 = list(os.getloadavg())
         if self.loadavg0[0] > 2.0:
@@ -554,6 +561,55 @@ class FastLoop(Plugin):
         the state machine re-checks on the next detector hit instead."""
         return self.panda.fastsnap_seq() > self.seq_at_sched
 
+    # One device, two vmstate sections, and an allowlist that names one of
+    # them and not the other is a scope miss rather than a choice.
+    #
+    # The only entry is the CPU, and it is not a special case of this target:
+    # `cpu` is the arch's legacy vmsd -- target/*/machine.c, `.name = "cpu"`
+    # on every target in the tree, mips included -- and `cpu_common` is
+    # vmstate_cpu_common, which cpu_vmstate_register() (hw/core/cpu-system.c)
+    # registers for the SAME CPUState alongside it. The split is about where
+    # the fields live, CPUState versus the arch struct, not about what a reset
+    # should cover. cpu_common carries `halted` and `interrupt_request` (plus
+    # exception_index and crash_occurred as subsections); everything else is
+    # in `cpu`.
+    #
+    # Why complete it rather than warn: the symptom of the miss is rare and
+    # therefore reads as health. Measured on bugbench/mipsel, an uncovered
+    # cpu_common diverged on 0.1-4.7% of verifications, so a 1000-lap run
+    # decided its own verdict by whether an interrupt happened to land -- run
+    # 58 FAILED on 1/1000 and run 61 returned VALID on 0/1000 from the same
+    # configuration. With it covered: 0 in 1000, twice.
+    #
+    # It is not free, and the price is worth stating because it looks like
+    # overhead and mostly is not: +127 us on a 528 us lap, 18% of throughput
+    # (1,760 -> 1,441 exec/s), of which 22.6 us is the larger reset and
+    # 102.6 us is the GUEST running differently -- resuming from the interrupt
+    # state the arm captured instead of whatever the previous lap left behind.
+    # That second part is the thing being bought.
+    #
+    # The standing claim before this was measured was that covering cpu_common
+    # cost 4x the lap. It did not; the two runs that produced that number had
+    # crash rates of 0.00% and 0.01% against 1.33% everywhere else -- they
+    # armed on an idle guest and were measuring nothing. See SCOPE-AB.md.
+    COMPANIONS = {
+        "cpu": ("cpu_common",),
+    }
+
+    def _companions(self, wanted, names):
+        """Sections implied by the ones asked for, present on this machine.
+
+        Order-preserving, deduplicated, and filtered against `names`, so a
+        machine whose CPU carries a qdev vmsd (and therefore registers no
+        cpu_common at all -- see cpu_vmstate_register) adds nothing.
+        """
+        out = []
+        for w in wanted:
+            for c in self.COMPANIONS.get(w, ()):
+                if c in names and c not in wanted and c not in out:
+                    out.append(c)
+        return out
+
     def _apply_scoping(self):
         """Choose which device sections the block covers.
 
@@ -583,6 +639,25 @@ class FastLoop(Plugin):
                     raise ValueError(
                         f"fastloop: allow= names {unknown}, which are not "
                         f"sections on this machine. Available: {names}")
+                implied = self._companions(wanted, names)
+                if implied and self.allow_exact:
+                    # Asked for literally, so honour it -- but say what is
+                    # being left out, because the symptom is rare enough to
+                    # be mistaken for a clean run.
+                    self.logger.warning(
+                        f"fastloop: allow_exact=True, so {implied} stays "
+                        f"OUT of the block even though the allowlist names "
+                        f"its other half. The device oracle will report it "
+                        f"unrestored on the fraction of laps where it "
+                        f"happened to change.")
+                elif implied:
+                    wanted = wanted + implied
+                    self.allow_implied = implied
+                    self.logger.warning(
+                        f"fastloop: adding {implied} to the allowlist. These "
+                        f"are the other half of a section you named -- see "
+                        f"COMPANIONS. Pass allow_exact=True to measure "
+                        f"without them.")
                 self.allowed = wanted
                 self.panda.fastsnap_set_allowlist(wanted)
                 self.logger.info(
@@ -1481,6 +1556,16 @@ class FastLoop(Plugin):
             # rather than to a filename.
             "plugin_sha256": self._self_sha256(),
             "denied": self.denied,
+            # The scope AS APPLIED, which until now the report did not carry
+            # at all: an allowlisted run recorded `denied: []` and the section
+            # list, and nothing said which sections were actually in the
+            # block. `allowed` is None for a denylist run; `allow_implied`
+            # names what _companions() added, so a result whose scope is
+            # wider than its configuration says so in the artifact rather
+            # than only in the log.
+            "allowed": self.allowed,
+            "allow_implied": self.allow_implied,
+            "allow_exact": self.allow_exact,
             "iter_ms": it,
             "verify_iter_ms": _stats(self.verify_iter_ms),
             "crash_iter_ms": _stats(self.crash_iter_ms),

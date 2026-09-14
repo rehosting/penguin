@@ -178,7 +178,13 @@ ran 60,000 laps under a different harness version.
 ### Still not established
 
 - the ~0.5 ms post-reset term, which is now the largest single cost in a lap;
-- whether `cpu_common` is a real scope miss or another unrestorable section;
+- ~~whether `cpu_common` is a real scope miss or another unrestorable
+  section~~ -- **settled: a real miss.** It restores fine; it simply was not in
+  the block. Arm 1's 3-laps-of-160 was the low end of a 0.1-4.7% range, which
+  is what makes it dangerous rather than negligible: a run can be scoped wrong
+  and report VALID. Covering it costs 18% of throughput, 82% of which is the
+  guest resuming from the interrupt state the arm captured. `fastloop` now
+  completes the `cpu`/`cpu_common` pair itself. See `SCOPE-AB.md`;
 - any of this on a second machine. Both arms are malta/mipsel. `ALLOWLIST.md`'s
   `{cpu, timer}` was aarch64-shaped and does not transfer: malta's equivalent
   came out as `cpu` plus possibly `cpu_common`, and `timer` never appeared.
