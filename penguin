@@ -227,6 +227,9 @@ penguin_run() {
                 echo "           May also be set via PENGUIN_IMAGE or a .penguin-image file (walked up from cwd)."
                 echo "           Precedence: --image > PENGUIN_IMAGE > .penguin-image > rehosting/penguin (built-in default)."
                 echo "  --extra_docker_args: Extra arguments to pass to the container engine. For example --extra_docker_args \"-p 8000:80\" to expose container port 80 on host port 8000."
+                echo "                       Appended last, so they override the wrapper's own defaults (e.g. -u, --cap-add)."
+                echo "                       e.g. --extra_docker_args \"--cap-add=SYS_ADMIN -u 0\" to let the fastsnap fork"
+                echo "                       oracle read PFNs from pagemap. Note running as root makes output files root-owned."
                 echo "  --docker: Force use of the docker engine."
                 echo "  --podman: Force use of the podman engine."
                 echo "  --engine: Explicitly select the container engine by name (e.g. --engine podman)."
@@ -1151,7 +1154,6 @@ penguin_run() {
         if [ -n "${PENGUIN_HOST_MOUNT_FROM:-}" ] && [ -n "${PENGUIN_HOST_MOUNT_TO:-}" ]; then
             extra_docker_args="${extra_docker_args//$PENGUIN_HOST_MOUNT_FROM/$PENGUIN_HOST_MOUNT_TO}"
         fi
-        docker_cmd+=($extra_docker_args)
     fi
 
     # docker2singularity conversion (below) talks to the docker socket and has
@@ -1335,6 +1337,27 @@ penguin_run() {
         docker_cmd+=("-u" "$(id -u):$(id -g)")
     fi
     docker_cmd+=("--cap-add=NET_BIND_SERVICE")
+
+    # LAST, so that "extra" means extra. These used to be appended well above,
+    # before the wrapper's own -u and --cap-add, and docker takes the LAST
+    # occurrence of a repeated flag -- so anything the wrapper set afterwards
+    # silently won and `--extra_docker_args` could not override it at all.
+    #
+    # Found by needing exactly that: reading PFNs from /proc/<pid>/pagemap
+    # (which fastsnap's fork oracle uses to prove pages equal without reading
+    # them, 46x) requires CAP_SYS_ADMIN *effective*, and a non-root uid has no
+    # effective capabilities however much --cap-add grants. Passing
+    # `--extra_docker_args "--cap-add=SYS_ADMIN -u 0"` looked like it worked,
+    # ran as uid 1002 anyway, and the oracle went on reading all of RAM while
+    # reporting the same answer -- visible only as a cost.
+    #
+    # Order here is the whole fix: the wrapper's defaults stay defaults, and
+    # a caller who asks for something different gets it. Running as root does
+    # make files in the output bind root-owned on the host, which is why the
+    # wrapper still defaults to the calling user.
+    if [ -n "$extra_docker_args" ]; then
+        docker_cmd+=($extra_docker_args)
+    fi
 
     docker_cmd+=("$image")
 
