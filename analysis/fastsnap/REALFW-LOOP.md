@@ -1,4 +1,33 @@
-# The loop on real firmware: the reset costs 124x its own clock
+# The loop on real firmware
+
+> ## READ THIS FIRST -- most of this document has been superseded by its own later sections
+>
+> This file was written forward, in the order the measurements arrived, and it
+> reverses itself several times. Every reversal is recorded in place rather
+> than edited away, because the wrong turns are the useful part -- but that
+> means **earlier sections read as current and are not**. The state as of
+> 2026-09-14 04:00:
+>
+> | claim, in the order it was made | status |
+> |---|---|
+> | "the reset costs 124x its own clock" (the original title) | **DEAD.** An artifact of comparing one replayed span to an average of many forward ones. |
+> | "the ARMING POINT sets the rate" | **incomplete.** True, but the deeper problem was that the loop was not replaying the armed span at all. |
+> | "replay costs 1.13x" | **DEAD.** Derived from a cross-construct comparison. The direct measurement gives 3,945x / 76x / 97x on the three targets. |
+> | "the arm lands cheap by construction" | **DEAD.** The RESTORE lands cheap; the arm does not. |
+> | "feeding from inside the boundary is the whole win, 10.8x" | **DEAD.** It was `swallow_writes`, and only in the closed-loop shape. |
+> | "target B blocks in select()" | **DEAD.** Its select handler never fired once. C does block there; B does not. |
+> | the reset is a 0.46-0.55 ms constant across three architectures | **STANDS.** Measured directly as `sched_to_bh`. |
+> | tb_invalidate / tb_flush / tlb_full_flush are 0 per reset | **STANDS.** Translation is not the cost. |
+> | the loop did not replay the span it armed on, on 3/3 targets | **STANDS.** This is the finding. |
+> | bugbench's ~1,400 exec/s | **STANDS.** Re-measured faithful (1.18 ms forward, 0.63 ms lap); its injector owns the read. |
+>
+> **Rates currently believed:** target B **27.9 exec/s** faithful (client-driven);
+> target A **not established** -- 231.6 and 0.95 from nominally the same config,
+> under investigation; target C **not yet measured**.
+
+# Appendix: the document as written, including the parts now known wrong
+
+## The loop on real firmware: the reset costs 124x its own clock
 
 `REALFW.md` established that a device-only restore destroys a booted guest and
 that the RAM half is not optional. This is the complete loop -- device block
