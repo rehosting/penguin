@@ -146,6 +146,14 @@ class SnapFeed(Plugin):
                          pin_filter=pf)(self.on_read_enter)
         syscalls.syscall("on_sys_writev_enter", comm_filter=self.comm,
                          pin_filter=pf)(self.on_writev_enter)
+        # write() as well as writev(). Target C's vendor httpd imports only
+        # accept/read/recv/select and never calls writev, so a writev-only
+        # hook tallied nothing and snapfeed reported "fed N inputs but the
+        # victim wrote NO parseable response" -- a false alarm from the
+        # control that exists to catch a wedged victim, on a victim that was
+        # answering perfectly well through a different syscall.
+        syscalls.syscall("on_sys_write_enter", comm_filter=self.comm,
+                         pin_filter=pf)(self.on_write_enter)
         self.logger.info(
             f"snapfeed: armed on comm={self.comm!r}, passthrough="
             f"{self.passthrough} (0.0 means nothing reaches the host), "
@@ -269,6 +277,22 @@ class SnapFeed(Plugin):
             # victim back for the remainder and cost a lap to a retry loop.
             total = yield from self._iov_total(iov, int(iovcnt))
             syscall.retval = total
+            syscall.skip_syscall = True
+            self.n_swallowed += 1
+
+    def on_write_enter(self, regs, proto, syscall, fd, buf, count):
+        """The same job as on_writev_enter, for a victim that uses write()."""
+        n = int(count)
+        if n <= 0 or int(fd) not in self.fds:
+            return
+        try:
+            data = yield from plugins.mem.read_bytes(int(buf), size=16)
+        except Exception:                                   # noqa: BLE001
+            data = b""
+        self._tally(data)
+        self.n_writes += 1
+        if self.swallow_writes:
+            syscall.retval = n
             syscall.skip_syscall = True
             self.n_swallowed += 1
 

@@ -136,6 +136,10 @@ def main():
     assert "on_sys_accept_return" in names, names
     assert "on_sys_accept4_return" in names, names
     assert "on_sys_writev_enter" in names, names
+    assert "on_sys_write_enter" in names, (
+        "a victim that answers with write() instead of writev() would tally "
+        "no responses, and the wedged-victim control would fire on a healthy "
+        "run: " + str(names))
     assert not any("writev_return" in n for n in names), (
         "hooking writev RETURN means the response already went to a socket "
         "whose peer exclusive mode has frozen: " + str(names))
@@ -309,6 +313,21 @@ def main():
     assert sc.skip_syscall is True and sc.retval == 17, (sc.retval, sc.skip_syscall)
     print("ok  snapfeed: swallow_writes=1 skips the write, for exclusive mode "
           "where the peer is frozen and cannot drain the socket")
+
+    # write(), for a victim that does not use writev at all.
+    w, wmem, _ = make(tmp)
+    w.on_accept(None, None, FakeSyscall(retval=7), 3, 0, 0)
+    wmem.contents[0x7000] = b"HTTP/1.0 500 Err\r\n"
+    sc = FakeSyscall()
+    list(w.on_write_enter(None, None, sc, 7, 0x7000, 18))
+    assert w.responses == {"500": 1}, w.responses
+    assert sc.skip_syscall is False, "write swallowed by default"
+    print("ok  snapfeed: a victim answering with write() is tallied too")
+
+    sc = FakeSyscall()
+    list(w.on_write_enter(None, None, sc, 9, 0x7000, 18))
+    assert w.responses == {"500": 1}, "tallied a write on an unlearned fd"
+    print("ok  snapfeed: write() on an unlearned fd is ignored")
 
     # A write on an fd we do not own is not ours to swallow.
     sc = FakeSyscall()
