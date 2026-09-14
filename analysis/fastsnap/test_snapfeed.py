@@ -290,9 +290,25 @@ def main():
     assert p.responses == {"200": 1}, (
         f"{p.responses} -- the tally read the iovec struct instead of "
         f"following iov_base")
+    # Swallowing is OFF by default: with a live client, output drives input.
+    # Measured on target B, where swallowing the response stopped the client
+    # pipelining and moved the forward gaps from ~183 ms to ~1038 ms.
+    assert sc.skip_syscall is False, (
+        "swallowing by default starves a live client of the response it "
+        "needs before sending the next request")
+    print("ok  snapfeed: the response tally follows iov_base, and the write "
+          "is NOT swallowed by default")
+
+    q2, qmem2, _ = make(tmp, swallow_writes=1)
+    q2.on_accept(None, None, FakeSyscall(retval=7), 3, 0, 0)
+    qmem2.ptrs[0x5000] = 0x6000
+    qmem2.ptrs[0x5004] = 17
+    qmem2.contents[0x6000] = b"HTTP/1.1 200 OK\r\n"
+    sc = FakeSyscall()
+    list(q2.on_writev_enter(None, None, sc, 7, 0x5000, 1))
     assert sc.skip_syscall is True and sc.retval == 17, (sc.retval, sc.skip_syscall)
-    print("ok  snapfeed: the response tally follows iov_base, and the write is "
-          "swallowed so a frozen peer cannot wedge the victim")
+    print("ok  snapfeed: swallow_writes=1 skips the write, for exclusive mode "
+          "where the peer is frozen and cannot drain the socket")
 
     # A write on an fd we do not own is not ours to swallow.
     sc = FakeSyscall()
@@ -300,7 +316,7 @@ def main():
     assert sc.skip_syscall is False, "swallowed a write to something else"
     print("ok  snapfeed: a write on an unlearned fd is left alone")
 
-    # Switchable off, for a run that wants the response to really go out.
+    # Explicitly off behaves the same as the default.
     q, qmem, _ = make(tmp, swallow_writes=0)
     q.on_accept(None, None, FakeSyscall(retval=7), 3, 0, 0)
     qmem.ptrs[0x5000] = 0x6000

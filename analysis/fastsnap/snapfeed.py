@@ -103,9 +103,20 @@ class SnapFeed(Plugin):
         # it, and it is reported so a loop run cannot use it without saying so.
         self.passthrough = float(self._arg("passthrough", 0.0))
         self.mutate_on = bool(int(self._arg("mutate", 1)))
-        # On by default: without it, exclusive mode (which freezes the peer)
-        # wedges the victim in writev the first time a send buffer fills.
-        self.swallow_writes = bool(int(self._arg("swallow_writes", 1)))
+        # OFF by default, and that default is a correction. It shipped as ON
+        # because exclusive mode needs it -- a frozen peer never drains the
+        # socket, so the victim wedges in writev the first time a send buffer
+        # fills. But with a LIVE client, output drives input: swallowing the
+        # response means the client never sends the next pipelined request and
+        # waits out its timeout instead.
+        #
+        # Measured. Target B's rate comes from keep-alive batches of 20
+        # pipelined requests. With responses swallowed its forward gaps went
+        # from a ~183 ms median to ~1038 ms and the loop settled at 0.96
+        # exec/s -- faithfully replaying a span that this plugin had made
+        # slow. Turn it on with exclusive mode, where there is no client left
+        # to starve, and leave it off otherwise.
+        self.swallow_writes = bool(int(self._arg("swallow_writes", 0)))
         # iovec is two pointer-sized fields; 4 on every target in this lane.
         self.ptr_size = int(self._arg("ptr_size", 4))
         self.pin_filter = bool(int(self._arg("pin_filter", 0)))
