@@ -288,12 +288,33 @@ class BugBench(Plugin):
         middle of the run it is supposed to be measuring.
         """
         self._lap_bound = True
-        loop = getattr(plugins, "plugins", {}).get("fastloop")
+        # get_plugin_by_name, NOT plugins.plugins[...] and NOT plugins.fastloop.
+        #
+        # The raw dict is keyed by CLASS name (plugin_manager assigns
+        # `name = pluginclass.__name__`), so "fastloop" misses `FastLoop` and
+        # the bind silently fell back -- which is what the first live run of
+        # this did, third instance in this lane of a name that resolves to
+        # nothing (`bug_bench.n_sent` for `bugbench.n_sent`; a test stub with
+        # no `register`). get_plugin_by_name lowercases and resolves aliases,
+        # and unlike attribute access it returns None instead of LOADING a
+        # second measurement harness into the run being measured.
+        loop = None
+        try:
+            loop = plugins.get_plugin_by_name("fastloop")
+        except Exception:                                   # noqa: BLE001
+            pass
         if loop is None:
+            # Say what was looked for and what was there. A miss that does not
+            # name the alternatives is how the previous two took a run each to
+            # find.
+            try:
+                have = sorted(getattr(plugins, "plugins", {}) or {})
+            except Exception:                               # noqa: BLE001
+                have = []
             self.logger.info(
-                "bugbench: no fastloop in this run, so there is no iteration "
-                "boundary to scope inputs by; crashes join to the last input "
-                "the crashing pid received, as before.")
+                f"bugbench: no fastloop in this run, so there is no iteration "
+                f"boundary to scope inputs by; crashes join to the last input "
+                f"the crashing pid received, as before. Loaded plugins: {have}")
             return
         try:
             plugins.subscribe(loop, "on_lap", self.on_lap)
@@ -309,6 +330,17 @@ class BugBench(Plugin):
 
         Everything after this and before the next one is one input's doing.
         """
+        if lap is None:
+            # The loop has stopped. The guest keeps running -- run 55 delivered
+            # 287,000 inputs against 200,000 laps -- and nothing is rewinding
+            # it any more, so there are no independent executions left to scope
+            # to. Back to the join used when there is no loop at all, rather
+            # than stamping the tail with a lap that ended.
+            self.lap = None
+            self._lap_rec = None
+            self._lap_inputs = 0
+            self.lap_closed_by = closed_by
+            return
         if self._lap_inputs > 1:
             # Not fatal, but it makes the lap join no more exact than the pid
             # join for that lap, and a count of these is the only way to know

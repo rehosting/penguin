@@ -116,8 +116,20 @@ def load_class(guest):
         # feature that had quietly fallen back to the pid join -- the same
         # shape as an arm_progress counter name that resolves to nothing, and
         # as a fastloop publish into a namespace with no `register`.
+        # Keyed by CLASS name, the way plugin_manager keys it
+        # (`name = pluginclass.__name__`), with the same case-insensitive
+        # accessor beside it. The first version of this stub was keyed
+        # "fastloop" and every test below passed while the real run fell
+        # back to the pid join, because the real key is "FastLoop".
         plugins = {}
         _subs = {}
+
+        @staticmethod
+        def get_plugin_by_name(want):
+            for k, v in _Plugins.plugins.items():
+                if k.lower() == want.lower():
+                    return v
+            return None
 
         @staticmethod
         def subscribe(plugin, event, cb):
@@ -141,7 +153,7 @@ def load_class(guest):
 def make(tmpdir, guest, with_fastloop=False, **args):
     cls, mod = load_class(guest)
     if with_fastloop:
-        mod.plugins.plugins["fastloop"] = types.SimpleNamespace(name="fastloop")
+        mod.plugins.plugins["FastLoop"] = types.SimpleNamespace(name="FastLoop")
 
     class Harnessed(cls):
         def __init__(self):
@@ -161,7 +173,7 @@ def make(tmpdir, guest, with_fastloop=False, **args):
 def lap(p, n, closed_by="hit"):
     """Fastloop announcing the iteration now starting."""
     mod = p._test_mod
-    mod.plugins._fire(mod.plugins.plugins["fastloop"], "on_lap", n, closed_by)
+    mod.plugins._fire(mod.plugins.plugins["FastLoop"], "on_lap", n, closed_by)
 
 
 def do_crash(p, guest, pid=None, comm="v", pc=0x400123):
@@ -415,6 +427,27 @@ def t_lap_no_input(tmp):
     assert row["attributed"] is False, row
     assert row["lap"] == 2 and row["lap_inputs"] == 0, row
     assert "input_seq" not in row, row
+
+
+@check("when the loop stops, the tail is not stamped with the lap that ended")
+def t_lap_end(tmp):
+    g = FakeGuest()
+    p = make(tmp, g, with_fastloop=True, fast=True, verify_first=0,
+             revalidate_every=10**9)
+    do_open(p, g, 3, "/dev/zero")
+    do_read(p, g, 3)
+    lap(p, 9)
+    do_read(p, g, 3)
+    do_crash(p, g)
+    assert p.attributed[-1]["join"] == "lap", p.attributed[-1]
+    lap(p, None, "end")
+    assert p.lap is None, p.lap
+    do_read(p, g, 3)                 # a tail input, no loop behind it
+    do_crash(p, g)
+    row = p.attributed[-1]
+    assert row["join"] == "last-input-to-pid", row
+    assert row["lap"] is None and row["lap_inputs"] is None, row
+    assert p.sent[-1]["lap"] is None, p.sent[-1]
 
 
 @check("the two joins disagreeing is counted, not quietly resolved")

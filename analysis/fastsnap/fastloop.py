@@ -95,6 +95,7 @@ class FastLoop(Plugin):
         # first lap; published only in mode=loop. Registration failing is not
         # fatal -- the loop is still a valid measurement without an audience.
         self._publish_lap = True
+        self._lap_ever = False
         try:
             plugins.register(self, "on_lap")
         except Exception as e:                              # noqa: BLE001
@@ -960,6 +961,7 @@ class FastLoop(Plugin):
             return
         if self.n_iters >= self.want:
             self.state = "done"
+            self._lap_end()
             self.logger.info(f"fastloop: finished {self.n_iters} iterations")
             if self.mode != "bare":
                 self.panda.fastsnap_schedule(self.panda.FASTSNAP_FORK_DROP)
@@ -1155,6 +1157,7 @@ class FastLoop(Plugin):
             f"degraded at iteration {self.n_iters} "
             f"({'idle' if idle else f'{frac:.1%} faulting'})")
         self.state = "done"
+        self._lap_end()
 
     def _hot_class(self):
         """Say it mid-run when crash laps are eating the clock. Once.
@@ -1252,6 +1255,7 @@ class FastLoop(Plugin):
             plugins.publish(self, "on_lap", self.n_iters,
                             "signal" if was_crash
                             else ("verify" if was_verify else "hit"))
+            self._lap_ever = True
         except Exception as e:                              # noqa: BLE001
             # Disabled after the first failure rather than retried. This runs
             # on the vCPU thread inside the loop: a subscriber that raises
@@ -1264,6 +1268,28 @@ class FastLoop(Plugin):
                 f"boundaries will be announced. Anything scoping itself per "
                 f"input is now silently run-scoped.")
             self.errors.append(f"on_lap publish failed: {e!r}")
+
+    def _lap_end(self):
+        """Announce that there are no more laps.
+
+        WITHOUT THIS THE LAST LAP NEVER ENDS. The guest keeps running after the
+        loop stops -- run 55 delivered 287,000 inputs against 200,000 laps --
+        and a subscriber holding the final lap index would go on stamping the
+        tail with it and calling the join exact. It would not be exact: with
+        nothing rewinding the guest there are no independent executions left to
+        scope to, so the honest answer for the tail is the same `None` the
+        subscriber started with, which sends it back to whatever join it uses
+        when no loop is present.
+
+        Published once, and only if the loop actually announced laps.
+        """
+        if not self._publish_lap or self.mode != "loop" or not self._lap_ever:
+            return
+        self._publish_lap = False
+        try:
+            plugins.publish(self, "on_lap", None, "end")
+        except Exception as e:                              # noqa: BLE001
+            self.logger.warning(f"fastloop: on_lap end publish failed ({e!r})")
 
     def _wall_attribution(self, span):
         """Where the wall clock went, by lap class, as a share of the span.

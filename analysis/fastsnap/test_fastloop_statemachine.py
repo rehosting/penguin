@@ -665,6 +665,33 @@ def lap_tests(tmp):
     assert laps and any(e[2] == "verify" for e in laps), laps
     print("ok  a lap the oracle ran on is labelled verify, not hit")
 
+    # ---- THE LAST LAP HAS TO END --------------------------------------
+    # The guest keeps running after the loop stops -- run 55 delivered 287,000
+    # inputs against 200,000 laps -- and a subscriber holding the final index
+    # would stamp the whole tail with it and call the join exact. It is not:
+    # with nothing rewinding the guest there are no independent executions to
+    # scope to.
+    p, q = make("loop", tmp, iters=3, verify_every=1000)
+    to_loop(p, q)
+    p._test_events["published"].clear()
+    for _ in range(6):
+        q.run_bottom_half()
+        hit(p)
+    laps = [e for e in p._test_events["published"] if e[0] == "on_lap"]
+    assert p.state == "done", p.state
+    assert laps[-1] == ("on_lap", None, "end"), laps[-3:]
+    assert sum(1 for e in laps if e[1] is None) == 1, "announced the end twice"
+    print("ok  the loop announces that laps have stopped, exactly once")
+
+    # A run that never announced a lap must not announce an end either -- the
+    # subscriber was never given a scope to give back.
+    p, q = make("loop", tmp, arm_clean_streak=1000, warmup=2)
+    for _ in range(5):
+        hit(p)
+    assert not [e for e in p._test_events["published"] if e[0] == "on_lap"], \
+        "announced an end for a loop that never armed"
+    print("ok  and says nothing at all if it never announced a lap")
+
     # ---- NOT IN THE CONTROL ARMS --------------------------------------
     # bare and armed never reset, so their laps are not independent
     # executions. Announcing them as such would invite exactly the
