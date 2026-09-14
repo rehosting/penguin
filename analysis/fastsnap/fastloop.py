@@ -172,6 +172,28 @@ class FastLoop(Plugin):
         self._clean_streak = 0
         self._best_streak = 0
         self.arm_probe = int(self._num("arm_probe", 200))
+        # THE THIRD ARM AXIS: is this draw SLOW?
+        #
+        # The probe already rejects a draw that FAULTS and a draw that is IDLE.
+        # Both ask "is this draw broken". Neither asks what turned out to set
+        # the rate.
+        #
+        # Measured, on two real images: the interval between detector hits is
+        # not unimodal. Target B alternates ~5.5 ms (a pipelined response
+        # inside a live connection) with ~450 ms (connection turnover -- the
+        # client exits, a new one forks and execs, a fresh TCP connect
+        # completes). The loop replays ONE of those forever. Same target, same
+        # reset, same configuration: 155 exec/s on the cheap phase, about 2 on
+        # the expensive one. A 70x swing decided by which hit the arm landed
+        # on.
+        #
+        # Compared against a LOW percentile of the warmup distribution, not the
+        # median: on a 50/50 bimodal the median IS the expensive mode, so a
+        # median-relative threshold would accept exactly the draw worth
+        # rejecting.
+        self.arm_cost_mult = float(self._num("arm_cost_mult", 3.0))
+        self.arm_cost_pctl = float(self._num("arm_cost_pctl", 25))
+        self.arm_cost_min_gaps = int(self._num("arm_cost_min_gaps", 50))
         self.arm_bad_frac = float(self._num("arm_bad_frac", 0.5))
         self.arm_retries = int(self._num("arm_retries", 3))
         self.arm_backoff_s = float(self._num("arm_backoff_s", 3.0))
@@ -200,6 +222,10 @@ class FastLoop(Plugin):
         self._probe_n = 0
         self._probe_sig = 0
         self._probe_done = False
+        self._probe_laps_ms = []    # this draw's replayed laps, for the cost axis
+        self.warm_gaps_ms = []      # forward intervals seen during warmup
+        self._warm_prev = None
+        self.arm_cost_rejects = 0
         self._rearm_at = None
         self.arm_gave_up = False
         if (self.get_arg("mode") or "loop").lower() != "loop":
@@ -350,6 +376,34 @@ class FastLoop(Plugin):
 
         self.reset_us = []          # from inside QEMU, per reset
         self.iter_ms = []           # host wall clock, per iteration
+        # The first laps RAW, not summarised, and the reason is one specific
+        # question that the summary cannot answer.
+        #
+        # The loop replays the span starting at the armed instant. In `armed`
+        # mode nothing is replayed -- but the FIRST lap after the arm is that
+        # same span, traversed forward exactly once. So lap 0 of an armed run
+        # and the median lap of a loop run are the same span measured two ways,
+        # and the difference between them is what replay costs.
+        #
+        # Without this the comparison is impossible: `iter_ms` is a median over
+        # thousands of DIFFERENT forward gaps, which is what the earlier
+        # "8.73 ms vs 69.54 ms, so the reset costs 60 ms" reading compared, and
+        # it was comparing an average of all spans against one specific span.
+        self.first_laps_ms = []
+        self.first_laps_max = 32
+
+        # Reset cost in WORK. The timings say a real-firmware lap is 69 ms of
+        # which the reset is 0.5 ms; they cannot say what the other 68.5 ms is
+        # DOING, and three hypotheses about that were wrong. These are TCG's
+        # own counters, sampled at the same two boundaries the timings split
+        # at -- lap close and bottom-half done -- so the work divides into
+        # "caused by the reset" and "done by the guest afterwards" exactly as
+        # sched_to_bh and bh_to_observed do.
+        self._tcg_prev = None       # sample at the previous lap close
+        self._tcg_at_bh = None      # sample when the bottom half finished
+        self.tcg_reset = {k: [] for k, _ in self.TCG_COUNTERS}
+        self.tcg_guest = {k: [] for k, _ in self.TCG_COUNTERS}
+        self._tcg_any = False       # did ANY counter ever move?
         self.verify_iter_ms = []    # laps that also ran the oracle
         self.restored = []          # dirty pages copied back, per reset
         self.verifies = []          # {iter, diff_pages, bytes, diff_us, dev_*}
@@ -549,6 +603,33 @@ class FastLoop(Plugin):
 
     # ---- plumbing ---------------------------------------------------------
 
+    def _tcg_sample(self):
+        """Read every TCG counter, or None if this image exposes none.
+
+        Returns None rather than zeros when the accessors are absent, because
+        a dict of zeros is indistinguishable from a reset that caused no work
+        -- which is precisely the reading being tested.
+        """
+        out = {}
+        for key, fn in self.TCG_COUNTERS:
+            f = getattr(self.panda, fn, None)
+            if f is None:
+                return None
+            try:
+                out[key] = int(f())
+            except Exception:                               # noqa: BLE001
+                return None
+        return out
+
+    def _tcg_record(self, into, a, b):
+        if a is None or b is None:
+            return
+        for k in into:
+            d = b.get(k, 0) - a.get(k, 0)
+            if d:
+                self._tcg_any = True
+            into[k].append(d)
+
     def _sched(self, op):
         self.seq_at_sched = self.panda.fastsnap_seq()
         self.t_sched = time.perf_counter()
@@ -595,6 +676,16 @@ class FastLoop(Plugin):
     COMPANIONS = {
         "cpu": ("cpu_common",),
     }
+
+    TCG_COUNTERS = (
+        ("tb_invalidate", "fastsnap_tb_invalidate_count"),
+        ("tb_flush", "fastsnap_tb_flush_count"),
+        ("tlb_full_flush", "fastsnap_tlb_full_flush_count"),
+        ("tlb_part_flush", "fastsnap_tlb_part_flush_count"),
+        ("pages_unchanged", "fastsnap_ram_pages_unchanged"),
+        ("pages_invalidated", "fastsnap_ram_pages_invalidated"),
+        ("pages_skipped_nocode", "fastsnap_ram_pages_skipped_nocode"),
+    )
 
     def _companions(self, wanted, names):
         """Sections implied by the ones asked for, present on this machine.
@@ -753,6 +844,16 @@ class FastLoop(Plugin):
     def _step(self, now):
         try:
             if self.state == "warmup":
+                # The FORWARD distribution, recorded before anything is armed.
+                # This is the baseline the cost axis scores a draw against, and
+                # nothing was capturing it: warmup counted hits and discarded
+                # the intervals between them, which is the one thing that would
+                # have shown the bimodality immediately.
+                if self._warm_prev is not None:
+                    g = (now - self._warm_prev) * 1000.0
+                    if len(self.warm_gaps_ms) < 20000:
+                        self.warm_gaps_ms.append(g)
+                self._warm_prev = now
                 if (self.hits >= self.warmup
                         and (now - self.t0) >= self.arm_after_s
                         and (self.mode != "loop"
@@ -848,6 +949,7 @@ class FastLoop(Plugin):
                 self.arm_attempt += 1
                 self._probe_n = self._probe_sig = 0
                 self._probe_done = False
+                self._probe_laps_ms = []
                 self.state = "arming"
                 self._sched(self.panda.FASTSNAP_LOOP_ARM)
 
@@ -874,6 +976,9 @@ class FastLoop(Plugin):
                         (self.bh_wall_crash_ms if self._closed_by_signal
                          else self.bh_wall_ms).append(w)
                         self._split_wall(now)
+                    self._tcg_at_bh = self._tcg_sample()
+                    self._tcg_record(self.tcg_reset, self._tcg_prev,
+                                     self._tcg_at_bh)
                     self.reset_us.append(self.panda.fastsnap_last_us())
                     pages = self.panda.fastsnap_ram_restored_pages()
                     self.restored.append(pages)
@@ -991,6 +1096,12 @@ class FastLoop(Plugin):
 
     def _mark(self, now):
         """Close one iteration."""
+        _tcg_now = self._tcg_sample()
+        # Work between the bottom half finishing and this lap closing is the
+        # GUEST's, not the reset's.
+        self._tcg_record(self.tcg_guest, self._tcg_at_bh, _tcg_now)
+        self._tcg_prev = _tcg_now
+        self._tcg_at_bh = None
         was_crash = self._closed_by_signal
         self._closed_by_signal = False
         was_verify = self._pending_verify is not None
@@ -1090,6 +1201,13 @@ class FastLoop(Plugin):
                 self.crash_iter_ms.append(dt)
             else:
                 self.iter_ms.append(dt)
+            # Every class, in order, including the verified and crash-closed
+            # ones: which class lap 0 fell into is part of what is being asked.
+            if len(self.first_laps_ms) < self.first_laps_max:
+                self.first_laps_ms.append(
+                    {"i": self.n_iters, "ms": round(dt, 4),
+                     "class": ("verify" if was_verify
+                               else "crash" if was_crash else "plain")})
         self.t_iter = now
         self.t_signal_mono = None
         self.n_iters += 1
@@ -1097,7 +1215,7 @@ class FastLoop(Plugin):
         if self._publish_lap and self.mode == "loop":
             self._lap_event(was_crash, was_verify)
         if not self._probe_done:
-            self._probe(was_crash)
+            self._probe(was_crash, dt)
         elif self.health_window and self.mode == "loop":
             self._health(was_crash, dt)
         if self.state != "loop":
@@ -1126,18 +1244,44 @@ class FastLoop(Plugin):
                 self.errors.append(f"arm_progress {self.arm_progress!r}: {e!r}")
             return None
 
-    def _probe(self, was_crash):
+    def _cost_threshold(self):
+        """What a draw's replayed lap may cost, from the forward distribution.
+
+        Relative to a LOW percentile, because the distribution is not unimodal.
+        On a 50/50 bimodal the median is the expensive mode, so scoring against
+        the median would accept exactly the draw worth rejecting; p25 lands on
+        the cheap mode whenever one exists.
+
+        None when there is not enough warmup data to say -- and None means the
+        axis does not fire, never that the draw passed.
+        """
+        if (self.arm_cost_mult <= 0
+                or len(self.warm_gaps_ms) < self.arm_cost_min_gaps):
+            return None
+        try:
+            base = statistics.quantiles(self.warm_gaps_ms, n=100)[
+                max(0, min(98, int(self.arm_cost_pctl) - 1))]
+        except Exception:                                   # noqa: BLE001
+            return None
+        return base * self.arm_cost_mult
+
+    def _probe(self, was_crash, dt=None):
         """Score the draw over its first `arm_probe` laps.
 
-        The populations are not close: a healthy draw closes ~1.4% of laps on
-        a fatal signal and a poisoned one closes essentially all of them, so
-        any threshold between them works and this one does not need tuning.
+        Three axes now. The first two -- faulting and idle -- ask whether the
+        draw is BROKEN, and a run that only has broken draws is not worth
+        reporting, so they refuse. The third asks whether it is SLOW, and a
+        slow draw is perfectly valid: it just replays an expensive span. That
+        difference is why exhausting the retries on cost ACCEPTS the cheapest
+        draw seen rather than refusing the run.
         """
         if self._probe_n == 0:
             self._progress0 = self._read_progress()
         self._probe_n += 1
         if was_crash:
             self._probe_sig += 1
+        if dt is not None:
+            self._probe_laps_ms.append(dt)
         if self._probe_n < self.arm_probe:
             return
         self._probe_done = True
@@ -1152,6 +1296,18 @@ class FastLoop(Plugin):
                "progress_counter": self.arm_progress,
                "progress_delta": delta, "progress_needed": need}
         idle = delta is not None and delta < need
+        # The cost axis. Median, not mean: a draw whose replayed span is cheap
+        # can still show the occasional long lap, and one outlier must not
+        # reject a good draw.
+        lap_med = (statistics.median(self._probe_laps_ms)
+                   if self._probe_laps_ms else None)
+        thresh = self._cost_threshold()
+        costly = (lap_med is not None and thresh is not None
+                  and lap_med > thresh)
+        row["probe_lap_median_ms"] = (round(lap_med, 4)
+                                      if lap_med is not None else None)
+        row["cost_threshold_ms"] = round(thresh, 4) if thresh is not None else None
+        row["warmup_gaps"] = len(self.warm_gaps_ms)
         if idle:
             self.logger.warning(
                 f"fastloop: arm {self.arm_attempt} made no work -- "
@@ -1182,13 +1338,52 @@ class FastLoop(Plugin):
             self._reset_measurements()
             self.state = "done"
             return
-        if frac <= self.arm_bad_frac and not idle:
+        if frac <= self.arm_bad_frac and not idle and not costly:
             row["verdict"] = "accepted"
             self.arm_history.append(row)
             self.logger.info(
                 f"fastloop: arm {self.arm_attempt} accepted -- "
                 f"{self._probe_sig}/{self._probe_n} probe laps closed on a "
-                f"fatal signal ({frac:.1%})")
+                f"fatal signal ({frac:.1%})"
+                + ("" if lap_med is None or thresh is None else
+                   f", probe lap {lap_med:.2f} ms against a "
+                   f"{thresh:.2f} ms ceiling"))
+            return
+
+        # A COSTLY-ONLY draw is not a broken one, and the difference decides
+        # what happens when the retries run out. A faulting or idle draw makes
+        # the run's numbers meaningless, so those refuse. A costly draw is
+        # perfectly valid -- it replays an expensive span and reports an honest,
+        # low rate -- so running out of retries here takes the best draw seen
+        # and says so, rather than throwing away a usable measurement.
+        if costly and frac <= self.arm_bad_frac and not idle:
+            self.arm_cost_rejects += 1
+            if self.arm_attempt >= self.arm_retries:
+                row["verdict"] = "costly, out of retries -- accepted anyway"
+                self.arm_history.append(row)
+                self.logger.warning(
+                    f"fastloop: arm {self.arm_attempt} replays a "
+                    f"{lap_med:.2f} ms span against a {thresh:.2f} ms ceiling, "
+                    f"and there are no retries left. ACCEPTING it: a costly "
+                    f"draw is a valid measurement of an expensive span, not a "
+                    f"broken one. The rate below is real and low.")
+                return
+            row["verdict"] = "costly, re-arming"
+            self.arm_history.append(row)
+            self.logger.warning(
+                f"fastloop: arm {self.arm_attempt} REJECTED on COST -- the "
+                f"probe replays a {lap_med:.2f} ms span, against a "
+                f"{thresh:.2f} ms ceiling ({self.arm_cost_mult}x the "
+                f"{self.arm_cost_pctl:.0f}th percentile of "
+                f"{len(self.warm_gaps_ms)} forward gaps). The span is chosen "
+                f"by WHERE the arm landed, and on a real image the cheap and "
+                f"expensive modes differ by a factor of eighty. Drawing again.")
+            self._reset_measurements()
+            self._rearm_at = time.perf_counter() + self.arm_backoff_s
+            self.state = "rearm_wait"
+            self.pending_reset = False
+            self._pending_verify = None
+            self._closed_by_signal = False
             return
         if self.arm_attempt >= self.arm_retries:
             row["verdict"] = ("idle, out of retries" if idle
@@ -1567,6 +1762,18 @@ class FastLoop(Plugin):
             "allow_implied": self.allow_implied,
             "allow_exact": self.allow_exact,
             "iter_ms": it,
+            "first_laps_ms": self.first_laps_ms,
+            # None, not zeros, when the image has no such counters: a
+            # report of zeros reads as "the reset caused no translation work",
+            # which is the conclusion under test.
+            "tcg_work": ({
+                "note": ("per-lap deltas; `reset` is lap-close to bottom-half "
+                         "done, `guest` is bottom-half done to the next lap "
+                         "close -- the same split as sched_to_bh and "
+                         "bh_to_observed"),
+                "reset": {k: _stats(v) for k, v in self.tcg_reset.items()},
+                "guest": {k: _stats(v) for k, v in self.tcg_guest.items()},
+            } if self._tcg_any else None),
             "verify_iter_ms": _stats(self.verify_iter_ms),
             "crash_iter_ms": _stats(self.crash_iter_ms),
             "bh_wall_ms": _stats(self.bh_wall_ms),
@@ -1583,6 +1790,16 @@ class FastLoop(Plugin):
             "crash_signal_to_close_ms": _stats(self.crash_after_sig_ms),
             "arm_attempts": self.arm_attempt,
             "arm_clean_streak_required": self.arm_clean_streak,
+            # The FORWARD distribution, which nothing was recording and
+            # which turned out to be what sets the rate. Reported as stats
+            # rather than raw: what matters is the shape -- a mean far above
+            # the median means the cheap and expensive modes are far apart,
+            # and the draw decides which one the loop replays forever.
+            "warm_gaps_ms": _stats(self.warm_gaps_ms),
+            "arm_cost_threshold_ms": (
+                round(self._cost_threshold(), 4)
+                if self._cost_threshold() is not None else None),
+            "arm_cost_rejects": self.arm_cost_rejects,
             "arm_progress_counter": self.arm_progress,
             "longest_clean_streak": self._best_streak,
             "arm_history": self.arm_history,

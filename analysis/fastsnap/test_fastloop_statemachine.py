@@ -76,6 +76,18 @@ class FakeQemu:
         self.pagemap_status = 1
         self._pages_proved = 65628
         self._pages_read = 256
+        # TCG work counters, cumulative like the real ones. run_bottom_half()
+        # advances the reset-side ones; hit() advances the guest-side one, so
+        # a test can tell the two halves apart -- which is the whole point of
+        # sampling at both boundaries.
+        self.tb_invalidate = 0
+        self.tb_flush = 0
+        self.tlb_full_flush = 0
+        self.tlb_part_flush = 0
+        self.pages_unchanged = 0
+        self.pages_invalidated = 0
+        self.pages_skipped_nocode = 0
+        self.tcg_absent = False     # model an image predating the counters
 
     # -- the API the plugin uses --
     def fastsnap_available(self):
@@ -152,6 +164,36 @@ class FakeQemu:
     def fastsnap_diff_pagemap_status(self):
         return self.pagemap_status
 
+    # -- TCG work counters --
+    def _tcg(self, v):
+        if self.tcg_absent:
+            raise AttributeError("image predates the TCG counters")
+        return v
+
+    def fastsnap_tb_invalidate_count(self):
+        return self._tcg(self.tb_invalidate)
+
+    def fastsnap_tb_flush_count(self):
+        return self._tcg(self.tb_flush)
+
+    def fastsnap_tlb_full_flush_count(self):
+        return self._tcg(self.tlb_full_flush)
+
+    def fastsnap_tlb_part_flush_count(self):
+        return self._tcg(self.tlb_part_flush)
+
+    def fastsnap_tlb_elide_flush_count(self):
+        return self._tcg(0)
+
+    def fastsnap_ram_pages_unchanged(self):
+        return self._tcg(self.pages_unchanged)
+
+    def fastsnap_ram_pages_invalidated(self):
+        return self._tcg(self.pages_invalidated)
+
+    def fastsnap_ram_pages_skipped_nocode(self):
+        return self._tcg(self.pages_skipped_nocode)
+
     def fastsnap_diff_us(self):
         return self._diff_us
 
@@ -170,6 +212,12 @@ class FakeQemu:
         elif op in (self.FASTSNAP_LOOP_RESET, self.FASTSNAP_RESTORE,
                     self.FASTSNAP_RAM_RESTORE):
             self._last_us = self.reset_us
+            # 7 TBs killed and 128 pages invalidated per reset, and nothing
+            # else: distinct constants so a number attributed to the wrong
+            # half is identifiable rather than merely wrong.
+            self.tb_invalidate += 7
+            self.pages_invalidated += 128
+            self.pages_unchanged += 3
         elif op == self.FASTSNAP_LOOP_RESET_VERIFY:
             self._last_us = self.reset_us
             self._diff_us = self.diff_us
@@ -577,6 +625,194 @@ def detector_at_tests(tmp):
     print("ok  and which one was used is recorded in the results")
 
 
+def tcg_work_tests(tmp):
+    """Reset cost measured in WORK, attributed to the right half.
+
+    The timings say a real-firmware lap is 69 ms of which the reset is 0.5 ms,
+    and three separate hypotheses about the other 68.5 ms were wrong. These
+    counters are the counts themselves, and the thing that makes them worth
+    anything is WHICH HALF they are charged to -- so the fake advances them
+    only inside run_bottom_half(), and the test asserts the guest half stays
+    empty. A sampler that read both boundaries in the wrong order would still
+    produce plausible totals.
+    """
+    p, q = make("loop", tmp)
+    for _ in range(2):
+        hit(p)
+    for _ in range(40):
+        if p.state == "done":
+            break
+        q.run_bottom_half()
+        hit(p)
+    p.uninit()
+    out = json.load(open(pathlib.Path(tmp) / "fastloop.json"))
+    w = out["tcg_work"]
+    assert w is not None, "counters present but tcg_work not reported"
+    assert w["reset"]["tb_invalidate"]["median"] == 7, w["reset"]["tb_invalidate"]
+    assert w["reset"]["pages_invalidated"]["median"] == 128, w["reset"]
+    assert w["reset"]["pages_unchanged"]["median"] == 3, w["reset"]
+    # The guest half must be ZERO: the fake does invalidation work only in the
+    # bottom half, so anything here is work charged to the wrong side.
+    assert w["guest"]["tb_invalidate"]["median"] == 0, w["guest"]
+    assert w["guest"]["pages_invalidated"]["median"] == 0, w["guest"]
+    print("ok  tcg work is recorded and charged to the reset, not the guest")
+
+    # A full TB flush is the thing the whole design avoids; it must read 0
+    # rather than be absent, so a run can assert it never happened.
+    assert w["reset"]["tb_flush"]["median"] == 0, w["reset"]["tb_flush"]
+    print("ok  tb_flush is reported as zero, not omitted")
+
+    # An image predating the counters: None, never a dict of zeros. Zeros
+    # would read as "the reset caused no translation work", which is the
+    # conclusion under test.
+    p, q = make("loop", tmp)
+    q.tcg_absent = True
+    for _ in range(2):
+        hit(p)
+    for _ in range(40):
+        if p.state == "done":
+            break
+        q.run_bottom_half()
+        hit(p)
+    p.uninit()
+    out = json.load(open(pathlib.Path(tmp) / "fastloop.json"))
+    assert out["tcg_work"] is None, out["tcg_work"]
+    assert out["verdict"].startswith("VALID"), out["verdict"]
+    print("ok  an image with no TCG counters reports None, not zeros, and "
+          "still produces a VALID run")
+
+    # The preflight must NOT demand these: they are reached through getattr
+    # with a runtime string precisely so an older image degrades instead of
+    # refusing. Reverting that to attribute access would break this.
+    need = _CLS._api_names_used() - _CLS.API_OPTIONAL
+    for _, fn in _CLS.TCG_COUNTERS:
+        assert fn not in need, f"{fn} became required by the API preflight"
+    print("ok  the TCG counters are optional to the API preflight")
+
+
+def first_laps_tests(tmp):
+    """The first laps, raw and in order.
+
+    They exist for one comparison: lap 0 of an ARMED run traverses forward the
+    same span a loop run replays, and the median of iter_ms cannot substitute
+    because it averages thousands of DIFFERENT spans. That confusion produced
+    a 60 ms number that was compared against the wrong baseline for most of a
+    session.
+    """
+    p, q = make("loop", tmp)
+    for _ in range(2):
+        hit(p)
+    for _ in range(40):
+        if p.state == "done":
+            break
+        q.run_bottom_half()
+        hit(p)
+    p.uninit()
+    out = json.load(open(pathlib.Path(tmp) / "fastloop.json"))
+    fl = out["first_laps_ms"]
+    assert fl, "no first_laps_ms recorded"
+    assert [r["i"] for r in fl] == sorted(r["i"] for r in fl), fl
+    assert all(set(r) == {"i", "ms", "class"} for r in fl), fl[0]
+    assert all(r["class"] in ("plain", "verify", "crash") for r in fl), fl
+    assert len(fl) <= 32, f"cap not applied: {len(fl)} laps kept"
+    print(f"ok  first laps recorded raw and in order ({len(fl)} kept, "
+          f"classes {sorted({r['class'] for r in fl})})")
+
+
+def arm_cost_tests(tmp):
+    """The third arm axis: reject a draw that is SLOW.
+
+    Driven directly rather than through hit(), because the laps a fake
+    produces are microseconds apart and the axis would never fire -- which is
+    exactly how a feature gets "tested" against a code path that cannot run.
+
+    The distribution used here is the one measured on a real image: a 50/50
+    bimodal of 5.5 ms and 450 ms. That shape is the whole reason the threshold
+    is relative to a LOW percentile -- its MEDIAN is 228 ms, the expensive
+    mode, so a median-relative rule would accept the draw worth rejecting.
+    """
+    BIMODAL = [5.5, 450.0] * 100
+
+    def armed(**kw):
+        pp, qq = make("loop", tmp, **kw)
+        pp.warm_gaps_ms = list(BIMODAL)
+        pp.arm_attempt = 1
+        pp._probe_n = pp.arm_probe - 1
+        pp._probe_sig = 0
+        pp._progress0 = None
+        pp.state = "loop"
+        return pp, qq
+
+    # The threshold must land between the two modes, not on the median.
+    p, _ = armed()
+    t = p._cost_threshold()
+    assert t is not None, "axis inert with 200 gaps recorded"
+    assert 5.5 < t < 450.0, f"threshold {t} does not separate the modes"
+    import statistics as _st
+    assert t < _st.median(BIMODAL), (
+        f"threshold {t} is at or above the median {_st.median(BIMODAL)} -- a "
+        f"median-relative rule accepts the expensive mode")
+    print(f"ok  arm cost: threshold {t:.1f} ms separates 5.5 from 450 "
+          f"(median would be {_st.median(BIMODAL):.1f})")
+
+    # A cheap draw is accepted.
+    p, _ = armed()
+    p._probe_laps_ms = [5.6] * 40
+    p._probe(False, 5.6)
+    assert p.arm_history[-1]["verdict"] == "accepted", p.arm_history[-1]
+    assert p.state == "loop", p.state
+    print("ok  arm cost: a draw on the cheap mode is accepted")
+
+    # A costly draw is rejected and re-armed -- and the run is NOT refused.
+    p, _ = armed()
+    p._probe_laps_ms = [455.0] * 40
+    p._probe(False, 455.0)
+    assert p.arm_history[-1]["verdict"] == "costly, re-arming", p.arm_history[-1]
+    assert p.state == "rearm_wait", p.state
+    assert p.arm_cost_rejects == 1, p.arm_cost_rejects
+    assert not p.errors, p.errors
+    print("ok  arm cost: a draw on the expensive mode is rejected and re-armed")
+
+    # Out of retries on COST accepts, where out of retries on BROKEN refuses.
+    # That difference is the point: a costly draw is a valid measurement of an
+    # expensive span; a faulting draw is not a measurement at all.
+    p, _ = armed()
+    p.arm_attempt = p.arm_retries
+    p._probe_laps_ms = [455.0] * 40
+    p._probe(False, 455.0)
+    assert "accepted anyway" in p.arm_history[-1]["verdict"], p.arm_history[-1]
+    assert p.state == "loop", p.state
+    assert not p.errors, p.errors
+    print("ok  arm cost: out of retries ACCEPTS a costly draw rather than "
+          "throwing away a usable run")
+
+    # ... while a faulting draw out of retries still refuses.
+    p, _ = armed()
+    p.arm_attempt = p.arm_retries
+    p._probe_sig = p.arm_probe          # every probe lap faulted
+    p._probe_laps_ms = [5.6] * 40
+    p._probe(True, 5.6)
+    assert p.state == "done", p.state
+    assert any("broken victim" in e for e in p.errors), p.errors
+    print("ok  arm cost: a BROKEN draw out of retries still refuses the run")
+
+    # Not enough warmup data: the axis must not fire. None means "cannot say",
+    # never "passed".
+    p, _ = armed()
+    p.warm_gaps_ms = [5.5] * 3
+    assert p._cost_threshold() is None
+    p._probe_laps_ms = [455.0] * 40
+    p._probe(False, 455.0)
+    assert p.arm_history[-1]["verdict"] == "accepted", p.arm_history[-1]
+    print("ok  arm cost: with too little warmup data the axis is inert, not "
+          "a silent pass")
+
+    # Disabled explicitly.
+    p, _ = armed(arm_cost_mult=0)
+    assert p._cost_threshold() is None
+    print("ok  arm cost: arm_cost_mult=0 turns the axis off")
+
+
 def oracle_method_tests(tmp):
     # ---- HOW THE ORACLE GOT ITS ANSWER --------------------------------
     # "byte-identical across 281 MB" means something different when 99.6% of
@@ -937,6 +1173,9 @@ def main():
     lap_tests(tmp)
     health_tests(tmp)
     oracle_method_tests(tmp)
+    tcg_work_tests(tmp)
+    arm_cost_tests(tmp)
+    first_laps_tests(tmp)
     detector_at_tests(tmp)
 
     # ---- mode=loop: the full path -------------------------------------

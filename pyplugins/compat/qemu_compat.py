@@ -1653,6 +1653,70 @@ class QemuCompat:
         fn = self._lib_symbol("penguin_fastsnap_diff_pages_read")
         return int(fn()) if fn is not None else 0
 
+    # ---- reset cost in WORK, not wall clock -----------------------------
+    #
+    # Every explanation of where a real-firmware lap goes has so far been
+    # inferred from timings, and three in a row were wrong: the device half,
+    # the memcpy, and TB invalidation were each convicted and then acquitted.
+    # These are the counts themselves. All cumulative since process start --
+    # the caller takes deltas -- and all 0 under KVM, in a build without TCG,
+    # and on an image that predates them, which is why a run that cares must
+    # check that at least one of them ever moves.
+
+    def fastsnap_tb_flush_count(self) -> int:
+        """Full TB flushes. Should be ZERO across a loop: the whole design
+        avoids vm_stop(RUN_STATE_RESTORE_VM) precisely so this never fires,
+        and a non-zero delta means that avoidance has broken."""
+        fn = self._lib_symbol("penguin_fastsnap_tb_flush_count")
+        return int(fn()) if fn is not None else 0
+
+    def fastsnap_tb_invalidate_count(self) -> int:
+        """Translated blocks killed by range invalidation. This is the number
+        the 'are we over-invalidating' question is actually about."""
+        fn = self._lib_symbol("penguin_fastsnap_tb_invalidate_count")
+        return int(fn()) if fn is not None else 0
+
+    def fastsnap_tlb_full_flush_count(self) -> int:
+        """Softmmu TLB full flushes -- a DIFFERENT cache from the TB cache.
+        A cold softmmu TLB makes every guest access take a page-table walk in
+        C, which was the hypothesis devonly falsified; this measures it
+        instead of inferring it."""
+        fn = self._lib_symbol("penguin_fastsnap_tlb_full_flush_count")
+        return int(fn()) if fn is not None else 0
+
+    def fastsnap_tlb_part_flush_count(self) -> int:
+        fn = self._lib_symbol("penguin_fastsnap_tlb_part_flush_count")
+        return int(fn()) if fn is not None else 0
+
+    def fastsnap_tlb_elide_flush_count(self) -> int:
+        fn = self._lib_symbol("penguin_fastsnap_tlb_elide_flush_count")
+        return int(fn()) if fn is not None else 0
+
+    def fastsnap_ram_pages_unchanged(self) -> int:
+        """Pages that were in the dirty set and whose bytes already matched --
+        copied back and invalidated for nothing.
+
+        Only counted when FASTSNAP_COUNT_UNCHANGED is set in the QEMU process;
+        it costs a memcmp per restored page. It reads 0 otherwise, which is
+        indistinguishable from 'every restored page really differed', so do not
+        report it without also reporting whether the variable was set."""
+        fn = self._lib_symbol("penguin_fastsnap_ram_pages_unchanged")
+        return int(fn()) if fn is not None else 0
+
+    def fastsnap_ram_pages_invalidated(self) -> int:
+        """Restored pages this build actually called tb_invalidate on."""
+        fn = self._lib_symbol("penguin_fastsnap_ram_pages_invalidated")
+        return int(fn()) if fn is not None else 0
+
+    def fastsnap_ram_pages_skipped_nocode(self) -> int:
+        """Restored pages skipped because QEMU reported no code on them.
+
+        This is what the tbskip arm could not see: a null result there was
+        ambiguous between 'invalidation is cheap' and 'the skip skipped
+        nothing', and nothing counted which."""
+        fn = self._lib_symbol("penguin_fastsnap_ram_pages_skipped_nocode")
+        return int(fn()) if fn is not None else 0
+
     def fastsnap_diff_pagemap_status(self) -> int:
         """1 the PFN prefilter is active, 0 disabled by FASTSNAP_FORK_PAGEMAP,
         -1 unavailable (PFNs read as zero without CAP_SYS_ADMIN), None on a
