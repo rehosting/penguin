@@ -562,3 +562,71 @@ target B's two accepted arms -- 6.216 and 6.258 ms, with and without the axis
 the target A case where the arm landed in virtio-blk I/O at 2,625 ms, rather
 than as a source of speedup. That is still worth having; it is just a different
 claim, and a much smaller one.
+
+## The prediction was wrong, and the way it was wrong is the finding
+
+The prediction recorded above said: if arming systematically lands on the cheap
+mode, target B's forward traversal comes back near **6 ms**.
+
+It came back at **476.59 ms** -- the p90 of its own forward distribution, the
+expensive mode. The prediction is falsified. The alternative named alongside it
+is what happened: *the reset really does change which span follows, and the
+cheap replay is an artifact of the restore rather than of the arm.*
+
+Both targets now have the same measurement, from the same arming point, within
+a single run, with the oracle certifying the restore in both cases:
+
+| | forward traversal | replayed lap | ratio | oracle |
+|---|---|---|---|---|
+| target A (armel) | **3.79 ms** | **14,949 ms** | **3,945x SLOWER** | VALID, 403 MB |
+| target B (mips-BE) | **476.59 ms** | **6.28 ms** | **76x FASTER** | VALID, 2.16 GB, 10 verifications |
+
+Opposite directions, same cause. And the oracle is what makes the argument
+airtight rather than suggestive: it proves the guest state is restored byte for
+byte -- 2.16 GB of it on target B, ten times over -- so **the divergence cannot
+be in the guest state**. It has to come from outside.
+
+### What is outside the snapshot
+
+The host-side socket, the virtio queue, and everything else the guest talks to.
+The reset rewinds the guest; it does not rewind the world.
+
+- **Target A**: the input was consumed during the armed span and is never
+  redelivered. The guest replays into a `read()` that will not complete, and
+  waits on a timer. The lap sequence is the signature: 4.1 s, 8.5 s, 14.9 s,
+  then flat to **0.3% across sixteen laps**. Fifteen seconds with that little
+  variance is a timeout firing, not a workload running.
+- **Target B**: the input arrived DURING the 476 ms forward traversal and is
+  still queued when the replay starts. The guest never waits. Every draw on
+  target B replays at ~6.2 ms for this reason -- which is why its two earlier
+  arms, one with the cost axis off entirely and therefore under no selection
+  pressure, both landed at ~6.2 ms. That was read as "the arm lands cheap by
+  construction". It is not. The RESTORE lands cheap by construction.
+
+### What this costs the numbers in this document
+
+The faster direction is the dangerous one, because it reads as success. Target
+B's 155 exec/s is a verified, byte-identical, ten-times-certified measurement
+of **a span whose input was already there** -- not of the span that was armed.
+The same applies to any rate in this lane taken from a replay that outruns its
+own forward traversal, and that includes the headline the lane opened with.
+
+This is the same failure the idle axis exists to prevent -- an excellent number
+for a guest that is not doing the work -- arriving through a different door, and
+past an oracle that is working perfectly and is simply not looking at the world.
+
+### Handling: the two directions are not symmetric
+
+- **SLOWER** -> the cost axis re-arms. A different draw may not depend on input
+  that is gone.
+- **FASTER** -> re-arming cannot help, because the mechanism is structural.
+  Every draw shows it. What the run can do is refuse to let the rate be quoted
+  as if it were real, and `_replay_fidelity()` now puts that refusal in the
+  VERDICT SENTENCE rather than beside it.
+
+### The open question this leaves
+
+Whether a faithful loop is reachable at all without rewinding host-side I/O --
+and if it is not, whether the right move is to drive input from inside the
+snapshot boundary so there is no host-side state to rewind. That is a design
+question for the lane, not a measurement, and nothing here answers it.

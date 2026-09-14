@@ -1873,6 +1873,73 @@ class FastLoop(Plugin):
         }
         return out
 
+    def _replay_fidelity(self, out):
+        """Does the loop replay the span it armed on, or a different one?
+
+        The oracle proves the guest STATE is restored byte for byte. It cannot
+        prove the guest's WORLD is: the host-side socket, the virtio queue and
+        anything else the guest talks to sit outside the snapshot and are not
+        rewound. So a replay can diverge from the forward traversal in either
+        direction, and both were measured on real firmware:
+
+          target A   forward     3.79 ms -> replayed 14,949 ms   (3,945x SLOWER)
+          target B   forward   476.59 ms -> replayed      6.28 ms   (76x FASTER)
+
+        Same arming point in each case, same run, and the oracle certified the
+        restore in both -- target B's across 2.16 GB, byte-identical, ten
+        times. That is precisely why the divergence has to come from outside
+        the guest state. The leading account is that A's input was consumed
+        and is never redelivered, so the guest waits on a timer for data that
+        will not arrive again, while B's arrived DURING the forward traversal
+        and is still queued at replay, so the guest never waits at all.
+
+        The two directions need different handling, which is why this is a
+        report rather than another re-arm:
+
+          SLOWER  a different draw may not depend on fresh input, so the cost
+                  axis re-arms on it.
+          FASTER  re-arming cannot help, because the mechanism is structural --
+                  every draw on target B replays at ~6.2 ms. What it can do is
+                  refuse to let the rate be quoted as if it were real.
+
+        A rate taken from a faster-than-forward replay is the same failure the
+        idle axis exists to prevent -- an excellent number for a guest that is
+        not doing the work -- arriving through a different door.
+        """
+        fwd = self.arm_forward_ms
+        it = out.get("iter_ms") or {}
+        lap = it.get("median")
+        if not fwd or not lap or fwd <= 0 or lap <= 0:
+            return None
+        ratio = lap / fwd
+        k = self.arm_cost_fwd_mult if self.arm_cost_fwd_mult > 0 else 10.0
+        row = {"forward_ms": round(fwd, 4), "lap_ms": round(lap, 4),
+               "ratio": round(ratio, 6), "bound": k}
+        if ratio > k:
+            row["class"] = "slower"
+            row["note"] = (
+                f"REPLAY DIVERGES: the armed span traverses forward in "
+                f"{fwd:.2f} ms and replays in {lap:.2f} ms -- {ratio:.0f}x "
+                f"SLOWER. The oracle certifies the guest state; it cannot "
+                f"certify the host-side input, which is not rewound. Read the "
+                f"rate as a lower bound on a guest that is waiting, not "
+                f"working.")
+        elif ratio < 1.0 / k:
+            row["class"] = "faster"
+            row["note"] = (
+                f"REPLAY DIVERGES: the armed span traverses forward in "
+                f"{fwd:.2f} ms and replays in {lap:.2f} ms -- {1 / ratio:.0f}x "
+                f"FASTER. The guest state is restored byte for byte, so the "
+                f"speedup is not in the guest: it is input that arrived during "
+                f"the forward traversal and is still queued at replay, so the "
+                f"wait the forward span paid for never happens again. THE RATE "
+                f"ABOVE IS NOT A RATE FOR THIS SPAN -- it is the rate for a "
+                f"span whose input was already there.")
+        else:
+            row["class"] = "faithful"
+            row["note"] = None
+        return row
+
     def _wall_notes(self, out):
         """Sentences the verdict owes the reader about where the time went.
 
@@ -2218,6 +2285,11 @@ class FastLoop(Plugin):
                         " so every page was read back and the oracle paid for"
                         " the pagemap on top. Pass"
                         " --extra_docker_args \"--cap-add=SYS_ADMIN\".")
+            fid = self._replay_fidelity(out)
+            if fid:
+                out["replay_fidelity"] = fid
+                if fid["note"]:
+                    out["verdict"] += " " + fid["note"]
             notes = self._wall_notes(out)
             if notes:
                 out["wall_notes"] = notes

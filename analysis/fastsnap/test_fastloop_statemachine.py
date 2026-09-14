@@ -999,6 +999,73 @@ def arm_cost_tests(tmp):
     print("ok  arm cost: a cheap draw does not trip the early fire")
 
 
+def replay_fidelity_tests(tmp):
+    """A rate is only a rate for the span it was measured on.
+
+    Both directions were measured on real firmware from the SAME arming
+    point, with the oracle certifying the restore in both cases:
+
+      target A   forward     3.79 ms -> replayed 14,949 ms   (3,945x slower)
+      target B   forward   476.59 ms -> replayed      6.28 ms   (76x faster)
+
+    The faster case is the dangerous one. It reads as a triumph -- 155 exec/s
+    on a 2.16 GB guest, verified byte-identical ten times -- and it is not a
+    rate for the armed span at all.
+    """
+    p, _ = make("loop", tmp)
+
+    p.arm_forward_ms = 3.7892
+    r = p._replay_fidelity({"iter_ms": {"median": 14949.4}})
+    assert r["class"] == "slower", r
+    assert "SLOWER" in r["note"] and "lower bound" in r["note"], r["note"]
+    print(f"ok  replay fidelity: {r['ratio']:.0f}x slower is called out as a "
+          f"guest that is waiting, not working")
+
+    p.arm_forward_ms = 476.593
+    r = p._replay_fidelity({"iter_ms": {"median": 6.2792}})
+    assert r["class"] == "faster", r
+    assert "NOT A RATE FOR THIS SPAN" in r["note"], r["note"]
+    print(f"ok  replay fidelity: {1 / r['ratio']:.0f}x faster refuses to let "
+          f"the rate be quoted as real")
+
+    # The ordinary case must stay silent. A note on every run is a note on no
+    # run.
+    p.arm_forward_ms = 6.0
+    r = p._replay_fidelity({"iter_ms": {"median": 6.3}})
+    assert r["class"] == "faithful" and r["note"] is None, r
+    print("ok  replay fidelity: a faithful replay adds nothing to the verdict")
+
+    # Right at the bound, both sides.
+    p.arm_forward_ms = 10.0
+    assert p._replay_fidelity({"iter_ms": {"median": 99.0}})["class"] == "faithful"
+    assert p._replay_fidelity({"iter_ms": {"median": 101.0}})["class"] == "slower"
+    assert p._replay_fidelity({"iter_ms": {"median": 1.01}})["class"] == "faithful"
+    assert p._replay_fidelity({"iter_ms": {"median": 0.99}})["class"] == "faster"
+    print("ok  replay fidelity: the bound is symmetric in ratio, not in ms")
+
+    # No baseline, no claim.
+    p.arm_forward_ms = None
+    assert p._replay_fidelity({"iter_ms": {"median": 6.3}}) is None
+    p.arm_forward_ms = 6.0
+    assert p._replay_fidelity({"iter_ms": {}}) is None
+    print("ok  replay fidelity: with no forward baseline it makes no claim")
+
+    # And it reaches the VERDICT, not just the JSON -- the whole point is that
+    # a number nobody has to read is a number nobody reads.
+    p, q = make("loop", tmp)
+    to_loop(p, q)
+    for _ in range(12):
+        q.run_bottom_half()
+        hit(p)
+    p.arm_forward_ms = 100000.0          # force the faster branch on close
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    assert out["replay_fidelity"]["class"] == "faster", out["replay_fidelity"]
+    assert "NOT A RATE FOR THIS SPAN" in out["verdict"], out["verdict"]
+    print("ok  replay fidelity: the warning lands in the verdict sentence, "
+          "not beside it")
+
+
 def oracle_method_tests(tmp):
     # ---- HOW THE ORACLE GOT ITS ANSWER --------------------------------
     # "byte-identical across 281 MB" means something different when 99.6% of
@@ -1361,6 +1428,7 @@ def main():
     oracle_method_tests(tmp)
     tcg_work_tests(tmp)
     arm_cost_tests(tmp)
+    replay_fidelity_tests(tmp)
     forward_baseline_tests(tmp)
     first_laps_tests(tmp)
     detector_at_tests(tmp)
