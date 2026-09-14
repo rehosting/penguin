@@ -848,3 +848,61 @@ zero outside it, so there was nothing for it to exclude. It is a correctness
 guard for the case that measurement cannot rule out in advance: a forked worker
 or a restarted victim carrying the same `comm`. Whether it ever fires on these
 targets is now measurable rather than assumed.
+
+## CORRECTION: it was not the feeding, and the win does not have one setting
+
+The section above -- *"feeding from inside the boundary is the whole win,
+10.8x"* -- is wrong, and wrong in the way this lane keeps being wrong: one arm
+changed two things and the conclusion took the credit for the wrong one.
+
+The `feed` arm had `swallow_writes` ON. Isolating it on target A:
+
+| target A | swallow | pin | lap | exec/s |
+|---|---|---|---|---|
+| `feed` | on | off | **4.32 ms** | **231.6** |
+| `pin` | off | on | 118.96 ms | 8.41 |
+| `Ans` | off | off | 122.30 ms | 8.18 |
+
+The pin is worth nothing for speed -- 118.96 against 122.30 is noise.
+**`swallow_writes` was the entire 28x.** Feeding reads alone gives ~8 exec/s.
+
+And on target B the same switch has the OPPOSITE sign:
+
+| target B | lap | exec/s | fidelity |
+|---|---|---|---|
+| no snapfeed (the lane's old number) | 6.24 ms | 160 | **75x faster -- fictional** |
+| snapfeed, swallow ON | 1038 ms | 0.96 | faithful 1.001 |
+| snapfeed, swallow OFF | **35.86 ms** | **27.9** | **faithful 1.685** |
+
+### Two loop shapes, not one setting
+
+That is not a contradiction. There are two ways to run this loop and they want
+opposite configurations:
+
+**Client-driven** (B with swallow off). The real client receives the response,
+sends the next pipelined request, `select` reports readable, and snapfeed only
+substitutes the payload bytes. The client is the engine, so swallowing the
+response stops the engine.
+
+**Closed loop** (A with swallow on). No client in the iteration at all: `read`
+is answered from guest RAM, `write` is discarded, and the victim spins on
+parse. Faster, and the better fuzzing mode -- the iteration is one parse of one
+mutated input, with nothing outside the snapshot in it. But it only works if
+the victim's event loop REACHES `read()` without a client.
+
+That last clause is why A won and B did not. A gets to `read()`. B blocks in
+`select()` first, so snapfeed was feeding perfectly into a victim that was not
+listening. Both vendor httpds in this lane import exactly
+`accept read recv select`.
+
+### The honest rates so far
+
+| | before | after | what changed |
+|---|---|---|---|
+| target A | 21.4 exec/s (11x divergent) | **231.6**, closed loop | both ends synthesised |
+| target B | 160 exec/s (75x FASTER, fictional) | **27.9**, faithful 1.685 | fed, client-driven |
+| target C | 41.5 / 1,195 (8-97x divergent) | not yet measured | crashes; needs reset_on_signal |
+
+Target B's number went DOWN, and that is the point. 160 exec/s was a verified,
+byte-identical, ten-times-certified measurement of a span whose input had
+already arrived. 27.9 is a measurement of the span that was armed.
