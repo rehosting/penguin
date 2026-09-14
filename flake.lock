@@ -117,11 +117,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1787443792,
-        "narHash": "sha256-1dHIuWhBYkkcSo8iGEZi9KrigRDuzNdY3D4xxxcbVaQ=",
+        "lastModified": 1789422499,
+        "narHash": "sha256-BYBlGgMDTcUPAPNL+hiyirpRulWyc2A9SwjAKFqGluE=",
         "owner": "rehosting",
         "repo": "guesthopper",
-        "rev": "a8270c0fa030c100d667b3ad82375029ee5f1c56",
+        "rev": "384604bdc969293376a8dbbcb7080073a064a665",
         "type": "github"
       },
       "original": {

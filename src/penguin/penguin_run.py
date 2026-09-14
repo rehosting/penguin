@@ -300,7 +300,11 @@ Connect to this penguin run's guest over the vsock command channel.
 
   (no args)     open an interactive root shell (a pty over vsock)
   CMD...        run CMD once in the guest; stdout/stderr stream back and
-                connect.sh exits with the command's status
+                connect.sh exits with the command's status. CMD is an argv,
+                like 'docker exec': quoting is preserved, so
+                  connect.sh echo "a b"    sends echo a single argument.
+                For pipes/redirection, pass one shell string:
+                  connect.sh 'a | b > /tmp/c'
   -h, --help    show this help
 
 The guest also answers on its container IP via the telnet and ssh front
