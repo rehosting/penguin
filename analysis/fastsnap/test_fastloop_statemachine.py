@@ -1087,6 +1087,77 @@ def detector_process_tests(tmp):
           "false all-clear")
 
 
+def pin_tests(tmp):
+    """The pin has to land BEFORE the snapshot, and fail soft when absent.
+
+    Both halves matter. Before, because the pin and the stopped task states
+    live in guest RAM: captured by the snapshot, they are restored with it and
+    every replayed lap starts the same way. After, and the first reset rewinds
+    them away.
+
+    Fail soft, because the op only exists in a driver built with it, and a run
+    on an older image must still produce a measurement -- degraded and SAYING
+    SO -- rather than refuse to start.
+    """
+    # Default off: no portal traffic, no extra state, same behaviour as before.
+    p, q = make("loop", tmp)
+    assert p.pin_process is False and p.pin_exclusive is False
+    to_loop(p, q)
+    assert p.state == "loop", p.state
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    assert out["pin_process"] is False and out["pin_report"] is None
+    assert out["degraded_notes"] == [], out["degraded_notes"]
+    print("ok  pin: off by default, and an unpinned run says so rather than "
+          "reporting an empty pin as a clean one")
+
+    # Requested but unavailable: the run continues, degraded, and the report
+    # says what it did not get. The fake has no `hyper` module, so the import
+    # inside _portal fails exactly as it would on an older image.
+    p, q = make("loop", tmp, pin_process=1, pin_exclusive=1)
+    assert p.pin_process is True and p.pin_exclusive is True
+    to_loop(p, q, ident=(4242, 99))
+    assert p.state == "loop", (
+        f"state {p.state}: a missing portal op stalled the run instead of "
+        f"degrading it")
+    for _ in range(12):
+        q.run_bottom_half()
+        hit_from(p, 4242, 99)
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    assert out["verdict"].startswith("VALID"), out["verdict"]
+    notes = " ".join(out["degraded_notes"])
+    assert "UNPINNED" in notes, out["degraded_notes"]
+    assert "may close in a process the arm did not land in" in notes, notes
+    print("ok  pin: unavailable on this image -> the run continues and the "
+          "report names what it lost")
+
+    # The ordering claim, asserted directly: no LOOP_ARM may be scheduled
+    # until the pin work has been driven.
+    p, q = make("loop", tmp, pin_process=1)
+    for _ in range(2):
+        hit_from(p, 4242, 99)
+    armed_before = q.FASTSNAP_LOOP_ARM in q.ops
+    assert not armed_before, q.ops
+    print("ok  pin: the snapshot is not armed before the pin has been applied")
+
+    # The struct decoder, against the layout the driver actually writes:
+    # seven u64 then four u8, little-endian.
+    import struct as _struct
+    raw = _struct.pack("<7Q4B", 11, 22, 0, 5, 0, 4242, 99, 1, 1, 0, 1)
+    rep = _CLS._decode_pin_report(raw)
+    assert rep["hits_in"] == 11 and rep["hits_out"] == 22, rep
+    assert rep["frozen_signalled"] == 5 and rep["frozen_pending"] == 0, rep
+    assert rep["pinned_pid"] == 4242 and rep["exclusive"] == 1, rep
+    print("ok  pin: the driver's report decodes field for field")
+
+    # A truncated or absent reply is "cannot say", never a zeroed all-clear.
+    assert _CLS._decode_pin_report(b"") is None
+    assert _CLS._decode_pin_report(b"\x00" * 8) is None
+    assert _CLS._decode_pin_report(None) is None
+    print("ok  pin: a short reply decodes to None, not to a report of zeros")
+
+
 def replay_fidelity_tests(tmp):
     """A rate is only a rate for the span it was measured on.
 
@@ -1518,6 +1589,7 @@ def main():
     arm_cost_tests(tmp)
     replay_fidelity_tests(tmp)
     detector_process_tests(tmp)
+    pin_tests(tmp)
     forward_baseline_tests(tmp)
     first_laps_tests(tmp)
     detector_at_tests(tmp)

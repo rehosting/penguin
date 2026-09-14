@@ -213,6 +213,16 @@ class FastLoop(Plugin):
         # One extra lap, and it is the only baseline the run can compare
         # its own laps against. On by default for that reason.
         self.arm_forward_probe = bool(self._num("arm_forward_probe", 1))
+        # Pin the guest to the process the arm lands in, immediately before
+        # the snapshot. See _pin_apply(). Default OFF: it needs a driver new
+        # enough to carry the op, and on an older one the loop must still run.
+        self.pin_process = bool(self._num("pin_process", 0))
+        # ...and take the CPU away from every other userspace task. Only
+        # meaningful with an injector: the in-guest load generator is one of
+        # the tasks this stops, so without something answering the victim's
+        # reads from inside the boundary the victim simply goes idle.
+        self.pin_exclusive = bool(self._num("pin_exclusive", 0))
+        self.pin_settle_hits = int(self._num("pin_settle_hits", 200))
         self.arm_bad_frac = float(self._num("arm_bad_frac", 0.5))
         self.arm_retries = int(self._num("arm_retries", 3))
         self.arm_backoff_s = float(self._num("arm_backoff_s", 3.0))
@@ -410,6 +420,10 @@ class FastLoop(Plugin):
         self.arm_us = None
         self.t_arm_s = None
         self._arm_ident = None   # (pid, create_time) the arm landed in
+        self._pending_portal = None   # generator for on_hit to drive
+        self._pin_n = 0               # settle polls spent
+        self.pin_report = None        # what the driver said, for the record
+        self.degraded_notes = []      # things the run did NOT get, in words
         self._last_ident = None
         self.hit_procs = {}      # identity -> hits, across the whole run
         self.hits_other_proc = 0
@@ -832,6 +846,109 @@ class FastLoop(Plugin):
 
     # ---- the loop ---------------------------------------------------------
 
+    def _portal(self, op_name, pid=0, addr=0, size=0):
+        """Issue one portal op; yields the command, returns what came back.
+
+        The imports are INSIDE the function on purpose. A driver that predates
+        these ops has no such enumerator, and an image built before them has
+        no such module path -- in both cases the loop must degrade to "no pin"
+        and still produce a measurement, rather than refuse to start. That is
+        the same rule the TCG counters follow.
+        """
+        try:
+            from hyper.portal import PortalCmd
+            from hyper.consts import HYPER_OP as hop
+            op = getattr(hop, op_name)
+        except Exception as e:                              # noqa: BLE001
+            self._pin_unavailable(op_name, e)
+            return None
+        return (yield PortalCmd(op, addr=addr, size=size, pid=pid))
+
+    def _pin_unavailable(self, op_name, err):
+        if self.pin_process and "pin" not in " ".join(self.degraded_notes):
+            self.degraded_notes.append(
+                f"pin requested but {op_name} is not available on this image "
+                f"({err!r}); the run continues UNPINNED and its laps may close "
+                f"in a process the arm did not land in")
+            self.logger.warning(f"fastloop: {self.degraded_notes[-1]}")
+
+    def _pin_settle_step(self):
+        """One poll of the freeze, and the arm once it has landed."""
+        done = yield from self._pin_poll()
+        if done:
+            self.state = "arming"
+            self._sched(self.panda.FASTSNAP_LOOP_ARM)
+
+    def _pin_apply(self):
+        """Pin the guest to the arming process, before the snapshot is taken.
+
+        BEFORE, and that is the whole design. The pin and the stopped task
+        states live in driver memory and task_struct -- guest RAM -- so the
+        snapshot captures them and every replayed lap begins with the same pin
+        and the same tasks stopped. Applied after the snapshot, the first reset
+        would rewind it away.
+        """
+        ident = self._last_ident
+        if ident is None:
+            self._pin_unavailable("SET_FUZZ_PIN", "driver reports no pid")
+            return
+        flags = 1 | (2 if self.pin_exclusive else 0)   # F_CHILDREN | F_EXCLUSIVE
+        r = yield from self._portal("HYPER_OP_SET_FUZZ_PIN",
+                                    pid=int(ident[0]), addr=int(ident[1]),
+                                    size=flags)
+        self.logger.info(
+            f"fastloop: pinned the guest to pid {ident[0]} "
+            f"(create_time {ident[1]}), children included"
+            + (", EXCLUSIVE -- every other userspace task stopped"
+               if self.pin_exclusive else "")
+            + f"; portal returned {r!r}")
+
+    def _pin_poll(self):
+        """Has the freeze actually taken effect yet?
+
+        SIGSTOP is asynchronous: a task stops at its next signal check, not at
+        the call. Arming the snapshot before that has happened would capture a
+        half-frozen guest and every replayed lap would inherit it, so this
+        polls until the driver reports nothing pending. It CANNOT block waiting
+        -- the tasks being stopped need the guest to run in order to receive
+        the signal -- which is why it is driven one detector hit at a time.
+        """
+        self._pin_n += 1
+        raw = yield from self._portal("HYPER_OP_GET_FUZZ_PIN_STATS")
+        rep = self._decode_pin_report(raw)
+        self.pin_report = rep
+        if rep is None:
+            return True          # cannot ask; do not stall the run on it
+        if rep.get("frozen_pending", 0) == 0:
+            self.logger.info(
+                f"fastloop: pin settled after {self._pin_n} polls -- "
+                f"{rep.get('frozen_signalled')} tasks stopped, "
+                f"{rep.get('hits_in')} hook firings inside the subtree, "
+                f"{rep.get('hits_out')} suppressed outside it")
+            return True
+        if self._pin_n >= self.pin_settle_hits:
+            self.degraded_notes.append(
+                f"pin did not settle: {rep.get('frozen_pending')} of "
+                f"{rep.get('frozen_signalled')} tasks were still not stopped "
+                f"after {self._pin_n} polls. The snapshot below captures a "
+                f"HALF-FROZEN guest and every lap replays it")
+            self.logger.warning(f"fastloop: {self.degraded_notes[-1]}")
+            return True
+        return False
+
+    @staticmethod
+    def _decode_pin_report(raw):
+        """struct igloo_fuzz_pin_report: five u64s then four u8s, LE."""
+        if not raw or len(raw) < 5 * 8 + 4:
+            return None
+        import struct
+        f = struct.unpack_from("<7Q4B", raw, 0)
+        return {"hits_in": f[0], "hits_out": f[1], "walk_truncated": f[2],
+                "frozen_signalled": f[3], "frozen_pending": f[4],
+                "pinned_pid": f[5], "pinned_start_time": f[6],
+                "active": f[7], "pinned_alive": f[8],
+                "frozen_overflow": f[9], "exclusive": f[10]}
+
     def _hit_identity(self, args):
         """(pid, create_time) of the process this hit came from, or None.
 
@@ -872,8 +989,12 @@ class FastLoop(Plugin):
         if self._clean_streak > self._best_streak:
             self._best_streak = self._clean_streak
         self._step(time.perf_counter())
-        return
-        yield
+        # _step cannot yield -- it is also called from the signal handler,
+        # which has no portal context -- so anything needing the portal is
+        # queued here and driven from the hook, which does.
+        g, self._pending_portal = self._pending_portal, None
+        if g is not None:
+            yield from g
 
     def on_fatal_signal(self, cpu, event):
         """A crash also ends an iteration -- and this is the whole point.
@@ -939,8 +1060,22 @@ class FastLoop(Plugin):
                     else:
                         self._apply_scoping()
                         self.arm_attempt = 1
-                        self.state = "arming"
-                        self._sched(self.panda.FASTSNAP_LOOP_ARM)
+                        if self.pin_process:
+                            # Pin BEFORE the snapshot, then wait for the
+                            # freeze to actually take effect. Both steps have
+                            # to happen while the guest is still running
+                            # freely: a stopped task needs to be scheduled to
+                            # receive its SIGSTOP, so this cannot be a busy
+                            # wait inside one hook.
+                            self._pin_n = 0
+                            self.state = "pin_settle"
+                            self._pending_portal = self._pin_apply()
+                        else:
+                            self.state = "arming"
+                            self._sched(self.panda.FASTSNAP_LOOP_ARM)
+
+            elif self.state == "pin_settle":
+                self._pending_portal = self._pin_settle_step()
 
             elif self.state == "arming":
                 if not self._bh_done():
@@ -2162,6 +2297,14 @@ class FastLoop(Plugin):
             # against its OWN entry rather than against the first.
             "arm_forward_ms_all": self.arm_forward_ms_all,
             "arm_cost_fwd_mult": self.arm_cost_fwd_mult,
+            "pin_process": self.pin_process,
+            "pin_exclusive": self.pin_exclusive,
+            # What the DRIVER reported, not what was asked for. hits_out is
+            # the number this whole mechanism exists to drive to zero: hook
+            # firings from outside the pinned subtree, which without the pin
+            # would have been counted as laps.
+            "pin_report": self.pin_report,
+            "degraded_notes": self.degraded_notes,
             # WHICH PROCESS the detector fired in. `comm` is a name, not an
             # identity. None throughout means the driver does not report pid,
             # which is "cannot say", not "all one process".
