@@ -443,6 +443,21 @@ class SnapFeed(Plugin):
             # the lap sits 96% idle is the evidence that sent the search
             # elsewhere, and it cost nothing to have.
             "census": dict(sorted(self.census.items(), key=lambda kv: -kv[1])),
+            # Pairs with identical counts are almost certainly the SAME
+            # syscall reached under two names -- accept/accept4 came back
+            # 542/542 and 544/544 on two runs, which is not coincidence. Left
+            # in rather than merged, because which name the guest actually
+            # uses is itself information, but flagged so nobody adds them up.
+            "census_aliases": [
+                [a, b] for i, (a, na) in enumerate(sorted(self.census.items()))
+                for b, nb in sorted(self.census.items())[i + 1:]
+                if na == nb and na > 0],
+            # A name being PRESENT is not a mechanism; its magnitude is.
+            # recvfrom appeared 6 times in a five-minute run and was read as
+            # "this is how it reads sockets", when 675 of 681 feeds had come
+            # through read(). The dominant call is the one that matters.
+            "census_top": (max(self.census.items(), key=lambda kv: kv[1])[0]
+                           if self.census else None),
             "n_select": self.n_select,
             "n_select_pass": self.n_select_pass,
             "answer_select": self.answer_select,

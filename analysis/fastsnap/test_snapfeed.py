@@ -342,10 +342,24 @@ def main():
     print("ok  snapfeed: the census counts blocking syscalls without touching "
           "them")
 
+    for _ in range(3):
+        for _ in c._census("accept")(None, None, FakeSyscall(), 1):
+            pass
+        for _ in c._census("accept4")(None, None, FakeSyscall(), 1):
+            pass
     c.uninit()
     out = json.load(open(pathlib.Path(tmp) / "snapfeed.json"))
     assert out["census"]["epoll_wait"] == 1, out["census"]
-    print("ok  snapfeed: the census reaches the report")
+    # Identical counts are almost certainly one syscall under two names --
+    # accept/accept4 came back 542/542 on a real run. Flagged so nobody adds
+    # them together.
+    assert ["accept", "accept4"] in out["census_aliases"], out["census_aliases"]
+    # And the DOMINANT call is named, because a name being present is not a
+    # mechanism: recvfrom appeared 6 times and was read as "this is how it
+    # reads sockets" when 675 of 681 feeds came through read().
+    assert out["census_top"] in ("accept", "accept4"), out["census_top"]
+    print("ok  snapfeed: the census flags aliased names and names the dominant "
+          "call, the two ways it was misread")
 
     # recv() feeds exactly as read() does.
     r, rmem, _ = make(tmp)
