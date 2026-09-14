@@ -135,6 +135,11 @@ def main():
     assert "on_sys_read_enter" in names, names
     assert "on_sys_accept_return" in names, names
     assert "on_sys_accept4_return" in names, names
+    assert "on_sys_recv_enter" in names, (
+        "a victim that takes its sockets with recv() is fed nothing: target C "
+        "accepted 556 connections and issued 8 read() calls, none on a learned "
+        "fd. " + str(names))
+    assert "on_sys_recvfrom_enter" in names, names
     assert "on_sys_writev_enter" in names, names
     assert "on_sys_write_enter" in names, (
         "a victim that answers with write() instead of writev() would tally "
@@ -313,6 +318,20 @@ def main():
     assert sc.skip_syscall is True and sc.retval == 17, (sc.retval, sc.skip_syscall)
     print("ok  snapfeed: swallow_writes=1 skips the write, for exclusive mode "
           "where the peer is frozen and cannot drain the socket")
+
+    # recv() feeds exactly as read() does.
+    r, rmem, _ = make(tmp)
+    r.on_accept(None, None, FakeSyscall(retval=7), 3, 0, 0)
+    sc = FakeSyscall()
+    list(r.on_recv_enter(None, None, sc, 7, 0x1000, 4096, 0))
+    assert rmem.writes and sc.skip_syscall is True, (rmem.writes, sc.skip_syscall)
+    assert sc.retval == len(rmem.writes[-1][1]) and r.n_sent == 1, sc.retval
+    print("ok  snapfeed: recv() is fed exactly as read() is")
+
+    sc = FakeSyscall()
+    list(r.on_recv_enter(None, None, sc, 9, 0x2000, 4096, 0))
+    assert sc.skip_syscall is False and r.n_sent == 1, "fed recv on unlearned fd"
+    print("ok  snapfeed: recv() on an unlearned fd is left alone")
 
     # ---- select(), the syscall a victim blocks in BEFORE read() -------
     # Feeding read() cannot help a victim that never reaches it. Target A gets

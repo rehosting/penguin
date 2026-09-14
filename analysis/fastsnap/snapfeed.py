@@ -150,6 +150,16 @@ class SnapFeed(Plugin):
                          pin_filter=pf)(self.on_accept)
         syscalls.syscall("on_sys_read_enter", comm_filter=self.comm,
                          pin_filter=pf)(self.on_read_enter)
+        # recv()/recvfrom() as well as read(). Target C's vendor httpd accepted
+        # 556 connections and issued EIGHT read() calls, none of them on a
+        # learned fd -- it takes its sockets with recv(). snapfeed reported
+        # FED NOTHING, correctly, and would have gone on reporting it forever
+        # while the victim served happily through a syscall nobody hooked.
+        # The import list said so from the start: `accept read recv select`.
+        syscalls.syscall("on_sys_recv_enter", comm_filter=self.comm,
+                         pin_filter=pf)(self.on_recv_enter)
+        syscalls.syscall("on_sys_recvfrom_enter", comm_filter=self.comm,
+                         pin_filter=pf)(self.on_recv_enter)
         syscalls.syscall("on_sys_writev_enter", comm_filter=self.comm,
                          pin_filter=pf)(self.on_writev_enter)
         # write() as well as writev(). Target C's vendor httpd imports only
@@ -296,6 +306,19 @@ class SnapFeed(Plugin):
             syscall.retval = total
             syscall.skip_syscall = True
             self.n_swallowed += 1
+
+    def on_recv_enter(self, regs, proto, syscall, fd, buf, length, *rest):
+        """recv(fd, buf, len, flags) -- the same feed as read().
+
+        Separate entry point only because the argument list differs; the
+        decision, the payload and the skip are identical. MSG_PEEK is the one
+        flag that would matter (a peek must not consume) but this never
+        consumes anything in the first place: it writes the buffer and skips
+        the syscall, so a peek and a read see the same bytes, which is what a
+        peek is entitled to expect.
+        """
+        return (yield from self.on_read_enter(regs, proto, syscall, fd, buf,
+                                              length))
 
     def on_write_enter(self, regs, proto, syscall, fd, buf, count):
         """The same job as on_writev_enter, for a victim that uses write()."""
