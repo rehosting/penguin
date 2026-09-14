@@ -719,6 +719,63 @@ def first_laps_tests(tmp):
           f"classes {sorted({r['class'] for r in fl})})")
 
 
+def forward_baseline_tests(tmp):
+    """The armed span, traversed forward once, before any reset.
+
+    This is the only baseline a loop run can compare its own laps against.
+    Everything else compares the ONE replayed span to an average over MANY
+    different forward spans -- which produced "the reset costs 60 ms, 124x its
+    own clock" on one image and, from identical arithmetic, "the reset makes
+    the guest 36x faster" on another.
+    """
+    p, q = make("loop", tmp)
+    for _ in range(2):
+        hit(p)
+    # The forward probe must happen BEFORE any reset: if a restore has already
+    # run, the "baseline" is a replayed span and measures nothing.
+    seen_reset_before_baseline = False
+    for _ in range(60):
+        if p.state == "done":
+            break
+        if p.arm_forward_ms is None and q.completed:
+            if any(op in (q.FASTSNAP_LOOP_RESET, q.FASTSNAP_RESTORE,
+                          q.FASTSNAP_RAM_RESTORE) for op in q.completed):
+                seen_reset_before_baseline = True
+        q.run_bottom_half()
+        hit(p)
+    p.uninit()
+    assert not seen_reset_before_baseline, (
+        "a reset ran before the forward baseline was taken -- the baseline is "
+        "then a replayed span and measures nothing")
+    out = json.load(open(pathlib.Path(tmp) / "fastloop.json"))
+    assert out["arm_forward_ms"] is not None, "no forward baseline recorded"
+    assert out["arm_forward_ms"] > 0, out["arm_forward_ms"]
+    assert out["verdict"].startswith("VALID"), out["verdict"]
+    print(f"ok  forward baseline taken before any reset "
+          f"({out['arm_forward_ms']:.3f} ms) and the run still completes")
+
+    # The oracle's split-order control must STILL run afterwards -- inserting
+    # the probe before it must not skip it, or every later zero is worthless.
+    assert out["split_order_control_diff_pages"] == q.diff_pages_split, out
+    print("ok  forward baseline does not displace the split-order control")
+
+    # Turned off, the run behaves exactly as before and reports None rather
+    # than a fabricated zero.
+    p, q = make("loop", tmp, arm_forward_probe=0)
+    for _ in range(2):
+        hit(p)
+    for _ in range(60):
+        if p.state == "done":
+            break
+        q.run_bottom_half()
+        hit(p)
+    p.uninit()
+    out = json.load(open(pathlib.Path(tmp) / "fastloop.json"))
+    assert out["arm_forward_ms"] is None, out["arm_forward_ms"]
+    assert out["verdict"].startswith("VALID"), out["verdict"]
+    print("ok  arm_forward_probe=0 reports None, not a zero, and still runs")
+
+
 def arm_cost_tests(tmp):
     """The third arm axis: reject a draw that is SLOW.
 
@@ -1175,6 +1232,7 @@ def main():
     oracle_method_tests(tmp)
     tcg_work_tests(tmp)
     arm_cost_tests(tmp)
+    forward_baseline_tests(tmp)
     first_laps_tests(tmp)
     detector_at_tests(tmp)
 
@@ -1192,8 +1250,22 @@ def main():
     q.run_bottom_half()
     hit(p)
     assert p.arm_us == 175000, p.arm_us
+    # The forward baseline comes first now: one span traversed un-reset, which
+    # is the only thing the replayed laps can be compared against. It must NOT
+    # schedule anything -- a bottom half would perturb the traversal it times.
+    assert p.state == "fwd_probe", p.state
+    before = list(q.ops)
+    hit(p)
+    # The hit that CLOSES the probe schedules the split control, which is
+    # correct. What must not happen is an op scheduled DURING the span -- so
+    # exactly one op appears, and it is the control's reset, not a second
+    # reset that would mean the baseline was measured across one.
+    added = q.ops[len(before):]
+    assert added == [q.FASTSNAP_LOOP_RESET], f"unexpected ops in fwd_probe: {added}"
+    assert p.arm_forward_ms is not None and p.arm_forward_ms > 0, p.arm_forward_ms
     assert p.state == "split_control", p.state
-    print("ok  arm recorded, split-order control scheduled first")
+    print("ok  arm recorded, forward baseline taken un-reset, then the "
+          "split-order control")
 
     # The control: reset, then diff as a SEPARATE bottom half.
     q.run_bottom_half()

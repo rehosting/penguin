@@ -194,6 +194,9 @@ class FastLoop(Plugin):
         self.arm_cost_mult = float(self._num("arm_cost_mult", 3.0))
         self.arm_cost_pctl = float(self._num("arm_cost_pctl", 25))
         self.arm_cost_min_gaps = int(self._num("arm_cost_min_gaps", 50))
+        # One extra lap, and it is the only baseline the run can compare
+        # its own laps against. On by default for that reason.
+        self.arm_forward_probe = bool(self._num("arm_forward_probe", 1))
         self.arm_bad_frac = float(self._num("arm_bad_frac", 0.5))
         self.arm_retries = int(self._num("arm_retries", 3))
         self.arm_backoff_s = float(self._num("arm_backoff_s", 3.0))
@@ -226,6 +229,23 @@ class FastLoop(Plugin):
         self.warm_gaps_ms = []      # forward intervals seen during warmup
         self._warm_prev = None
         self.arm_cost_rejects = 0
+        # THE BASELINE, measured inside the run that uses it.
+        #
+        # The right comparison for "what does a reset cost the guest" is the
+        # SAME span traversed normally versus replayed -- not a replayed span
+        # against an average of forward spans, which is what produced a "the
+        # reset costs 60 ms" reading that a second target then inverted into
+        # "the reset makes the guest 36x faster".
+        #
+        # It has to be taken here and nowhere else. `bare` never arms, so it
+        # samples every span rather than this one. `armed` arms and so already
+        # pays for the dirty log -- every first store to a page takes the
+        # TLB_NOTDIRTY path -- and is a different run besides, which on a
+        # bimodal distribution lands on a different span as a coin flip.
+        #
+        # So: after the arm and BEFORE the first reset of any kind, let the
+        # guest run forward exactly one span and time it. Costs one lap.
+        self.arm_forward_ms = None
         self._rearm_at = None
         self.arm_gave_up = False
         if (self.get_arg("mode") or "loop").lower() != "loop":
@@ -890,6 +910,12 @@ class FastLoop(Plugin):
                     self.state = "loop"
                     self.t_iter = now
                     self.t_loop0 = now
+                elif self.arm_forward_ms is None and self.arm_forward_probe:
+                    # One span forward, un-reset, before anything rewinds the
+                    # guest. This is the only point in the run where the armed
+                    # instant has been reached and no restore has happened yet.
+                    self.state = "fwd_probe"
+                    self._t_fwd0 = now
                 else:
                     # THE CONTROL FIRST. Run the oracle the wrong way round --
                     # as its own bottom half, with the guest free to run in
@@ -899,6 +925,19 @@ class FastLoop(Plugin):
                     # worthless.
                     self.state = "split_control"
                     self._sched(self.panda.FASTSNAP_LOOP_RESET)
+
+            elif self.state == "fwd_probe":
+                # The next detector hit closes the forward span. Nothing is
+                # scheduled here on purpose: any bottom half would perturb the
+                # very traversal being timed.
+                self.arm_forward_ms = (now - self._t_fwd0) * 1000.0
+                self.logger.info(
+                    f"fastloop: baseline -- the armed span traverses FORWARD "
+                    f"in {self.arm_forward_ms:.3f} ms, un-reset. Every lap "
+                    f"below replays this same span, so the two are comparable "
+                    f"and the difference is what the reset costs the guest.")
+                self.state = "split_control"
+                self._sched(self.panda.FASTSNAP_LOOP_RESET)
 
             elif self.state == "split_control":
                 if not self._bh_done():
@@ -1800,6 +1839,12 @@ class FastLoop(Plugin):
                 round(self._cost_threshold(), 4)
                 if self._cost_threshold() is not None else None),
             "arm_cost_rejects": self.arm_cost_rejects,
+            # The same span, un-reset, timed once before any restore. The
+            # ratio against iter_ms is the reset's cost TO THE GUEST, and it
+            # is the only form of that number not confounded by comparing two
+            # different spans.
+            "arm_forward_ms": (round(self.arm_forward_ms, 4)
+                               if self.arm_forward_ms is not None else None),
             "arm_progress_counter": self.arm_progress,
             "longest_clean_streak": self._best_streak,
             "arm_history": self.arm_history,
