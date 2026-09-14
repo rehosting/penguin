@@ -204,6 +204,12 @@ class FastLoop(Plugin):
         # re-arm on it, and the alternative is waiting out `arm_probe`
         # laps of a draw already known to be catastrophic.
         self.arm_cost_min_laps = int(self._num("arm_cost_min_laps", 5))
+        # How far a replayed lap may exceed THIS DRAW'S OWN forward
+        # traversal before the draw is dropped. 0 turns the ratio axis
+        # off and leaves only the warmup-percentile ceiling. 10x is
+        # loose enough that an ordinary span survives and tight enough
+        # to catch the measured 3,945x case. See _costly().
+        self.arm_cost_fwd_mult = float(self._num("arm_cost_fwd_mult", 10))
         # One extra lap, and it is the only baseline the run can compare
         # its own laps against. On by default for that reason.
         self.arm_forward_probe = bool(self._num("arm_forward_probe", 1))
@@ -255,7 +261,9 @@ class FastLoop(Plugin):
         #
         # So: after the arm and BEFORE the first reset of any kind, let the
         # guest run forward exactly one span and time it. Costs one lap.
-        self.arm_forward_ms = None
+        self.arm_forward_ms = None      # the FIRST arm's, for reporting
+        self.arm_forward_ms_all = []    # every arm's, in order
+        self._fwd_this_arm = None       # this arm's, the cost reference
         self._rearm_at = None
         self.arm_gave_up = False
         if (self.get_arg("mode") or "loop").lower() != "loop":
@@ -920,10 +928,15 @@ class FastLoop(Plugin):
                     self.state = "loop"
                     self.t_iter = now
                     self.t_loop0 = now
-                elif self.arm_forward_ms is None and self.arm_forward_probe:
+                elif self._fwd_this_arm is None and self.arm_forward_probe:
                     # One span forward, un-reset, before anything rewinds the
                     # guest. This is the only point in the run where the armed
                     # instant has been reached and no restore has happened yet.
+                    #
+                    # Measured on EVERY arm, not just the first, because it is
+                    # the cost axis's reference: a draw is scored against its
+                    # own forward traversal, and a re-armed draw is a different
+                    # span with a different one.
                     self.state = "fwd_probe"
                     self._t_fwd0 = now
                 else:
@@ -940,10 +953,13 @@ class FastLoop(Plugin):
                 # The next detector hit closes the forward span. Nothing is
                 # scheduled here on purpose: any bottom half would perturb the
                 # very traversal being timed.
-                self.arm_forward_ms = (now - self._t_fwd0) * 1000.0
+                self._fwd_this_arm = (now - self._t_fwd0) * 1000.0
+                self.arm_forward_ms_all.append(round(self._fwd_this_arm, 4))
+                if self.arm_forward_ms is None:
+                    self.arm_forward_ms = self._fwd_this_arm
                 self.logger.info(
                     f"fastloop: baseline -- the armed span traverses FORWARD "
-                    f"in {self.arm_forward_ms:.3f} ms, un-reset. Every lap "
+                    f"in {self._fwd_this_arm:.3f} ms, un-reset. Every lap "
                     f"below replays this same span, so the two are comparable "
                     f"and the difference is what the reset costs the guest.")
                 self.state = "split_control"
@@ -1333,6 +1349,53 @@ class FastLoop(Plugin):
         slack = self.arm_cost_relax ** max(0, attempt - 1)
         return base * self.arm_cost_mult * slack
 
+    def _costly(self, lap_med, thresh, attempt):
+        """Is this draw too expensive to keep? Two independent reasons.
+
+        Returns (costly, reason) -- reason is None, "absolute", "ratio", or
+        "both", and it is recorded so a rejection can be read back.
+
+        ABSOLUTE: the replayed lap against a ceiling built from the warmup
+        distribution. Answers "is this span expensive?".
+
+        RATIO: the replayed lap against THIS DRAW'S OWN forward traversal.
+        Answers "did the reset change what this span does?" -- which is a
+        different question, and the one the warmup ceiling cannot ask.
+
+        The ratio axis exists because the population baseline turned out to be
+        the wrong reference class twice over:
+
+          - The arm does not sample the forward distribution uniformly. Target
+            B armed twice, once with the cost axis off entirely, and both times
+            replayed at ~6.2 ms against a forward MEDIAN of 182.8 ms -- landing
+            on the p10 both times. Arming stops the vCPU for ~250 ms, so the
+            first span after resume is a request that queued up while the guest
+            was paused, not a fresh one.
+
+          - The catastrophic case is invisible to an absolute ceiling built
+            from a distribution the draw does not belong to. Target A armed on
+            a span that traverses FORWARD in 3.79 ms and then replayed it in
+            14,949 ms -- flat to 0.3% across sixteen laps, which is a timeout
+            firing and not a workload. A per-draw ratio sees 3,945x. The
+            population ceiling saw a lap in a run it had no reference for.
+
+        Same span, same arm, same guest state, one traversal each way: the
+        ratio is the only form of this comparison not confounded by comparing
+        two different spans.
+        """
+        if lap_med is None:
+            return False, None
+        absolute = thresh is not None and lap_med > thresh
+        ratio = (self.arm_cost_fwd_mult > 0
+                 and self._fwd_this_arm is not None
+                 and self._fwd_this_arm > 0
+                 and lap_med > self._fwd_this_arm * self.arm_cost_fwd_mult
+                 * (self.arm_cost_relax ** max(0, attempt - 1)))
+        why = ("both" if absolute and ratio
+               else "absolute" if absolute
+               else "ratio" if ratio else None)
+        return (absolute or ratio), why
+
     def _cost_rearm(self, lap_med, thresh, n_laps, early):
         """Drop this draw and go back for another, on the cost axis.
 
@@ -1410,7 +1473,9 @@ class FastLoop(Plugin):
                     and len(self._probe_laps_ms) >= self.arm_cost_min_laps):
                 thresh = self._cost_threshold(self.arm_attempt)
                 lap_med = statistics.median(self._probe_laps_ms)
-                if thresh is not None and lap_med > thresh:
+                early_costly, why = self._costly(lap_med, thresh,
+                                                 self.arm_attempt)
+                if early_costly:
                     self.arm_history.append(
                         {"attempt": self.arm_attempt, "armed_at_s": self.t_arm_s,
                          "probe_laps": self._probe_n,
@@ -1418,6 +1483,9 @@ class FastLoop(Plugin):
                          "probe_lap_median_ms": round(lap_med, 4),
                          "cost_threshold_ms": round(thresh, 4),
                          "warmup_gaps": len(self.warm_gaps_ms),
+                         "forward_ms": (None if self._fwd_this_arm is None
+                                        else round(self._fwd_this_arm, 4)),
+                         "cost_reason": why,
                          "verdict": "costly, re-arming (early)"})
                     self.arm_cost_rejects += 1
                     self._cost_rearm(lap_med, thresh, self._probe_n, early=True)
@@ -1440,12 +1508,14 @@ class FastLoop(Plugin):
         lap_med = (statistics.median(self._probe_laps_ms)
                    if self._probe_laps_ms else None)
         thresh = self._cost_threshold(self.arm_attempt)
-        costly = (lap_med is not None and thresh is not None
-                  and lap_med > thresh)
+        costly, why = self._costly(lap_med, thresh, self.arm_attempt)
+        row["cost_reason"] = why
         row["probe_lap_median_ms"] = (round(lap_med, 4)
                                       if lap_med is not None else None)
         row["cost_threshold_ms"] = round(thresh, 4) if thresh is not None else None
         row["warmup_gaps"] = len(self.warm_gaps_ms)
+        row["forward_ms"] = (None if self._fwd_this_arm is None
+                             else round(self._fwd_this_arm, 4))
         if idle:
             self.logger.warning(
                 f"fastloop: arm {self.arm_attempt} made no work -- "
@@ -1684,6 +1754,10 @@ class FastLoop(Plugin):
         self.t_loopN = None
         self.t_signal_mono = None
         self.split_diff = None
+        # The next draw is a different span and needs its own forward
+        # traversal. Keeping the rejected draw's would score the new one
+        # against a baseline measured somewhere else entirely.
+        self._fwd_this_arm = None
 
     def _lap_event(self, was_crash, was_verify):
         """Announce the iteration boundary, which is the only per-input seam.
@@ -1942,6 +2016,11 @@ class FastLoop(Plugin):
             # different spans.
             "arm_forward_ms": (round(self.arm_forward_ms, 4)
                                if self.arm_forward_ms is not None else None),
+            # One per arm, in order. With re-arms this is how far the draws
+            # differed from each other, and the ratio axis scored each lap
+            # against its OWN entry rather than against the first.
+            "arm_forward_ms_all": self.arm_forward_ms_all,
+            "arm_cost_fwd_mult": self.arm_cost_fwd_mult,
             "arm_progress_counter": self.arm_progress,
             "longest_clean_streak": self._best_streak,
             "arm_history": self.arm_history,

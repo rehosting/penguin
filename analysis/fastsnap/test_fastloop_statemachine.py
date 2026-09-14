@@ -926,6 +926,68 @@ def arm_cost_tests(tmp):
     print("ok  arm cost: with no retries left the early fire stands down and "
           "the full probe still decides")
 
+    # ---- THE RATIO AXIS -----------------------------------------------
+    # Scoring against the warmup distribution asks "is this span expensive?".
+    # Scoring against the draw's OWN forward traversal asks "did the reset
+    # change what this span does?" -- a different question, and the one the
+    # population ceiling cannot ask, because the arm does not sample that
+    # population uniformly.
+    #
+    # The measured case: a span that traverses forward in 3.79 ms and replays
+    # in 14,949 ms. The absolute ceiling is built from a distribution this draw
+    # does not belong to; the ratio sees 3,945x.
+    p, _ = armed()
+    p._fwd_this_arm = 3.79
+    costly, why = p._costly(14949.0, p._cost_threshold(1), 1)
+    assert costly and why == "both", (costly, why)
+    print("ok  arm cost: a 3,945x replay is caught, and the reason is recorded")
+
+    # A draw whose span is genuinely expensive but faithfully replayed --
+    # forward 400 ms, replay 420 ms -- is over the ABSOLUTE ceiling and under
+    # the ratio. It must be caught, and it must be caught for the right reason.
+    p, _ = armed()
+    p._fwd_this_arm = 400.0
+    costly, why = p._costly(420.0, p._cost_threshold(1), 1)
+    assert costly and why == "absolute", (costly, why)
+    print("ok  arm cost: an expensive-but-faithful span is caught as absolute, "
+          "not as a ratio")
+
+    # ... and the converse: a CHEAP span whose replay the reset broke. 2 ms
+    # forward, 60 ms replayed. Under the 16.5 ms... no: over it. Use a draw
+    # the absolute ceiling genuinely cannot see -- forward 0.05 ms, replay
+    # 5 ms, which is inside the cheap mode and still a 100x break.
+    p, _ = armed()
+    p._fwd_this_arm = 0.05
+    t = p._cost_threshold(1)
+    assert 5.0 < t, f"threshold {t} already catches this; the case is not isolated"
+    costly, why = p._costly(5.0, t, 1)
+    assert costly and why == "ratio", (costly, why)
+    print("ok  arm cost: a broken replay INSIDE the cheap mode is caught by "
+          "the ratio alone, where the absolute ceiling is blind")
+
+    # The ratio must not fire when there is no forward baseline to divide by.
+    p, _ = armed()
+    p._fwd_this_arm = None
+    costly, why = p._costly(5.6, p._cost_threshold(1), 1)
+    assert not costly and why is None, (costly, why)
+    print("ok  arm cost: with no forward baseline the ratio is inert, not a "
+          "division by zero or a silent pass")
+
+    # And it is switchable off, leaving the absolute axis alone.
+    p, _ = armed(arm_cost_fwd_mult=0)
+    p._fwd_this_arm = 3.79
+    costly, why = p._costly(37.9, p._cost_threshold(1), 1)
+    assert costly and why == "absolute", (costly, why)
+    print("ok  arm cost: arm_cost_fwd_mult=0 turns the ratio axis off")
+
+    # A rejected draw must not carry its forward baseline into the next one:
+    # the next draw is a different span measured somewhere else.
+    p, _ = armed()
+    p._fwd_this_arm = 3.79
+    p._reset_measurements()
+    assert p._fwd_this_arm is None, p._fwd_this_arm
+    print("ok  arm cost: a re-arm drops the previous draw's forward baseline")
+
     # A cheap draw must never trip the early fire.
     p, _ = armed()
     p._probe_n = 0
