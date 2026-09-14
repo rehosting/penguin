@@ -630,3 +630,52 @@ Whether a faithful loop is reachable at all without rewinding host-side I/O --
 and if it is not, whether the right move is to drive input from inside the
 snapshot boundary so there is no host-side state to rewind. That is a design
 question for the lane, not a measurement, and nothing here answers it.
+
+## Three targets, three divergences: none of them replays its armed span
+
+Target C closed the set. Every target that rehosts cleanly enough to fuzz has
+now had one forward traversal timed at its arming point and compared against
+the laps that replay the same span:
+
+| | forward | replayed | ratio | lap flatness | oracle |
+|---|---|---|---|---|---|
+| target A (armel) | 3.79 ms | 14,949 ms | **3,945x slower** | 0.3% over 16 laps | VALID, 403 MB |
+| target B (mips-BE) | 476.59 ms | 6.28 ms | **76x faster** | -- | VALID, 2.16 GB x10 |
+| target C (mipsel) | 1.64 ms | 160.02 ms | **97x slower** | **0.09% over 5 laps** | VALID, 2.16 GB |
+
+**Three for three. Not one replays faithfully**, and every restore was certified
+byte-identical against an independently forked reference. Two architectures
+diverge slow, one diverges fast, and the two slow ones both show the timeout
+signature rather than a workload: target C's laps are 159.91, 160.06, 159.98 ms
+-- **flat to 0.09%**. Nothing a guest computes is that repeatable; a timer is.
+
+This is no longer a per-target quirk or a bad draw. It is a property of
+resetting a guest whose work is driven by I/O that lives outside the snapshot.
+
+### The rates in this document, restated
+
+Every exec/s figure in this lane was measured on a replayed span. Three of them
+can now be read against the span they claimed to be measuring:
+
+| | reported | what the forward traversal says |
+|---|---|---|
+| target A | 14.4 exec/s | measured a guest waiting on a timeout |
+| target B | 155.4 exec/s | measured a span whose input had already arrived |
+| target C | 41.5 / 1,195 exec/s | measured a guest waiting on a timeout |
+
+The arithmetic in each run is correct and the oracle is correct. What was wrong
+is the referent: "iterations per second" was being read as "iterations of the
+armed span per second", and the two are not the same quantity once the world
+outside the snapshot stops matching.
+
+### What the cost axis can and cannot do about it
+
+The ratio axis rejects a divergent draw and re-arms. Whether that helps is an
+open empirical question and the instrumented runs now in flight are the test:
+if the divergence is structural -- as target B's every-draw-is-6.2 ms behaviour
+suggests -- then all four attempts will diverge on all three targets, re-arming
+is futile, and the only honest output is the refusal `_replay_fidelity()` writes
+into the verdict.
+
+That would make the fix a design change at the I/O boundary rather than a
+scoring change at the arm, and this document should not pre-empt which.
