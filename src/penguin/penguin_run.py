@@ -292,6 +292,26 @@ def _render_connect_script_vsock(container_name, telnet_port, ssh_port=None) -> 
 CONTAINER="@@CONTAINER@@"
 GUEST_CMD="@@GUEST_CMD@@"
 
+usage() {
+  cat <<EOF
+Usage: connect.sh [--help] [CMD...]
+
+Connect to this penguin run's guest over the vsock command channel.
+
+  (no args)     open an interactive root shell (a pty over vsock)
+  CMD...        run CMD once in the guest; stdout/stderr stream back and
+                connect.sh exits with the command's status
+  -h, --help    show this help
+
+The guest also answers on its container IP via the telnet and ssh front
+doors (see the header comment above and results/*/runtime.yaml).
+EOF
+}
+
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+esac
+
 ENGINE=""
 for e in docker podman; do
   if command -v "$e" >/dev/null 2>&1; then ENGINE="$e"; break; fi
@@ -301,8 +321,25 @@ if [ -z "$ENGINE" ]; then
   exit 1
 fi
 
-if [ -z "$CONTAINER" ] || ! "$ENGINE" ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
-  echo "Container '$CONTAINER' is not running -- start the run first." >&2
+_running() { "$ENGINE" ps --format '{{.Names}}' | grep -qx "$1"; }
+
+# Resolve the container. Prefer the name penguin baked in, but that can be empty
+# (e.g. the run took docker's random name), so fall back to discovering the
+# container by the penguin.root label the wrapper stamps on it. connect.sh lives
+# at <project>/results/<n>/connect.sh, and the label value is <project>, so the
+# script's own location identifies its run without needing a baked name.
+if [ -z "$CONTAINER" ] || ! _running "$CONTAINER"; then
+  SELF_DIR="$(cd "$(dirname "$0")" >/dev/null 2>&1 && pwd -P)"
+  PROJECT_DIR="$(cd "$SELF_DIR/../.." >/dev/null 2>&1 && pwd -P)"
+  if [ -n "$PROJECT_DIR" ]; then
+    CONTAINER="$("$ENGINE" ps --filter "label=penguin.root=$PROJECT_DIR" \
+      --filter "status=running" --format '{{.Names}}' | head -n1)"
+  fi
+fi
+
+if [ -z "$CONTAINER" ] || ! _running "$CONTAINER"; then
+  echo "connect.sh: no running penguin container found for this run" >&2
+  echo "  (start the run first, or pass the container to '<engine> exec')." >&2
   exit 1
 fi
 
