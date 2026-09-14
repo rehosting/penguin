@@ -424,6 +424,10 @@ class FastLoop(Plugin):
         self._pin_n = 0               # settle polls spent
         self.pin_report = None        # what the driver said, for the record
         self.degraded_notes = []      # things the run did NOT get, in words
+        self._cpu_prev = None
+        self._cpu_prev_t = None
+        self.lap_cpu_frac = []        # vCPU-thread CPU / wall, per lap
+        self.lap_proc_frac = []       # whole-process CPU / wall, per lap
         self._last_ident = None
         self.hit_procs = {}      # identity -> hits, across the whole run
         self.hits_other_proc = 0
@@ -658,6 +662,26 @@ class FastLoop(Plugin):
         return out
 
     # ---- plumbing ---------------------------------------------------------
+
+    def _cpu_sample(self):
+        """CPU time consumed, against the wall clock it was consumed in.
+
+        The one measurement that separates "the guest is computing" from "the
+        guest is waiting", and nothing in this plugin had it. Every TCG
+        counter reads zero across a 46 ms guest half on target A, which is
+        consistent with BOTH -- steady userspace execution flushes no TLB and
+        invalidates no block, and so does a halted vCPU.
+
+        This plugin runs in QEMU's own process, on the vCPU thread, so
+        thread_time() is that vCPU's CPU time: it advances while the guest
+        executes and stands still while the vCPU sleeps on a halt. A lap with
+        cpu/wall near 1 is doing work; near 0 it is waiting for something, and
+        the "rate" is the period of whatever it is waiting on.
+        """
+        try:
+            return (time.process_time(), time.thread_time())
+        except Exception:                                   # noqa: BLE001
+            return None
 
     def _tcg_sample(self):
         """Read every TCG counter, or None if this image exposes none.
@@ -1339,6 +1363,22 @@ class FastLoop(Plugin):
         self._tcg_record(self.tcg_guest, self._tcg_at_bh, _tcg_now)
         self._tcg_prev = _tcg_now
         self._tcg_at_bh = None
+        # ...and how much of the LAP was spent EXECUTING rather than waiting.
+        #
+        # Per lap, not per guest half, and the difference is not cosmetic: the
+        # plugin only learns the bottom half finished when it next polls, which
+        # is at lap close, so a bh-to-close window would always be zero. The
+        # reset is ~0.6 ms of a 46 ms lap, so it dilutes this by about one
+        # percent -- small enough to read, and named `lap_` so nobody reads it
+        # as the guest half it is not.
+        c = self._cpu_sample()
+        if c is not None and self._cpu_prev is not None:
+            wall = now - self._cpu_prev_t
+            if wall > 0:
+                self.lap_cpu_frac.append((c[1] - self._cpu_prev[1]) / wall)
+                self.lap_proc_frac.append((c[0] - self._cpu_prev[0]) / wall)
+        self._cpu_prev = c
+        self._cpu_prev_t = now
         was_crash = self._closed_by_signal
         self._closed_by_signal = False
         was_verify = self._pending_verify is not None
@@ -2303,6 +2343,12 @@ class FastLoop(Plugin):
             # the number this whole mechanism exists to drive to zero: hook
             # firings from outside the pinned subtree, which without the pin
             # would have been counted as laps.
+            # Near 1: the guest spent its half EXECUTING. Near 0: it spent it
+            # WAITING, and the lap is the period of whatever it waited on
+            # rather than a cost of the reset. Every TCG counter reads zero in
+            # both cases, which is why this exists.
+            "lap_cpu_frac": _stats(self.lap_cpu_frac),
+            "lap_proc_frac": _stats(self.lap_proc_frac),
             "pin_report": self.pin_report,
             "degraded_notes": self.degraded_notes,
             # WHICH PROCESS the detector fired in. `comm` is a name, not an

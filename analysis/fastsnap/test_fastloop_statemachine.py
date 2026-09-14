@@ -1087,6 +1087,39 @@ def detector_process_tests(tmp):
           "false all-clear")
 
 
+def guest_cpu_tests(tmp):
+    """Executing or waiting? Nothing else in this plugin can tell them apart.
+
+    Every TCG counter reads zero across target A's 46 ms guest half, and that
+    is consistent with BOTH readings: steady userspace execution flushes no
+    TLB and invalidates no block, and neither does a halted vCPU. A lap whose
+    guest half is spent waiting is the period of whatever it waited on, not a
+    cost of the reset, and the two call for completely different fixes.
+    """
+    p, q = make("loop", tmp)
+    to_loop(p, q)
+    for _ in range(12):
+        q.run_bottom_half()
+        hit(p)
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    g = out["lap_cpu_frac"]
+    assert g is not None and g["n"] > 0, out["lap_cpu_frac"]
+    assert g["median"] >= 0.0, g
+    assert out["lap_proc_frac"] is not None, out
+    print(f"ok  guest cpu: the executing-vs-waiting fraction is recorded "
+          f"({g['n']} laps)")
+
+    # It must be charged to the GUEST half only. The fake runs the bottom half
+    # and the hit back to back with no work between, so a sampler that spanned
+    # the whole lap would pick up the reset's CPU too.
+    assert g["median"] <= 1.5, (
+        f"median {g['median']} -- a single vCPU thread cannot use more than "
+        f"one CPU-second per wall-second; the window is wrong")
+    print("ok  guest cpu: the fraction is bounded by one CPU, so the window "
+          "is one lap and not something longer")
+
+
 def pin_tests(tmp):
     """The pin has to land BEFORE the snapshot, and fail soft when absent.
 
@@ -1590,6 +1623,7 @@ def main():
     replay_fidelity_tests(tmp)
     detector_process_tests(tmp)
     pin_tests(tmp)
+    guest_cpu_tests(tmp)
     forward_baseline_tests(tmp)
     first_laps_tests(tmp)
     detector_at_tests(tmp)
