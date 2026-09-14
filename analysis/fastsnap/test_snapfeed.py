@@ -314,6 +314,59 @@ def main():
     print("ok  snapfeed: swallow_writes=1 skips the write, for exclusive mode "
           "where the peer is frozen and cannot drain the socket")
 
+    # ---- select(), the syscall a victim blocks in BEFORE read() -------
+    # Feeding read() cannot help a victim that never reaches it. Target A gets
+    # to read() directly and won 28x; target B blocks in select first and sat
+    # at 1038 ms a lap while snapfeed fed perfectly well into a victim that
+    # was not listening. Both vendor httpds here import exactly
+    # `accept read recv select`.
+    FDSET = 128
+
+    def fdset(*fds):
+        b = bytearray(FDSET)
+        for fd in fds:
+            b[fd >> 3] |= 1 << (fd & 7)
+        return bytes(b)
+
+    sel, smem, sreg = make(tmp)
+    assert any(n.startswith("on_sys_select") or n.startswith("on_sys__newselect")
+               for n, _ in sreg), sreg
+    sel.on_accept(None, None, FakeSyscall(retval=7), 3, 0, 0)
+    smem.contents[0x8000] = fdset(3, 7)        # listening fd AND our conn fd
+    smem.contents[0x8100] = fdset()            # write set the guest passed in
+    sc = FakeSyscall()
+    list(sel.on_select_enter(None, None, sc, 16, 0x8000, 0x8100, 0, 0))
+    assert sc.skip_syscall is True and sc.retval == 1, (sc.skip_syscall, sc.retval)
+    got = smem.contents[0x8000]
+    assert (got[7 >> 3] >> (7 & 7)) & 1, "fd 7 not reported ready"
+    assert not ((got[3 >> 3] >> (3 & 7)) & 1), (
+        "fd 3 reported ready -- select must return ONLY descriptors this "
+        "plugin can actually satisfy, and it cannot satisfy the listening fd")
+    print("ok  snapfeed: select is answered for fed fds only, without reaching "
+          "the host")
+
+    # A select waiting on something else entirely is LEFT ALONE. The victim
+    # may be waiting on a timer or a pipe this plugin knows nothing about, and
+    # claiming readiness there corrupts its logic rather than accelerating it.
+    sc = FakeSyscall()
+    smem.contents[0x8000] = fdset(3, 9)
+    list(sel.on_select_enter(None, None, sc, 16, 0x8000, 0, 0, 0))
+    assert sc.skip_syscall is False, "answered a select with none of our fds in it"
+    assert sel.n_select_pass > 0
+    print("ok  snapfeed: a select on fds we cannot satisfy is left to the host")
+
+    # nfds must be honoured: an fd above it is not in the set being asked about.
+    sc = FakeSyscall()
+    smem.contents[0x8000] = fdset(7)
+    list(sel.on_select_enter(None, None, sc, 4, 0x8000, 0, 0, 0))
+    assert sc.skip_syscall is False, "answered for fd 7 when nfds was 4"
+    print("ok  snapfeed: nfds bounds which descriptors select may answer for")
+
+    # Switchable off.
+    off, _, oreg = make(tmp, answer_select=0)
+    assert not any("select" in n for n, _ in oreg), oreg
+    print("ok  snapfeed: answer_select=0 registers no select hook at all")
+
     # write(), for a victim that does not use writev at all.
     w, wmem, _ = make(tmp)
     w.on_accept(None, None, FakeSyscall(retval=7), 3, 0, 0)

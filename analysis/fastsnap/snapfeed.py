@@ -120,6 +120,12 @@ class SnapFeed(Plugin):
         # iovec is two pointer-sized fields; 4 on every target in this lane.
         self.ptr_size = int(self._arg("ptr_size", 4))
         self.pin_filter = bool(int(self._arg("pin_filter", 0)))
+        self.answer_select = bool(int(self._arg("answer_select", 1)))
+        # fd_set is FD_SETSIZE bits. 1024 on every target here; read and
+        # written as bytes so word size does not matter.
+        self.fdset_bytes = int(self._arg("fdset_bytes", 128))
+        self.n_select = 0        # selects answered without reaching the host
+        self.n_select_pass = 0   # ...and those left alone
 
         self.n_sent = 0          # deliveries -- fastloop's arm_progress
         self.n_pass = 0          # CONTROL: reads left to the host
@@ -154,6 +160,17 @@ class SnapFeed(Plugin):
         # answering perfectly well through a different syscall.
         syscalls.syscall("on_sys_write_enter", comm_filter=self.comm,
                          pin_filter=pf)(self.on_write_enter)
+        if self.answer_select:
+            # A victim that waits in select() never reaches the read() this
+            # plugin feeds. Target A gets to read() directly and won 28x;
+            # target B blocks in select first and sat at 1038 ms per lap
+            # feeding perfectly well into a victim that was not listening.
+            # Both vendor httpds in this lane import exactly
+            # `accept read recv select`, so this is the common shape, not the
+            # exception.
+            for nm in ("select", "_newselect", "pselect6"):
+                syscalls.syscall(f"on_sys_{nm}_enter", comm_filter=self.comm,
+                                 pin_filter=pf)(self.on_select_enter)
         self.logger.info(
             f"snapfeed: armed on comm={self.comm!r}, passthrough="
             f"{self.passthrough} (0.0 means nothing reaches the host), "
@@ -296,6 +313,59 @@ class SnapFeed(Plugin):
             syscall.skip_syscall = True
             self.n_swallowed += 1
 
+    def on_select_enter(self, regs, proto, syscall, nfds, rfds, wfds, efds,
+                        *rest):
+        """Answer select() for the fds this plugin is feeding.
+
+        A victim that blocks here never reaches the read() being fed, and the
+        lap becomes the select timeout rather than the guest's work. Since
+        every read on a learned fd is answered from guest RAM, those fds are
+        ALWAYS readable by construction -- so saying so is not a lie, it is
+        the same claim the read hook already makes, moved one syscall earlier.
+
+        Only the read set is answered, and only if a learned fd is in it. A
+        select that is waiting on something else entirely is left alone: the
+        victim may be waiting on a timer or a pipe this plugin knows nothing
+        about, and claiming readiness there would corrupt its logic rather
+        than accelerate it.
+        """
+        if not rfds or not self.fds:
+            self.n_select_pass += 1
+            return
+        n = min(max(int(nfds), 0), self.fdset_bytes * 8)
+        if n <= 0:
+            self.n_select_pass += 1
+            return
+        try:
+            cur = yield from plugins.mem.read_bytes(int(rfds),
+                                                    size=self.fdset_bytes)
+        except Exception:                                   # noqa: BLE001
+            self.n_select_pass += 1
+            return
+        ready = [fd for fd in self.fds
+                 if fd < n and (cur[fd >> 3] >> (fd & 7)) & 1]
+        if not ready:
+            self.n_select_pass += 1
+            return                      # waiting on something else; leave it
+        out = bytearray(self.fdset_bytes)
+        for fd in ready:
+            out[fd >> 3] |= 1 << (fd & 7)
+        yield from plugins.mem.write_bytes(int(rfds), bytes(out))
+        # The write and exception sets must be CLEARED, not left as the guest
+        # passed them in: select's contract is that every set comes back
+        # holding only ready descriptors, and a victim that trusts a stale
+        # write set will write to an fd this plugin never said was writable.
+        for other in (wfds, efds):
+            if other:
+                try:
+                    yield from plugins.mem.write_bytes(
+                        int(other), bytes(self.fdset_bytes))
+                except Exception:                           # noqa: BLE001
+                    pass
+        syscall.retval = len(ready)
+        syscall.skip_syscall = True
+        self.n_select += 1
+
     def _iov_total(self, iov, iovcnt):
         """Sum iov_len across the array, so the faked return is the length the
         guest actually asked to write rather than a guess."""
@@ -323,6 +393,9 @@ class SnapFeed(Plugin):
             "fds_learned": sorted(self.fds),
             "responses": self.responses,
             "n_writes": self.n_writes,
+            "n_select": self.n_select,
+            "n_select_pass": self.n_select_pass,
+            "answer_select": self.answer_select,
             "n_swallowed": self.n_swallowed,
             "swallow_writes": self.swallow_writes,
             "passthrough": self.passthrough,
