@@ -13,6 +13,7 @@ Generates Sphinx documentation for multiple Python packages
 import os
 import shutil
 import subprocess
+import zipfile
 from pathlib import Path
 from penguin import Plugin, VERSION
 from sphinx.cmd import build as sphinx_build
@@ -60,10 +61,39 @@ class SphinxGenerator(Plugin):
         self._build_pdf()
 
         # Zip result
-        zip_path = shutil.make_archive(str(self.html_dir), "zip", str(self.html_dir))
+        zip_path = self._zip_html()
         self.logger.info(f"Zipped documentation at: {zip_path}")
 
         os._exit(0)
+
+    # -------------------------------------------------------------------------
+    def _zip_html(self):
+        """Zip the rendered HTML tree.
+
+        Not `shutil.make_archive(..., "zip", ...)`: ZIP stores timestamps in
+        MS-DOS format, which cannot represent anything before 1980, and
+        `ZipFile.write` raises `ValueError: ZIP does not support timestamps
+        before 1980` on such a file. Under the Nix image plenty of files are
+        exactly that -- store paths are normalised to the epoch, and the theme
+        and `_static` assets Sphinx copies in keep their source mtime -- so
+        this raised for every file it reached. It raised from `__init__`,
+        before the `os._exit(0)` below, so the inner penguin run exited 1 and
+        logged "the run was not successful" *after* the HTML and PDF had
+        already been written correctly. (The old Dockerfile pip-installed the
+        theme, so its files had real mtimes and this never fired.)
+
+        `strict_timestamps=False` is the documented way to accept them: it
+        clamps anything out of range to the 1980 epoch, which is the right
+        trade for a convenience archive of generated files.
+        """
+        zip_path = self.html_dir.with_suffix(".zip")
+        with zipfile.ZipFile(
+            zip_path, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False
+        ) as zf:
+            for path in sorted(self.html_dir.rglob("*")):
+                if path.is_file() or path.is_symlink():
+                    zf.write(path, path.relative_to(self.html_dir))
+        return str(zip_path)
 
     # -------------------------------------------------------------------------
     # Step 1: Copy /docs and module sources into Sphinx source tree
