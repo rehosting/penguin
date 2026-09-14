@@ -448,10 +448,15 @@ class SnapFeed(Plugin):
             # 542/542 and 544/544 on two runs, which is not coincidence. Left
             # in rather than merged, because which name the guest actually
             # uses is itself information, but flagged so nobody adds them up.
+            # WITHIN 1%, not exactly equal. accept/accept4 came back 542/542,
+            # 544/544, 1331/1331 and 1397/1397 -- and then 734/738, which an
+            # equality test misses entirely while it is just as certainly the
+            # same call under two names, a few increments apart because the
+            # run ended between them.
             "census_aliases": [
                 [a, b] for i, (a, na) in enumerate(sorted(self.census.items()))
                 for b, nb in sorted(self.census.items())[i + 1:]
-                if na == nb and na > 0],
+                if na > 0 and nb > 0 and abs(na - nb) <= 0.01 * max(na, nb)],
             # A name being PRESENT is not a mechanism; its magnitude is.
             # recvfrom appeared 6 times in a five-minute run and was read as
             # "this is how it reads sockets", when 675 of 681 feeds had come

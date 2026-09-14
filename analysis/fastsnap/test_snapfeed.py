@@ -354,6 +354,18 @@ def main():
     # accept/accept4 came back 542/542 on a real run. Flagged so nobody adds
     # them together.
     assert ["accept", "accept4"] in out["census_aliases"], out["census_aliases"]
+    # Aliases must be caught when the counts are CLOSE, not only equal:
+    # accept/accept4 came back 542/542 four times and then 734/738, which an
+    # equality test misses while it is just as certainly one call under two
+    # names.
+    c2, _, _ = make(tmp)
+    c2.census = {"accept": 734, "accept4": 738, "close": 826}
+    c2.uninit()
+    o2 = json.load(open(pathlib.Path(tmp) / "snapfeed.json"))
+    assert ["accept", "accept4"] in o2["census_aliases"], o2["census_aliases"]
+    assert ["accept", "close"] not in o2["census_aliases"], o2["census_aliases"]
+    print("ok  snapfeed: near-equal counts are flagged as aliases, unrelated "
+          "ones are not")
     # And the DOMINANT call is named, because a name being present is not a
     # mechanism: recvfrom appeared 6 times and was read as "this is how it
     # reads sockets" when 675 of 681 feeds came through read().
