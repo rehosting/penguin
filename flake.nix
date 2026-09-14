@@ -596,12 +596,50 @@
 
           # The release docs image (rehosting/penguin:docs): the runtime image
           # plus the in-image sphinx toolchain and a LaTeX engine for the PDF
-          # build. texlive scheme-medium provides pdflatex + latexmk + the
-          # latex-extra/fonts packages the old Dockerfile docs stage apt-installed.
+          # build. texlive scheme-medium provides pdflatex + latexmk + makeindex.
+          #
+          # It does NOT provide everything Sphinx's LaTeX writer \usepackage's:
+          # the nine below are all missing from scheme-medium, and pdflatex dies
+          # on the first one it hits ("File `fncychap.sty' not found"), so the
+          # PDF never gets written and the docs job fails on a missing artifact.
+          # The old Dockerfile docs stage got these from Debian's
+          # texlive-latex-extra; the comment here used to claim scheme-medium
+          # covered them, which is what let the gap through.
+          #
+          # Listed individually rather than pulling collection-latexextra (the
+          # literal nix equivalent of the Debian package) because the cost
+          # differs by two orders of magnitude: measured on this closure, the
+          # nine add 1 MB, collection-latexextra adds 227 MB.
+          #
+          # This list is a FLOOR, not a specification. It was derived
+          # empirically -- run pdflatex on the penguin.tex that Sphinx generates
+          # today, add whatever `File 'X.sty' not found' names, repeat until a
+          # PDF appears -- so it covers exactly what the current docs tree and
+          # the current Sphinx ask for. A new Sphinx, a new extension, or a page
+          # that uses a construct none of ours does today can all want one more
+          # package. If you hit a missing .sty, that is not a regression in this
+          # list: add the package here (the texlive attr is almost always the
+          # .sty basename) and say what asked for it. Falling back to
+          # collection-latexextra is the escape hatch if the list ever gets long
+          # enough that 227 MB is the cheaper trade.
           docsImage = mkImage {
             pythonEnv = docsPythonEnv;
             tag = "docs";
-            extraContents = [ pkgs.texliveMedium ];
+            extraContents = [
+              (pkgs.texliveMedium.withPackages (
+                ps: with ps; [
+                  fncychap
+                  wrapfig
+                  capt-of
+                  framed
+                  needspace
+                  upquote
+                  tabulary
+                  varwidth
+                  titlesec
+                ]
+              ))
+            ];
           };
         in
         {
