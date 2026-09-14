@@ -409,6 +409,10 @@ class FastLoop(Plugin):
         self.denied = []
         self.arm_us = None
         self.t_arm_s = None
+        self._arm_ident = None   # (pid, create_time) the arm landed in
+        self._last_ident = None
+        self.hit_procs = {}      # identity -> hits, across the whole run
+        self.hits_other_proc = 0
         self.arm_digest = None
         self.snapshot_bytes = None
 
@@ -828,9 +832,41 @@ class FastLoop(Plugin):
 
     # ---- the loop ---------------------------------------------------------
 
+    def _hit_identity(self, args):
+        """(pid, create_time) of the process this hit came from, or None.
+
+        None means the DRIVER does not report it, which is a different finding
+        from "a different process" and must never be coerced into one. Read
+        positionally off whichever argument carries it, because the hook
+        signature differs per syscall.
+        """
+        for a in args:
+            pid = getattr(a, "pid", None)
+            if pid is None:
+                continue
+            try:
+                return (int(pid), int(getattr(a, "create_time", 0) or 0))
+            except Exception:                               # noqa: BLE001
+                return None
+        return None
+
     def on_hit(self, *args, **kwargs):
         """The syscall hook. penguin's machinery drives this with `yield from`,
         so it must stay a generator even though nothing in it yields."""
+        # WHICH PROCESS. The detector is filtered on `comm` alone, and a comm
+        # is not an identity: lighttpd forks workers that all carry the name,
+        # and a victim that dies and restarts under reset_on_signal comes back
+        # with the same name and a different pid. If the armed instant is in
+        # one process and the next hit is in another, the "span" being replayed
+        # is not one process's work and the lap is not an iteration of
+        # anything. create_time is part of the key because a restarted victim
+        # can reuse a pid.
+        ident = self._hit_identity(args)
+        self._last_ident = ident
+        if ident is not None:
+            self.hit_procs[ident] = self.hit_procs.get(ident, 0) + 1
+            if self._arm_ident is not None and ident != self._arm_ident:
+                self.hits_other_proc += 1
         self.hits += 1
         self._clean_streak += 1
         if self._clean_streak > self._best_streak:
@@ -915,6 +951,7 @@ class FastLoop(Plugin):
                     return
                 self.arm_us = self.panda.fastsnap_last_us()
                 self.t_arm_s = round(now - self.t0, 1)
+                self._arm_ident = self._last_ident
                 self.arm_digest = self.panda.fastsnap_last_digest()
                 self.snapshot_bytes = self.panda.fastsnap_ram_snapshot_bytes()
                 self.logger.info(
@@ -1758,6 +1795,10 @@ class FastLoop(Plugin):
         # traversal. Keeping the rejected draw's would score the new one
         # against a baseline measured somewhere else entirely.
         self._fwd_this_arm = None
+        # The next draw arms in its own process; counting this draw's
+        # cross-process hits against it would describe the wrong span.
+        self.hits_other_proc = 0
+        self._arm_ident = None
 
     def _lap_event(self, was_crash, was_verify):
         """Announce the iteration boundary, which is the only per-input seam.
@@ -1872,6 +1913,39 @@ class FastLoop(Plugin):
             "wall_share": (span - total_ms / 1000.0) / span,
         }
         return out
+
+    def _proc_note(self, out):
+        """Did the loop stay in the process it armed in?
+
+        The detector is filtered on `comm`, and a comm is not an identity.
+        lighttpd forks workers that all carry the name; a victim that dies and
+        restarts under reset_on_signal comes back with the same name and a new
+        pid. If the armed instant is in one process and the hits that close the
+        laps are in another, the lap is not an iteration of the armed span --
+        it is the interval between two unrelated processes' syscalls, and the
+        rate computed from it is not a rate for anything.
+
+        Silent when the driver does not report pid: "cannot say" is not
+        "clean", but it is also not a finding, and inventing one here would be
+        the same mistake as reading a missing counter as a zero.
+        """
+        if not self.hit_procs:
+            return None
+        n = self.n_iters or 1
+        other = self.hits_other_proc
+        if other == 0:
+            return None
+        frac = other / n
+        ids = sorted(self.hit_procs.items(), key=lambda kv: -kv[1])[:3]
+        shown = ", ".join(f"pid {k[0]}x{v}" for k, v in ids)
+        return (
+            f"DETECTOR CROSSED PROCESSES: {other} of {n} laps "
+            f"({frac:.1%}) closed on a hit from a process other than the one "
+            f"the arm landed in ({len(self.hit_procs)} distinct: {shown}). "
+            f"`comm` is a name, not an identity -- a forked worker or a "
+            f"restarted victim carries the same one. Those laps are the "
+            f"interval between two processes' syscalls, not iterations of the "
+            f"armed span.")
 
     def _replay_fidelity(self, out):
         """Does the loop replay the span it armed on, or a different one?
@@ -2088,6 +2162,19 @@ class FastLoop(Plugin):
             # against its OWN entry rather than against the first.
             "arm_forward_ms_all": self.arm_forward_ms_all,
             "arm_cost_fwd_mult": self.arm_cost_fwd_mult,
+            # WHICH PROCESS the detector fired in. `comm` is a name, not an
+            # identity. None throughout means the driver does not report pid,
+            # which is "cannot say", not "all one process".
+            "detector_procs": (
+                None if not self.hit_procs else
+                {"distinct": len(self.hit_procs),
+                 "top": sorted(({"pid": k[0], "create_time": k[1], "hits": v}
+                                for k, v in self.hit_procs.items()),
+                               key=lambda r: -r["hits"])[:5],
+                 "armed_in": (None if self._arm_ident is None else
+                              {"pid": self._arm_ident[0],
+                               "create_time": self._arm_ident[1]}),
+                 "hits_other_proc": self.hits_other_proc}),
             "arm_progress_counter": self.arm_progress,
             "longest_clean_streak": self._best_streak,
             "arm_history": self.arm_history,
@@ -2285,6 +2372,9 @@ class FastLoop(Plugin):
                         " so every page was read back and the oracle paid for"
                         " the pagemap on top. Pass"
                         " --extra_docker_args \"--cap-add=SYS_ADMIN\".")
+            pn = self._proc_note(out)
+            if pn:
+                out["verdict"] += " " + pn
             fid = self._replay_fidelity(out)
             if fid:
                 out["replay_fidelity"] = fid

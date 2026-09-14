@@ -356,6 +356,23 @@ def hit(p):
         pass
 
 
+class FakeSyscallEvent:
+    """What the driver hands the hook. `pid`/`create_time` are what identify
+    the process; a driver too old to report them has neither attribute."""
+
+    def __init__(self, pid=None, create_time=0):
+        if pid is not None:
+            self.pid = pid
+            self.create_time = create_time
+
+
+def hit_from(p, pid, create_time=0):
+    """One detector hit, carrying a process identity the way the driver does."""
+    g = p.on_hit(None, None, FakeSyscallEvent(pid, create_time), 3, 0, 0)
+    for _ in g:
+        pass
+
+
 def crash(p):
     """One fatal signal delivery."""
     class Ev:
@@ -365,13 +382,18 @@ def crash(p):
     p.on_fatal_signal(None, Ev())
 
 
-def to_loop(p, q):
-    """Drive warmup, arm and the split-order control until the loop is live."""
+def to_loop(p, q, ident=None):
+    """Drive warmup, arm and the split-order control until the loop is live.
+
+    `ident` supplies the (pid, create_time) the driver would report, so the
+    arm lands in a known process and a later hit can be a different one.
+    """
+    h = (lambda: hit_from(p, ident[0], ident[1])) if ident else (lambda: hit(p))
     for _ in range(2):
-        hit(p)
+        h()
     for _ in range(6):
         q.run_bottom_half()
-        hit(p)
+        h()
     assert p.state == "loop", p.state
 
 
@@ -999,6 +1021,72 @@ def arm_cost_tests(tmp):
     print("ok  arm cost: a cheap draw does not trip the early fire")
 
 
+def detector_process_tests(tmp):
+    """`comm` is a name, not an identity.
+
+    The detector is filtered on comm alone. lighttpd forks workers that all
+    carry the name, and a victim that dies and restarts under reset_on_signal
+    comes back with the same name and a different pid. If the arm lands in one
+    process and the laps close on another's syscalls, the lap is the interval
+    between two unrelated processes and the rate is a rate for nothing.
+    """
+    # All from one process: nothing to say.
+    p, q = make("loop", tmp)
+    to_loop(p, q, ident=(4242, 99))
+    for _ in range(12):
+        q.run_bottom_half()
+        hit_from(p, 4242, 99)
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    assert out["detector_procs"]["distinct"] == 1, out["detector_procs"]
+    assert out["detector_procs"]["hits_other_proc"] == 0
+    assert "CROSSED PROCESSES" not in out["verdict"], out["verdict"]
+    print("ok  detector process: a loop that stays in one process says nothing")
+
+    # A forked worker closing the laps.
+    p, q = make("loop", tmp)
+    to_loop(p, q, ident=(4242, 99))
+    for i in range(12):
+        q.run_bottom_half()
+        hit_from(p, 4242 if i < 4 else 5150, 99)
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    assert out["detector_procs"]["distinct"] == 2, out["detector_procs"]
+    assert out["detector_procs"]["hits_other_proc"] > 0
+    assert "DETECTOR CROSSED PROCESSES" in out["verdict"], out["verdict"]
+    assert "not iterations of the armed span" in out["verdict"], out["verdict"]
+    print("ok  detector process: laps closing in a forked worker reach the verdict")
+
+    # Same pid, restarted: create_time is what tells them apart, and without it
+    # a restarted victim would read as the original.
+    p, q = make("loop", tmp)
+    to_loop(p, q, ident=(4242, 99))
+    for i in range(12):
+        q.run_bottom_half()
+        hit_from(p, 4242, 99 if i < 4 else 12345)
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    assert out["detector_procs"]["distinct"] == 2, out["detector_procs"]
+    assert "CROSSED PROCESSES" in out["verdict"], out["verdict"]
+    print("ok  detector process: a restarted victim reusing its pid is still "
+          "a different process")
+
+    # A driver that cannot report pid must produce "cannot say", not a clean
+    # bill of health -- the same rule as a missing counter never reading zero.
+    p, q = make("loop", tmp)
+    to_loop(p, q)
+    for _ in range(12):
+        q.run_bottom_half()
+        hit(p)
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    assert out["detector_procs"] is None, out["detector_procs"]
+    assert "CROSSED PROCESSES" not in out["verdict"], out["verdict"]
+    assert out["verdict"].startswith("VALID"), out["verdict"]
+    print("ok  detector process: no pid from the driver reports None, not a "
+          "false all-clear")
+
+
 def replay_fidelity_tests(tmp):
     """A rate is only a rate for the span it was measured on.
 
@@ -1429,6 +1517,7 @@ def main():
     tcg_work_tests(tmp)
     arm_cost_tests(tmp)
     replay_fidelity_tests(tmp)
+    detector_process_tests(tmp)
     forward_baseline_tests(tmp)
     first_laps_tests(tmp)
     detector_at_tests(tmp)
