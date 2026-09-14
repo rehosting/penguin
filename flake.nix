@@ -468,6 +468,46 @@
             ])
           );
 
+          # sphinx-last-updated-by-git 0.3.8 -- the version in our pinned
+          # nixpkgs -- does not build against the Sphinx 9.1.0 that the *same*
+          # pin ships: its own test `test_exclude_patterns_deps_dates` fails,
+          # because Sphinx 9 hands the extension absolute dependency paths
+          # while 0.3.8 matches `git_exclude_patterns` against relative ones.
+          # A failing check phase is an unbuildable derivation, so the whole
+          # docs image goes with it.
+          #
+          # That is a real bug, not a stale test. Upstream fixed it in
+          # mgeier/sphinx-last-updated-by-git@a7d0d311 ("Consider absolute
+          # paths when excluding dependencies"), and nixpkgs adopted the fix
+          # the same way -- by moving `src` forward, not by silencing the test
+          # (nixpkgs@43cbe385, 2026-03-29). Our nixpkgs pin is b6067cc0
+          # (2026-03-11), 18 days short of that bump, and it cannot move
+          # independently (it has to match penguin-tools). So we make nixpkgs'
+          # own move here, on this one package.
+          #
+          # Nothing else changes: same expression, same postPatch, same
+          # disabledTests -- only src/version advance to the rev nixpkgs ships
+          # today.
+          #
+          # REMOVAL CONDITION, so this does not outlive its reason: delete this
+          # override the moment the shared nixpkgs pin moves past 2026-03-29
+          # (nixpkgs@43cbe385). At that point nixpkgs carries the bump itself --
+          # `nix eval nixpkgs#python3Packages.sphinx-last-updated-by-git.version`
+          # will read 0.3.8-unstable-2026-03-22 or later -- and this block is
+          # dead weight that pins a rev nixpkgs has already moved past. Check it
+          # whenever the pin moves; there is no automation that will.
+          sphinxLastUpdatedByGit = py.pkgs.sphinx-last-updated-by-git.overridePythonAttrs (_: {
+            version = "0.3.8-unstable-2026-03-22";
+            src = pkgs.fetchFromGitHub {
+              owner = "mgeier";
+              repo = "sphinx-last-updated-by-git";
+              rev = "8d4eef2561996319e6f785b4faa914a1e6545476";
+              hash = "sha256-30pZiqWs6Da+O8j08EIHrUoiJfJUPT6FdDiPBjmvRL8=";
+              fetchSubmodules = true;
+              leaveDotGit = true;
+            };
+          });
+
           # The docs toolchain (pyplugins/docgen/doc_generator.py imports sphinx
           # in-process and shells out to sphinx-apidoc + pdflatex). The docs
           # image is the runtime image plus these sphinx packages in the *same*
@@ -476,7 +516,10 @@
           docsPythonEnv = py.withPackages (
             ps:
             penguinRuntimeDeps
-            ++ [ penguin ]
+            ++ [
+              penguin
+              sphinxLastUpdatedByGit
+            ]
             ++ (with ps; [
               sphinx
               sphinx-rtd-theme
@@ -487,7 +530,6 @@
               sphinx-prompt
               sphinxemoji
               sphinx-notfound-page
-              sphinx-last-updated-by-git
               sphinx-autobuild
             ])
           );
