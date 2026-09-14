@@ -572,6 +572,15 @@ def arm_tests(tmp):
     assert out["verdict"].startswith("INVALID"), out["verdict"]
     assert out["exec_per_s_median"] is None, out["exec_per_s_median"]
     assert len(out["arm_history"]) == 2, out["arm_history"]
+    # The verdict must name WHICH axis refused. It used to assert a crashing
+    # victim unconditionally, and said exactly that for a run whose history
+    # read "costly, costly, idle" with zero signal laps -- sending the
+    # investigation after crashes that had never happened.
+    assert "already\nbroken" in out["verdict"] or "already broken" in out["verdict"], \
+        out["verdict"]
+    assert "rejected, re-arming" in out["verdict"], out["verdict"]
+    print("ok  a refused run names which axis refused it, not a crash by "
+          "default")
     print("ok  when every draw is poisoned the run reports INVALID, not a rate")
 
     # ---- the crash lap splits at the fault ----------------------------

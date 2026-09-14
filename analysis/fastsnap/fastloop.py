@@ -2565,12 +2565,32 @@ class FastLoop(Plugin):
                     f"delivered no input would have passed the probe. Name it "
                     f"as <plugin-file-name>.<attribute>.")
             elif self.arm_gave_up:
+                # SAY WHICH AXIS REFUSED. This asserted a crashing victim
+                # unconditionally, and reported exactly that for a run whose
+                # arm_history read "costly, costly, IDLE" with zero signal laps
+                # -- sending the investigation after crashes that had never
+                # happened, when the finding was that nothing was being
+                # injected into the span being measured.
+                why = [r.get("verdict", "?") for r in self.arm_history]
+                last = (self.arm_history[-1].get("verdict", "")
+                        if self.arm_history else "")
+                if "idle" in last:
+                    cause = ("the last draw made NO PROGRESS -- the injector's "
+                             "counter did not advance over the probe, so the "
+                             "span being replayed does not reach it. The rate "
+                             "such a run would report is the rate of a guest "
+                             "nothing is being injected into")
+                elif "costly" in last:
+                    cause = ("every draw replayed a span more expensive than "
+                             "the ceiling allowed, and the retries ran out")
+                else:
+                    cause = ("every draw landed on a victim that was already "
+                             "broken, so every lap rewound to a crash")
                 out["verdict"] = (
-                    f"INVALID: {self.arm_attempt} arming draws in a row landed "
-                    f"on a victim that was already broken, so every lap "
-                    f"rewound to a crash. The resets were correct and the "
-                    f"instant they restored was not; there is no rate here to "
-                    f"report. See arm_history.")
+                    f"INVALID: {self.arm_attempt} arming draws in a row were "
+                    f"refused ({', '.join(why)}). {cause}. The resets were "
+                    f"correct and the instant they restored was not; there is "
+                    f"no rate here to report. See arm_history.")
             elif not self.verifies:
                 out["verdict"] = ("UNVERIFIED: the loop ran but the oracle "
                                   "never did, so nothing here says the reset "
