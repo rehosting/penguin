@@ -129,6 +129,7 @@ class SnapFeed(Plugin):
         self.fdset_bytes = int(self._arg("fdset_bytes", 128))
         self.census = {}         # which syscalls the victim actually makes
         self.fd_feeds = {}       # per-fd feed count, for the EOF rule
+        self.n_lap_resets = 0    # laps that rewound the feed counts
         self.n_eof = 0           # connections ended by returning 0
         self.n_select = 0        # selects answered without reaching the host
         self.n_select_pass = 0   # ...and those left alone
@@ -199,6 +200,21 @@ class SnapFeed(Plugin):
             for nm in ("select", "_newselect", "pselect6"):
                 syscalls.syscall(f"on_sys_{nm}_enter", comm_filter=self.comm,
                                  pin_filter=pf)(self.on_select_enter)
+        # Follow the loop's rewinds, when there is a loop. Optional on
+        # purpose: snapfeed is useful without fastsnap, and a missing
+        # subscription must degrade to "no per-lap reset", not to no feeder.
+        try:
+            plugins.subscribe(plugins.fastloop, "on_lap", self.on_lap)
+            self.lap_subscribed = True
+        except Exception as e:                              # noqa: BLE001
+            self.lap_subscribed = False
+            if self.feeds_per_conn:
+                self.logger.warning(
+                    f"snapfeed: feeds_per_conn is set but the lap event is "
+                    f"not available ({e!r}), so the per-fd allowance is NOT "
+                    f"rewound with the guest. A replayed span that was fed a "
+                    f"request will get EOF instead, and the loop will read "
+                    f"that as the guest changing behaviour.")
         self.logger.info(
             f"snapfeed: armed on comm={self.comm!r}, passthrough="
             f"{self.passthrough} (0.0 means nothing reaches the host), "
@@ -209,6 +225,24 @@ class SnapFeed(Plugin):
         return default if v is None or v == "" else v
 
     # ---- learning the connection fds --------------------------------------
+
+    def on_lap(self, plugin=None, event=None, *a):
+        """The loop rewound the guest; rewind what this plugin knows too.
+
+        `fd_feeds` lives in host Python and the guest's fd state does not --
+        the reset restores the guest to before the read, but the feed count
+        stays where it was, so the replay of a span that was FED a request
+        gets EOF instead. Same span, different answer, which is precisely the
+        divergence the fidelity check exists to catch, manufactured by the
+        feeder itself.
+
+        The same trap as the driver pin's counters, from the other side:
+        there, guest-side state was rewound when the reader assumed it was
+        not; here, host-side state is NOT rewound when the guest assumes it
+        is. Anything a replay depends on has to be rewound with it.
+        """
+        self.fd_feeds.clear()
+        self.n_lap_resets += 1
 
     def _census(self, name):
         """One counting hook. Returns a generator function, because penguin's
@@ -224,6 +258,10 @@ class SnapFeed(Plugin):
         fd = int(syscall.retval)
         if fd >= 0:
             self.fds.add(fd)
+            # A new connection on this number, so a fresh allowance. This is
+            # the only place the per-fd feed count is cleared -- the EOF path
+            # must not, because the response is still to come on that fd.
+            self.fd_feeds.pop(fd, None)
             self.n_accept += 1
 
     # ---- mutation ---------------------------------------------------------
@@ -292,10 +330,16 @@ class SnapFeed(Plugin):
                 syscall.retval = 0            # EOF
                 syscall.skip_syscall = True
                 self.n_eof += 1
-                # Forget it: the guest reuses this number for the next
-                # connection, and that one deserves its own allowance.
-                self.fds.discard(int(fd))
-                self.fd_feeds.pop(int(fd), None)
+                # DO NOT forget the fd. Discarding it here broke two things at
+                # once: the victim's response, written on that same fd moments
+                # later, stopped being tallied (reported as "wrote NO
+                # parseable response" on a victim answering perfectly well),
+                # and after a reset the replayed read landed on a forgotten fd,
+                # got no feed, and the injector's counter never advanced --
+                # which the idle axis then refused, correctly.
+                #
+                # The allowance is reset by accept() instead, which is the
+                # event that actually means "new connection".
                 return
             self.fd_feeds[int(fd)] = n + 1
 
@@ -492,6 +536,8 @@ class SnapFeed(Plugin):
             "census_top": (max(self.census.items(), key=lambda kv: kv[1])[0]
                            if self.census else None),
             "n_eof": self.n_eof,
+            "n_lap_resets": self.n_lap_resets,
+            "lap_subscribed": getattr(self, "lap_subscribed", False),
             "feeds_per_conn": self.feeds_per_conn,
             "n_select": self.n_select,
             "n_select_pass": self.n_select_pass,

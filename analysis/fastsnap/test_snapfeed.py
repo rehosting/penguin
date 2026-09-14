@@ -389,12 +389,44 @@ def main():
     assert e.n_eof == 1 and e.n_sent == 1, (e.n_eof, e.n_sent)
     print("ok  snapfeed: feeds_per_conn=1 ends the connection with EOF")
 
-    # The fd is forgotten, so the NEXT connection reusing that number gets its
-    # own allowance rather than inheriting an exhausted one.
+    # The fd must STILL BE LEARNED after EOF: the victim's response comes on
+    # that same fd moments later. Discarding it there reported "wrote NO
+    # parseable response" on a victim answering perfectly well, and left the
+    # loop's replayed reads unfed.
+    assert 7 in e.fds, "fd forgotten at EOF; the response will not be tallied"
+    emem.ptrs[0x5000] = 0x6000
+    emem.ptrs[0x5004] = 17
+    emem.contents[0x6000] = b"HTTP/1.1 200 OK\r\n"
+    list(e.on_writev_enter(None, None, FakeSyscall(), 7, 0x5000, 1))
+    assert e.responses == {"200": 1}, e.responses
+    print("ok  snapfeed: the response after EOF is still tallied on that fd")
+
+    # accept() is what resets the allowance -- that is the event that means
+    # "new connection".
     e.on_accept(None, None, FakeSyscall(retval=7), 3, 0, 0)
     sc = feed(e, 7, 0x1000, 4096)
     assert sc.retval > 0 and e.n_sent == 2, (sc.retval, e.n_sent)
-    print("ok  snapfeed: a reused fd gets a fresh allowance, not an exhausted one")
+    print("ok  snapfeed: accept resets the allowance, not EOF")
+
+    # ---- AND THE REPLAY MUST GET WHAT THE FORWARD PASS GOT -------------
+    # fd_feeds lives in host Python; the guest's fd state does not. Without a
+    # rewind, a replayed span that was FED a request gets EOF instead -- the
+    # feeder manufacturing exactly the divergence the fidelity check exists to
+    # catch.
+    e2, _, _ = make(tmp, feeds_per_conn=1)
+    e2.on_accept(None, None, FakeSyscall(retval=7), 3, 0, 0)
+    first = feed(e2, 7, 0x1000, 4096)
+    assert first.retval > 0
+    again = feed(e2, 7, 0x1000, 4096)
+    assert again.retval == 0, "expected EOF before the lap reset"
+    e2.on_lap()                                   # the loop rewound the guest
+    replay = feed(e2, 7, 0x1000, 4096)
+    assert replay.retval > 0, (
+        "the replayed read got EOF where the forward pass got a request; the "
+        "feeder is manufacturing the divergence")
+    assert e2.n_lap_resets == 1, e2.n_lap_resets
+    print("ok  snapfeed: a lap rewind restores the feed allowance, so the "
+          "replay gets what the forward pass got")
 
     # Unlimited by default, which is right for a keep-alive victim.
     k, _, _ = make(tmp)
