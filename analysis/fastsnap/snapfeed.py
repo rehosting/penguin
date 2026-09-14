@@ -124,6 +124,7 @@ class SnapFeed(Plugin):
         # fd_set is FD_SETSIZE bits. 1024 on every target here; read and
         # written as bytes so word size does not matter.
         self.fdset_bytes = int(self._arg("fdset_bytes", 128))
+        self.census = {}         # which syscalls the victim actually makes
         self.n_select = 0        # selects answered without reaching the host
         self.n_select_pass = 0   # ...and those left alone
 
@@ -170,6 +171,18 @@ class SnapFeed(Plugin):
         # answering perfectly well through a different syscall.
         syscalls.syscall("on_sys_write_enter", comm_filter=self.comm,
                          pin_filter=pf)(self.on_write_enter)
+        # A CENSUS, not an intervention. Three hypotheses about where the
+        # victim waits have now been wrong -- the detector, then select() --
+        # and each cost a build and a run to disprove. These hooks only COUNT,
+        # so the next run names the blocking syscall instead of testing
+        # another guess. Cheap: one counter increment per call, no memory
+        # access, no skip.
+        for nm in ("epoll_wait", "epoll_pwait", "poll", "ppoll", "accept",
+                   "accept4", "nanosleep", "clock_nanosleep", "futex",
+                   "recvfrom", "recvmsg", "sendto", "sendmsg", "close",
+                   "shutdown"):
+            syscalls.syscall(f"on_sys_{nm}_enter", comm_filter=self.comm,
+                             pin_filter=pf)(self._census(nm))
         if self.answer_select:
             # A victim that waits in select() never reaches the read() this
             # plugin feeds. Target A gets to read() directly and won 28x;
@@ -191,6 +204,16 @@ class SnapFeed(Plugin):
         return default if v is None or v == "" else v
 
     # ---- learning the connection fds --------------------------------------
+
+    def _census(self, name):
+        """One counting hook. Returns a generator function, because penguin's
+        machinery drives every hook with `yield from`."""
+        def hook(regs, proto, syscall, *a):
+            self.census[name] = self.census.get(name, 0) + 1
+            return
+            yield
+        hook.__name__ = f"census_{name}"
+        return hook
 
     def on_accept(self, regs, proto, syscall, *a):
         fd = int(syscall.retval)
@@ -416,6 +439,10 @@ class SnapFeed(Plugin):
             "fds_learned": sorted(self.fds),
             "responses": self.responses,
             "n_writes": self.n_writes,
+            # What the victim ACTUALLY calls. `select` reading 0 here while
+            # the lap sits 96% idle is the evidence that sent the search
+            # elsewhere, and it cost nothing to have.
+            "census": dict(sorted(self.census.items(), key=lambda kv: -kv[1])),
             "n_select": self.n_select,
             "n_select_pass": self.n_select_pass,
             "answer_select": self.answer_select,

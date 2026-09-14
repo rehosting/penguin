@@ -319,6 +319,34 @@ def main():
     print("ok  snapfeed: swallow_writes=1 skips the write, for exclusive mode "
           "where the peer is frozen and cannot drain the socket")
 
+    # ---- THE CENSUS ---------------------------------------------------
+    # Three hypotheses about where the victim waits have been wrong, each
+    # costing a build and a run. The census counts without intervening, so
+    # the next run NAMES the blocking syscall instead of testing another guess.
+    c, _, creg = make(tmp)
+    cnames = [n for n, _ in creg]
+    for want in ("on_sys_epoll_wait_enter", "on_sys_poll_enter",
+                 "on_sys_accept_enter", "on_sys_nanosleep_enter"):
+        assert want in cnames, (want, cnames)
+    # A census hook must be a generator (penguin drives every hook with
+    # `yield from`) and must not touch the syscall.
+    h = c._census("epoll_wait")
+    sc = FakeSyscall()
+    g = h(None, None, sc, 1, 2, 3)
+    assert hasattr(g, "__next__"), "census hook is not a generator"
+    for _ in g:
+        pass
+    assert c.census["epoll_wait"] == 1, c.census
+    assert sc.skip_syscall is False and sc.retval == 0, (
+        "a census hook intervened; it must only count")
+    print("ok  snapfeed: the census counts blocking syscalls without touching "
+          "them")
+
+    c.uninit()
+    out = json.load(open(pathlib.Path(tmp) / "snapfeed.json"))
+    assert out["census"]["epoll_wait"] == 1, out["census"]
+    print("ok  snapfeed: the census reaches the report")
+
     # recv() feeds exactly as read() does.
     r, rmem, _ = make(tmp)
     r.on_accept(None, None, FakeSyscall(retval=7), 3, 0, 0)
