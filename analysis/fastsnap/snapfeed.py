@@ -103,11 +103,18 @@ class SnapFeed(Plugin):
         # it, and it is reported so a loop run cannot use it without saying so.
         self.passthrough = float(self._arg("passthrough", 0.0))
         self.mutate_on = bool(int(self._arg("mutate", 1)))
+        # On by default: without it, exclusive mode (which freezes the peer)
+        # wedges the victim in writev the first time a send buffer fills.
+        self.swallow_writes = bool(int(self._arg("swallow_writes", 1)))
+        # iovec is two pointer-sized fields; 4 on every target in this lane.
+        self.ptr_size = int(self._arg("ptr_size", 4))
 
         self.n_sent = 0          # deliveries -- fastloop's arm_progress
         self.n_pass = 0          # CONTROL: reads left to the host
         self.n_unmatched = 0     # CONTROL: reads on fds we never learned
         self.n_accept = 0        # connection fds learned
+        self.n_writes = 0        # responses seen
+        self.n_swallowed = 0     # responses that never reached the socket
         self.fds = set()
         self.responses = {}      # CONTROL: status codes written back
         self.t_first = None
@@ -117,7 +124,7 @@ class SnapFeed(Plugin):
         syscalls.syscall("on_sys_accept_return", comm_filter=self.comm)(self.on_accept)
         syscalls.syscall("on_sys_accept4_return", comm_filter=self.comm)(self.on_accept)
         syscalls.syscall("on_sys_read_enter", comm_filter=self.comm)(self.on_read_enter)
-        syscalls.syscall("on_sys_writev_return", comm_filter=self.comm)(self.on_writev)
+        syscalls.syscall("on_sys_writev_enter", comm_filter=self.comm)(self.on_writev_enter)
         self.logger.info(
             f"snapfeed: armed on comm={self.comm!r}, passthrough="
             f"{self.passthrough} (0.0 means nothing reaches the host), "
@@ -200,18 +207,62 @@ class SnapFeed(Plugin):
             self.t_first = now
         self.t_last = now
 
-    def on_writev(self, regs, proto, syscall, fd, vec, cnt):
-        rv = int(syscall.retval)
-        if rv <= 0:
+    def _tally(self, data):
+        if not data.startswith(b"HTTP/"):
+            return
+        parts = data.split(b" ")
+        code = (parts[1][:3].decode("latin-1", "replace")
+                if len(parts) > 1 else "???")
+        self.responses[code] = self.responses.get(code, 0) + 1
+
+    def on_writev_enter(self, regs, proto, syscall, fd, iov, iovcnt):
+        """Swallow the response, and tally what it was.
+
+        Two jobs, and the second is what makes exclusive mode survivable.
+
+        With the other userspace tasks stopped, the peer on the far end of
+        this socket is frozen and will never read again. Let the write through
+        and the send buffer fills, the victim blocks in writev() forever, and
+        the loop stalls -- exclusive mode would have deadlocked the thing it
+        was meant to make deterministic. Skipping the syscall means the
+        response never has to go anywhere and a frozen peer cannot matter.
+
+        `iov` is an ARRAY OF IOVECS, not the payload: read the first entry's
+        base through read_ptr and then read from THERE. Reading `iov`
+        directly returns the struct's own bytes, which never start with
+        "HTTP/" -- so the tally is silently always empty and the control that
+        catches a wedged victim reads as "no responses" on a perfectly
+        healthy one.
+        """
+        if int(iovcnt) <= 0 or int(fd) not in self.fds:
             return
         try:
-            head = yield from plugins.mem.read_bytes(int(vec), size=16)
+            base = yield from plugins.mem.read_ptr(iov)
+            data = yield from plugins.mem.read_bytes(base, size=16)
         except Exception:                                   # noqa: BLE001
-            return
-        i = head.find(b"HTTP/1.")
-        if i >= 0 and len(head) >= i + 13:
-            code = head[i + 9:i + 12].decode("ascii", "replace")
-            self.responses[code] = self.responses.get(code, 0) + 1
+            data = b""
+        self._tally(data)
+        self.n_writes += 1
+        if self.swallow_writes:
+            # Claim the whole write succeeded. A short count would send the
+            # victim back for the remainder and cost a lap to a retry loop.
+            total = yield from self._iov_total(iov, int(iovcnt))
+            syscall.retval = total
+            syscall.skip_syscall = True
+            self.n_swallowed += 1
+
+    def _iov_total(self, iov, iovcnt):
+        """Sum iov_len across the array, so the faked return is the length the
+        guest actually asked to write rather than a guess."""
+        total = 0
+        ptr = int(self.ptr_size)
+        for i in range(min(iovcnt, 64)):
+            try:
+                ln = yield from plugins.mem.read_ptr(int(iov) + i * 2 * ptr + ptr)
+            except Exception:                               # noqa: BLE001
+                break
+            total += int(ln)
+        return total
 
     # ---- report -----------------------------------------------------------
 
@@ -226,6 +277,9 @@ class SnapFeed(Plugin):
             "n_accept": self.n_accept,
             "fds_learned": sorted(self.fds),
             "responses": self.responses,
+            "n_writes": self.n_writes,
+            "n_swallowed": self.n_swallowed,
+            "swallow_writes": self.swallow_writes,
             "passthrough": self.passthrough,
             "mutate": self.mutate_on,
             "feed_wall_s": round(dur, 4) if dur else None,

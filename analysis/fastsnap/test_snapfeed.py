@@ -26,6 +26,7 @@ class FakeMem:
     def __init__(self):
         self.writes = []        # (addr, bytes)
         self.contents = {}
+        self.ptrs = {}
 
     def write_bytes(self, addr, data):
         self.writes.append((int(addr), bytes(data)))
@@ -35,6 +36,12 @@ class FakeMem:
     def read_bytes(self, addr, size=0):
         yield
         return self.contents.get(int(addr), b"")[:size]
+
+    def read_ptr(self, addr):
+        """Guest pointer read. Unset addresses return 0, the way a read of
+        unmapped-but-zeroed memory would."""
+        yield
+        return self.ptrs.get(int(addr), 0)
 
 
 class FakeSyscall:
@@ -127,6 +134,10 @@ def main():
     assert "on_sys_read_enter" in registered, registered
     assert "on_sys_accept_return" in registered, registered
     assert "on_sys_accept4_return" in registered, registered
+    assert "on_sys_writev_enter" in registered, registered
+    assert not any("writev_return" in r for r in registered), (
+        "hooking writev RETURN means the response already went to a socket "
+        "whose peer exclusive mode has frozen: " + str(registered))
     assert not any("read_return" in r for r in registered), (
         "hooking read RETURN would mean the real read already ran and the "
         "host-side dependence this plugin removes is still there: " + str(registered))
@@ -246,11 +257,54 @@ def main():
     print("ok  snapfeed: fed-but-silent is called out, not reported as clean")
 
     # The healthy case, with a response tallied.
+    #
+    # The iovec layout is the point. `iov` is an ARRAY OF IOVECS, so the
+    # payload is behind one pointer indirection. Reading `iov` directly
+    # returns the struct's own bytes, which never start with "HTTP/", and the
+    # tally is then silently always empty -- the control that catches a wedged
+    # victim would read "no responses" on a perfectly healthy one. This
+    # fixture only resolves if the plugin follows the pointer.
     p, mem, _ = make(tmp)
     p.on_accept(None, None, FakeSyscall(retval=7), 3, 0, 0)
     feed(p, 7, 0x1000, 4096)
-    mem.contents[0x5000] = b"HTTP/1.1 200 OK\r\n"
-    list(p.on_writev(None, None, FakeSyscall(retval=17), 7, 0x5000, 1))
+    mem.ptrs[0x5000] = 0x6000          # iov[0].iov_base
+    mem.ptrs[0x5004] = 17              # iov[0].iov_len
+    mem.contents[0x6000] = b"HTTP/1.1 200 OK\r\n"
+    mem.contents[0x5000] = b"\x00\x60\x00\x00\x11\x00\x00\x00"   # the struct bytes
+    sc = FakeSyscall()
+    list(p.on_writev_enter(None, None, sc, 7, 0x5000, 1))
+    assert p.responses == {"200": 1}, (
+        f"{p.responses} -- the tally read the iovec struct instead of "
+        f"following iov_base")
+    assert sc.skip_syscall is True and sc.retval == 17, (sc.retval, sc.skip_syscall)
+    print("ok  snapfeed: the response tally follows iov_base, and the write is "
+          "swallowed so a frozen peer cannot wedge the victim")
+
+    # A write on an fd we do not own is not ours to swallow.
+    sc = FakeSyscall()
+    list(p.on_writev_enter(None, None, sc, 9, 0x5000, 1))
+    assert sc.skip_syscall is False, "swallowed a write to something else"
+    print("ok  snapfeed: a write on an unlearned fd is left alone")
+
+    # Switchable off, for a run that wants the response to really go out.
+    q, qmem, _ = make(tmp, swallow_writes=0)
+    q.on_accept(None, None, FakeSyscall(retval=7), 3, 0, 0)
+    qmem.ptrs[0x5000] = 0x6000
+    qmem.ptrs[0x5004] = 17
+    qmem.contents[0x6000] = b"HTTP/1.1 404 NF\r\n"
+    sc = FakeSyscall()
+    list(q.on_writev_enter(None, None, sc, 7, 0x5000, 1))
+    assert sc.skip_syscall is False and q.responses == {"404": 1}, (
+        sc.skip_syscall, q.responses)
+    print("ok  snapfeed: swallow_writes=0 still tallies but lets the write out")
+
+    p, mem, _ = make(tmp)
+    p.on_accept(None, None, FakeSyscall(retval=7), 3, 0, 0)
+    feed(p, 7, 0x1000, 4096)
+    mem.ptrs[0x5000] = 0x6000
+    mem.ptrs[0x5004] = 17
+    mem.contents[0x6000] = b"HTTP/1.1 200 OK\r\n"
+    list(p.on_writev_enter(None, None, FakeSyscall(), 7, 0x5000, 1))
     assert p.responses == {"200": 1}, p.responses
     p.uninit()
     out = json.load(open(pathlib.Path(tmp) / "snapfeed.json"))
