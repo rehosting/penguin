@@ -379,7 +379,7 @@ def _kill_gateways() -> None:
         _terminate_gateway(proc)
 
 
-def _launch_gateway(kind, gateway_py, listen_port, uds_path, vsock_port):
+def _launch_gateway(kind, gateway_py, listen_port, uds_path, vsock_port, out_dir=None):
     """Start one host-side front-door gateway and confirm it actually came up.
 
     Runs inside the container, bridging TCP clients (telnet or ssh) to the
@@ -388,12 +388,15 @@ def _launch_gateway(kind, gateway_py, listen_port, uds_path, vsock_port):
     so the rehosted device answers on its container IP like a real one; nothing
     is published to the host unless the run adds -p (--extra_docker_args).
 
-    The gateway's stderr is inherited (its startup line and any bind/import error
-    land in the run log). After launch we briefly poll: a gateway that dies
-    immediately (port unbindable, `asyncssh` missing, bad script) would otherwise
-    leave a live-looking Popen handle and a logged "front door up" that lies. On
-    early death we log a warning and return None so the caller doesn't treat a
-    dead door as running.
+    The gateway's own stdout/stderr (its "listening on ..." startup line and any
+    bind/import error) go to ``<out_dir>/<kind>_gateway.log`` rather than the
+    console: penguin already logs the door once (at debug), and the Readiness
+    "ready" line is the user-facing "you can connect now" announcement, so the
+    gateway's duplicate chatter is just noise on the console. After launch we
+    briefly poll: a gateway that dies immediately (port unbindable, `asyncssh`
+    missing, bad script) would otherwise leave a live-looking Popen handle and a
+    logged "front door up" that lies. On early death we WARN (pointing at the log)
+    and return None so the caller doesn't treat a dead door as running.
 
     We spawn `sys.executable` (the very interpreter running penguin) with an
     explicit PYTHONPATH built from penguin's own `sys.path`. This matters on the
@@ -410,6 +413,19 @@ def _launch_gateway(kind, gateway_py, listen_port, uds_path, vsock_port):
     if env.get("PYTHONPATH"):
         child_pythonpath = child_pythonpath + os.pathsep + env["PYTHONPATH"]
     env["PYTHONPATH"] = child_pythonpath
+
+    # Send the gateway's stdout+stderr to a per-door log file (kept for
+    # debugging) instead of inheriting the console. Fall back to inheriting if we
+    # have no out_dir or can't open the file.
+    log_path = None
+    log_fh = None
+    if out_dir:
+        try:
+            log_path = os.path.join(out_dir, f"{kind}_gateway.log")
+            log_fh = open(log_path, "w")
+        except OSError:
+            log_path = None
+            log_fh = None
     proc = subprocess.Popen(
         [
             sys.executable, gateway_py,
@@ -419,7 +435,12 @@ def _launch_gateway(kind, gateway_py, listen_port, uds_path, vsock_port):
             "--port", str(vsock_port),
         ],
         env=env,
+        stdout=log_fh,
+        stderr=subprocess.STDOUT if log_fh else None,
     )
+    # The child holds its own dup of the fd; drop our copy so it isn't leaked.
+    if log_fh is not None:
+        log_fh.close()
     _gateway_procs.append(proc)
     if not _gateway_atexit_registered:
         atexit.register(_kill_gateways)
@@ -428,29 +449,34 @@ def _launch_gateway(kind, gateway_py, listen_port, uds_path, vsock_port):
     # Give it a moment to bind (or fail fast) before declaring it up.
     sleep(0.5)
     if proc.poll() is not None:
+        where = log_path if log_path else "run stderr"
         logger.warning(
             f"{kind} front door failed to start on 0.0.0.0:{listen_port} "
-            f"(exit {proc.returncode}); see run stderr. Other consoles are "
+            f"(exit {proc.returncode}); see {where}. Other consoles are "
             f"unaffected (guest_cmd over `<engine> exec` still works)."
         )
         return None
-    logger.info(f"{kind} front door: 0.0.0.0:{listen_port} -> guest vsock pty")
+    # Healthy launch is a diagnostic detail; the Readiness "ready" line is the
+    # user-facing connect announcement, so keep this at debug.
+    logger.debug(f"{kind} front door: 0.0.0.0:{listen_port} -> guest vsock pty")
     return proc
 
 
-def _launch_ssh_gateway(uds_path, vsock_port, ssh_port):
+def _launch_ssh_gateway(uds_path, vsock_port, ssh_port, out_dir=None):
     """Start the host-side SSH front door (asyncssh, open auth) for the vsock
     console -- `ssh root@<container-ip>`. See _launch_gateway."""
     return _launch_gateway(
-        "ssh", "/igloo_static/guesthopper/ssh_gateway.py", ssh_port, uds_path, vsock_port
+        "ssh", "/igloo_static/guesthopper/ssh_gateway.py", ssh_port, uds_path, vsock_port,
+        out_dir=out_dir,
     )
 
 
-def _launch_telnet_gateway(uds_path, vsock_port, telnet_port):
+def _launch_telnet_gateway(uds_path, vsock_port, telnet_port, out_dir=None):
     """Start the host-side telnet front door for the vsock console --
     `telnet <container-ip>`. See _launch_gateway."""
     return _launch_gateway(
-        "telnet", "/igloo_static/guesthopper/telnet_gateway.py", telnet_port, uds_path, vsock_port
+        "telnet", "/igloo_static/guesthopper/telnet_gateway.py", telnet_port, uds_path, vsock_port,
+        out_dir=out_dir,
     )
 
 
@@ -1140,6 +1166,11 @@ def run_config(
         "statedir": state_dir,
         "verbose": verbose,
         "telnet_port": telnet_port,
+        # Front-door reachability, so Readiness can announce how to connect
+        # (telnet + ssh) once the guest is actually up.
+        "ssh_port": ssh_port,
+        "root_shell_enabled": root_shell_enabled,
+        "root_shell_backend": root_shell_backend,
     }
     args.update(vpn_args)
 
@@ -1214,11 +1245,11 @@ def run_config(
         # 12341234 is the guest agent's default vsock port (guesthopper /
         # guest_cmd.py); keep them in lockstep.
         telnet_gateway_proc = _launch_telnet_gateway(
-            vpn_args["uds_path"], 12341234, telnet_port
+            vpn_args["uds_path"], 12341234, telnet_port, out_dir=out_dir
         )
         if ssh_port is not None:
             ssh_gateway_proc = _launch_ssh_gateway(
-                vpn_args["uds_path"], 12341234, ssh_port
+                vpn_args["uds_path"], 12341234, ssh_port, out_dir=out_dir
             )
 
     logger.info("Launching rehosting")
