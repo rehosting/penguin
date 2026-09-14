@@ -373,6 +373,50 @@ def main():
     print("ok  snapfeed: the census flags aliased names and names the dominant "
           "call, the two ways it was misread")
 
+    # ---- EOF, OR THE CONNECTION NEVER ENDS ----------------------------
+    # A feeder that always returns a full request never lets the victim see
+    # the connection end. Measured: SIX accepts against 1,561,776 feeds on a
+    # connection-per-request victim, after which the `accept` detector had
+    # nothing left to fire on and the loop could not arm.
+    e, emem, _ = make(tmp, feeds_per_conn=1)
+    e.on_accept(None, None, FakeSyscall(retval=7), 3, 0, 0)
+    sc = feed(e, 7, 0x1000, 4096)
+    assert sc.retval > 0 and e.n_sent == 1, (sc.retval, e.n_sent)
+    sc = feed(e, 7, 0x1000, 4096)
+    assert sc.retval == 0 and sc.skip_syscall is True, (
+        f"second read on the same connection returned {sc.retval}; the victim "
+        f"never sees EOF and never closes")
+    assert e.n_eof == 1 and e.n_sent == 1, (e.n_eof, e.n_sent)
+    print("ok  snapfeed: feeds_per_conn=1 ends the connection with EOF")
+
+    # The fd is forgotten, so the NEXT connection reusing that number gets its
+    # own allowance rather than inheriting an exhausted one.
+    e.on_accept(None, None, FakeSyscall(retval=7), 3, 0, 0)
+    sc = feed(e, 7, 0x1000, 4096)
+    assert sc.retval > 0 and e.n_sent == 2, (sc.retval, e.n_sent)
+    print("ok  snapfeed: a reused fd gets a fresh allowance, not an exhausted one")
+
+    # Unlimited by default, which is right for a keep-alive victim.
+    k, _, _ = make(tmp)
+    assert k.feeds_per_conn == 0
+    k.on_accept(None, None, FakeSyscall(retval=7), 3, 0, 0)
+    for _ in range(50):
+        sc = feed(k, 7, 0x1000, 4096)
+        assert sc.retval > 0
+    assert k.n_eof == 0 and k.n_sent == 50
+    print("ok  snapfeed: unlimited by default, for a keep-alive victim")
+
+    # And the runaway is NAMED, not left to be inferred from a big number.
+    r2, _, _ = make(tmp)
+    r2.n_accept = 6
+    r2.n_sent = 1561776
+    r2.responses = {"200": 1}
+    r2.uninit()
+    o = json.load(open(pathlib.Path(tmp) / "snapfeed.json"))
+    assert o["verdict"].startswith("RUNAWAY"), o["verdict"]
+    assert "feeds_per_conn" in o["verdict"], o["verdict"]
+    print("ok  snapfeed: 1.5M feeds across 6 connections is reported as RUNAWAY")
+
     # recv() feeds exactly as read() does.
     r, rmem, _ = make(tmp)
     r.on_accept(None, None, FakeSyscall(retval=7), 3, 0, 0)

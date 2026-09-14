@@ -121,10 +121,15 @@ class SnapFeed(Plugin):
         self.ptr_size = int(self._arg("ptr_size", 4))
         self.pin_filter = bool(int(self._arg("pin_filter", 0)))
         self.answer_select = bool(int(self._arg("answer_select", 1)))
+        # Requests fed per connection before returning EOF. 0 = unlimited
+        # (right for keep-alive); 1 matches a connection-per-request victim.
+        self.feeds_per_conn = int(self._arg("feeds_per_conn", 0))
         # fd_set is FD_SETSIZE bits. 1024 on every target here; read and
         # written as bytes so word size does not matter.
         self.fdset_bytes = int(self._arg("fdset_bytes", 128))
         self.census = {}         # which syscalls the victim actually makes
+        self.fd_feeds = {}       # per-fd feed count, for the EOF rule
+        self.n_eof = 0           # connections ended by returning 0
         self.n_select = 0        # selects answered without reaching the host
         self.n_select_pass = 0   # ...and those left alone
 
@@ -270,6 +275,29 @@ class SnapFeed(Plugin):
         if self.passthrough and self.rng.random() < self.passthrough:
             self.n_pass += 1
             return                      # goes to the host -- see __init__
+
+        # EOF, eventually. A feeder that ALWAYS returns a full request never
+        # lets the victim see the connection end -- so it never closes it and
+        # never accepts another. Measured: 6 accepts against 1,561,776 feeds
+        # on a connection-per-request server, after which the `accept`
+        # detector had nothing left to fire on and the loop could not arm. A
+        # feeder that cannot say "no more data" changes the victim's control
+        # flow, not just its content.
+        #
+        # 0 keeps the unlimited behaviour, which is right for a keep-alive
+        # victim driven by a real client.
+        if self.feeds_per_conn:
+            n = self.fd_feeds.get(int(fd), 0)
+            if n >= self.feeds_per_conn:
+                syscall.retval = 0            # EOF
+                syscall.skip_syscall = True
+                self.n_eof += 1
+                # Forget it: the guest reuses this number for the next
+                # connection, and that one deserves its own allowance.
+                self.fds.discard(int(fd))
+                self.fd_feeds.pop(int(fd), None)
+                return
+            self.fd_feeds[int(fd)] = n + 1
 
         payload = self.mutate(self.rng.choice(SEEDS), limit)
         if not payload:
@@ -463,6 +491,8 @@ class SnapFeed(Plugin):
             # through read(). The dominant call is the one that matters.
             "census_top": (max(self.census.items(), key=lambda kv: kv[1])[0]
                            if self.census else None),
+            "n_eof": self.n_eof,
+            "feeds_per_conn": self.feeds_per_conn,
             "n_select": self.n_select,
             "n_select_pass": self.n_select_pass,
             "answer_select": self.answer_select,
@@ -480,6 +510,14 @@ class SnapFeed(Plugin):
                 f"FED NOTHING: {self.n_unmatched} reads by {self.comm!r} on "
                 f"unlearned fds, {self.n_accept} accepts. Any loop rate "
                 f"measured alongside this is the rate of an unfed guest.")
+        elif (self.n_accept and self.n_sent > 1000 * max(1, self.n_accept)
+              and not self.feeds_per_conn):
+            out["verdict"] = (
+                f"RUNAWAY: {self.n_sent} inputs fed across only "
+                f"{self.n_accept} connections. Nothing ever returned EOF, so "
+                f"the victim never closed a connection and never accepted "
+                f"another -- a loop whose detector is `accept` cannot arm. "
+                f"Set feeds_per_conn.")
         elif not self.responses:
             out["verdict"] = (
                 f"FED {self.n_sent} inputs but the victim wrote NO parseable "
