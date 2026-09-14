@@ -1305,6 +1305,28 @@ def replay_fidelity_tests(tmp):
           f"reporting bound ({r['bound']}) is independent of the re-arm bound "
           f"({p.arm_cost_fwd_mult})")
 
+    # A ratio is only as good as the baseline under it. Target A returned
+    # forward samples of [1062, 2.8, 2.3, 1047, 1072] within ONE draw -- a
+    # 470x spread -- and the verdict quoted "284x FASTER" to three decimals
+    # against the median of that. The median is the right summary and is still
+    # not a stable quantity.
+    p, _ = make("loop", tmp)
+    p.arm_forward_ms = 1047.35
+    p.arm_forward_samples = [[1061.67, 2.77, 2.27, 1047.35, 1072.40]]
+    r = p._replay_fidelity({"iter_ms": {"median": 3.69}})
+    assert r["class"] == "faster", r
+    assert r["forward_spread"] is not None and r["forward_spread"] > 400, r
+    assert "bimodal" in r["note"], r["note"]
+    print(f"ok  replay fidelity: a {r['forward_spread']:.0f}x spread in the "
+          f"baseline is attached to the ratio quoted against it")
+
+    p, _ = make("loop", tmp)
+    p.arm_forward_ms = 10.93
+    p.arm_forward_samples = [[10.9, 11.1, 10.8, 11.4, 10.93]]
+    r = p._replay_fidelity({"iter_ms": {"median": 11.66}})
+    assert r["class"] == "faithful" and "bimodal" not in (r["note"] or ""), r
+    print("ok  replay fidelity: a stable baseline gets no caveat")
+
     # No baseline, no claim.
     p.arm_forward_ms = None
     assert p._replay_fidelity({"iter_ms": {"median": 6.3}}) is None

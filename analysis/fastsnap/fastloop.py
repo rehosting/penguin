@@ -2234,6 +2234,18 @@ class FastLoop(Plugin):
         if not fwd or not lap or fwd <= 0 or lap <= 0:
             return None
         ratio = lap / fwd
+        # How stable was the baseline this ratio is quoted against? Target A
+        # returned forward samples of [1062, 2.8, 2.3, 1047, 1072] within a
+        # SINGLE draw -- a 470x spread. The median of that is the right
+        # summary and is still not a stable quantity, so a ratio against it
+        # deserves to be read with that attached rather than to three decimal
+        # places.
+        spread = None
+        if self.arm_forward_samples and self.arm_forward_samples[0]:
+            lo = min(self.arm_forward_samples[0])
+            hi = max(self.arm_forward_samples[0])
+            if lo > 0:
+                spread = hi / lo
         # A SEPARATE bound from the cost axis's, and deliberately tighter.
         #
         # Reusing arm_cost_fwd_mult (10x) called target C's run FAITHFUL at
@@ -2246,7 +2258,13 @@ class FastLoop(Plugin):
         # carry eight.
         k = self.fidelity_bound
         row = {"forward_ms": round(fwd, 4), "lap_ms": round(lap, 4),
-               "ratio": round(ratio, 6), "bound": k}
+               "ratio": round(ratio, 6), "bound": k,
+               "forward_spread": (None if spread is None else round(spread, 1))}
+        caveat = ("" if spread is None or spread < 4 else
+                  f" NOTE: the forward samples behind that baseline span "
+                  f"{spread:.0f}x ({self.arm_forward_samples[0]}), so the "
+                  f"armed span's forward cost is bimodal and this ratio is a "
+                  f"summary of two different behaviours, not one measurement.")
         if ratio > k:
             row["class"] = "slower"
             row["note"] = (
@@ -2255,7 +2273,7 @@ class FastLoop(Plugin):
                 f"SLOWER. The oracle certifies the guest state; it cannot "
                 f"certify the host-side input, which is not rewound. Read the "
                 f"rate as a lower bound on a guest that is waiting, not "
-                f"working.")
+                f"working." + caveat)
         elif ratio < 1.0 / k:
             row["class"] = "faster"
             row["note"] = (
@@ -2266,7 +2284,7 @@ class FastLoop(Plugin):
                 f"the forward traversal and is still queued at replay, so the "
                 f"wait the forward span paid for never happens again. THE RATE "
                 f"ABOVE IS NOT A RATE FOR THIS SPAN -- it is the rate for a "
-                f"span whose input was already there.")
+                f"span whose input was already there." + caveat)
         else:
             row["class"] = "faithful"
             row["note"] = None
