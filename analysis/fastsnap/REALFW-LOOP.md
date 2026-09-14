@@ -793,3 +793,58 @@ Baseline, same target and detector: forward 4.15 ms, lap 46.63 ms, **11.06x**,
 If all three stay at ~11x it is none of them, and the remaining suspect is the
 clock -- which is not rewound, and which `mc146818rtc` is already excluded from
 the device scope for failing to round-trip.
+
+## The answer: feed the guest from inside the boundary
+
+Three arms on target A, each removing one more thing, against a baseline of
+forward 4.15 ms / lap 46.63 ms / 11.06x slower / 21.4 exec/s:
+
+| arm | lap | exec/s | oracle | outcome |
+|---|---|---|---|---|
+| `feed` | **4.32 ms** | **231.6** | VALID, 403 MB, 20 verifications | **10.8x** |
+| `pin` | 1048 ms | 0.95 | FAILED (virtio unrestored) | a bad draw, and an inert pin |
+| `exclusive` | -- | -- | UNVERIFIED, no laps | starved the workload |
+
+**Feeding is the whole win.** The replayed lap lands at 4.32 ms against the
+baseline run's un-reset forward traversal of 4.15 ms: the divergence did not
+shrink, it is gone. The loop now replays its armed span at the cost of
+traversing it.
+
+And `lap_cpu_frac` = **0.916** says what the TCG counters could not. The guest
+is now EXECUTING. Which settles what the baseline's 46 ms was: roughly 42 ms of
+waiting and 4 ms of work.
+
+That restores the hypothesis this document abandoned. On finding the load
+generator was in-guest, the host-side-I/O account looked wrong; it was not. It
+does not matter which side of the snapshot boundary the peer sits on -- only
+that the victim had to WAIT for one at all. snapfeed answers the read before it
+reaches any peer, so there is nothing left in the iteration to wait for.
+
+### Why the other two arms did not help
+
+**Exclusive mode worked and starved the run.** The driver did exactly what it
+was built to do -- 17 userspace tasks signalled, `frozen_pending` 0, so every
+one of them actually stopped, and the asynchronous-SIGSTOP settle poll held.
+But the in-guest load generator is one of those 17. With it stopped no new
+connections arrive, snapfeed can only feed fds it already learned from
+`accept`, and the loop managed 115 hits and never completed a verification.
+
+The pairing that would fix it is to learn the fds BEFORE freezing and keep
+feeding them, which is what already happens -- the shortfall is that a
+keep-alive connection eventually closes and there is no client left to open
+another. A feeder that could synthesise `accept` as well as `read` would close
+that gap. Not built.
+
+**The pin was inert.** It reported `active=1` with a resolved pid and
+`hits_in=0, hits_out=0`: the pin was set and no hook ever consulted it, because
+nothing set `pin_filter_enabled`. A pin that nothing consults is
+indistinguishable from a working one if the only thing checked is that it was
+set -- which is why `hits_in`/`hits_out` are in the report at all.
+
+### What the pin is actually for
+
+Not speed. On target A the detector fired 22,143 times from a single pid with
+zero outside it, so there was nothing for it to exclude. It is a correctness
+guard for the case that measurement cannot rule out in advance: a forked worker
+or a restarted victim carrying the same `comm`. Whether it ever fires on these
+targets is now measurable rather than assumed.
