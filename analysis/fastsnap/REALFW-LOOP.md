@@ -736,3 +736,60 @@ result on C anyway.
 The test that would settle it: re-run C with `arm_cost_min_laps` raised past
 the transition, and see whether the 180 ms draw is still 180 ms at lap 500.
 Not run here.
+
+## Cornering target A: seven hypotheses, six dead
+
+Target A replays its armed span consistently 11x slower than it traverses it
+forward. Each of these was a live explanation at some point in this lane, and
+each is now closed by a measurement rather than by an argument:
+
+| hypothesis | verdict | the measurement that closed it |
+|---|---|---|
+| TB invalidation | dead | `tb_phys_invalidate` = **0** per reset |
+| cold translation after flush | dead | `tb_flush` = **0** |
+| softmmu TLB flush | dead | `tlb_full_flush` = **0** |
+| memcpy overbreadth | dead | 13% dirty-but-identical, ~40 us of a 500 us reset |
+| the detector / epoll idle | dead | `writev` **11.06x** against `read`'s **11.73x** |
+| laps closing in another process | dead | 1 distinct pid, **0** hits outside the armed one |
+| an unlucky draw | dead | 3 draws, all ~11x, forward tight at 4.15 / 4.15 / 4.22 ms |
+
+The fifth is worth a note: target A's own config comment predicted exactly the
+failure we measured -- *"a snapshot armed while it idles in epoll_wait would
+resume every reset into a blocking wait, and the measured interval would be the
+idle timeout rather than the loop"* -- and the detector had been switched to
+`read` anyway. Switching it back changes nothing, so the comment was right
+about the risk and wrong about this being it.
+
+Target C agrees at **8.03x** (2.33 ms forward, 18.70 ms replayed), same
+process, same zero counters. Two architectures, one shape.
+
+### What the counters cannot say, and the measurement that can
+
+Every TCG counter reads zero across the 46 ms guest half. That is consistent
+with BOTH readings and distinguishes neither: steady userspace execution
+flushes no TLB and invalidates no translated block, and neither does a halted
+vCPU. The two call for completely different fixes -- a lap spent waiting is the
+period of whatever it waited on, not a cost of the reset.
+
+`lap_cpu_frac` closes that gap. The plugin runs in QEMU's process on the vCPU
+thread, so `thread_time()` is that vCPU's CPU time: it advances while the guest
+executes and stands still while the vCPU sleeps on a halt. Near 1 is work; near
+0 is waiting.
+
+### The three-arm discriminator
+
+Each arm removes one more thing, so whichever one moves the number is the
+answer rather than the next guess:
+
+| arm | what it removes |
+|---|---|
+| `feed` | the host-side socket -- snapfeed answers reads from inside the boundary |
+| `pin` | + hooks confined to the arming process and its children |
+| `exclusive` | + every other userspace task STOPPED before the snapshot |
+
+Baseline, same target and detector: forward 4.15 ms, lap 46.63 ms, **11.06x**,
+21.4 exec/s.
+
+If all three stay at ~11x it is none of them, and the remaining suspect is the
+clock -- which is not rewound, and which `mc146818rtc` is already excluded from
+the device scope for failing to round-trip.
