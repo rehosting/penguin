@@ -679,3 +679,60 @@ into the verdict.
 
 That would make the fix a design change at the I/O boundary rather than a
 scoring change at the arm, and this document should not pre-empt which.
+
+## The payoff test, against an axis that can fire
+
+All three targets, cost axis on, with the early fire, the relaxing ladder and
+the ratio axis in place:
+
+| | arms | forward traversals | accepted lap | fidelity | exec/s wall | exec/s median |
+|---|---|---|---|---|---|---|
+| A (armel) | 3 (2 rejected early) | 3.77 / 4.99 / 3.92 ms | 44.27 ms | **slower 11.7x** | 22.4 | 22.6 |
+| B (mips-BE) | 1 (accepted) | 467.08 ms | 6.24 ms | **faster 75x** | 154.7 | 160.3 |
+| C (mipsel) | 3 (2 rejected early) | 2.21 / 2.19 / 2.11 ms | 1.70 ms | **faithful 0.77x** | 82.6 | **589.6** |
+
+**The earlier conclusion that re-arming is futile was drawn from target A alone
+and does not generalise.** Target C is the counterexample: the axis rejected a
+180 ms draw and a 20 ms draw, and the run it kept has a lap median of 1.70 ms
+against a 2.21 ms forward traversal -- a ratio of 0.77, the first **faithful**
+replay this lane has measured on real firmware.
+
+Against target C's own forward-baseline run, which drew without the axis:
+
+| target C | lap median | exec/s wall | exec/s median | fidelity |
+|---|---|---|---|---|
+| cost axis off | 160.02 ms | 4.9 | 6.2 | 97x slower |
+| cost axis on | **1.70 ms** | **82.6** | **589.6** | **faithful** |
+
+A 94x improvement in median rate, and -- more to the point -- the difference
+between a number that measures a timeout and a number that measures the span
+it claims to. Two different runs and therefore two different draws, so part of
+that gap is luck; the fidelity ratio is the part that is not.
+
+So the three targets land in three different places, and the axis is doing
+something different in each:
+- **A**: every draw diverges slow, consistently ~11.5x. Re-arming does not
+  help. The refusal in the verdict is the whole value.
+- **B**: diverges fast, structurally, on every draw. Re-arming cannot help by
+  construction, the axis correctly does not try, and the refusal is again the
+  whole value.
+- **C**: the divergence is per-draw, and re-arming FOUND a faithful one.
+
+### The limit of the early fire, stated rather than hidden
+
+Target C's probe medians were 180.1, 20.3 and 19.5 ms, and the run it accepted
+has an overall median of 1.70 ms. The first 200 laps of the accepted draw sat
+flat at ~19.5 ms and the eventual distribution is bimodal -- p10 0.85 ms, p90
+20.1 ms. **The probe is not a stationary sample of the run it is scoring.**
+
+That cuts directly at the early fire, which decides on five laps. Those five
+were flat to under 1% in every case here, so they estimated the early laps
+well -- but a draw rejected at lap 5 might have transitioned the way the
+accepted one did, and having rejected it there is no way to know. The honest
+statement is that the early fire is a decision made on the first five laps of a
+distribution that is demonstrably not stationary, and that it bought a real
+result on C anyway.
+
+The test that would settle it: re-run C with `arm_cost_min_laps` raised past
+the transition, and see whether the 180 ms draw is still 180 ms at lap 500.
+Not run here.
