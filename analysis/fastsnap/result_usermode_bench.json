@@ -1,398 +1,829 @@
 {
   "records": {
     "x86-64/floor": {
-      "n": 4121,
-      "wall_med_s": 1.8785728490911424,
-      "per_exec_ms": 0.45585363967268683,
-      "exec_s": 2193.6865541273783,
-      "spread": 1.0305151993636752
+      "n": 4243,
+      "wall_med_s": 1.9826556439511478,
+      "per_exec_ms": 0.4672768427883921,
+      "exec_s": 2140.058972391348,
+      "spread": 1.023105191873542
     },
     "x86-64/spawn": {
-      "n": 4255,
-      "wall_med_s": 1.9568152818828821,
-      "per_exec_ms": 0.4598860826986797,
-      "exec_s": 2174.451538371963,
-      "spread": 1.0193890464705806
+      "n": 4113,
+      "wall_med_s": 1.948143882676959,
+      "per_exec_ms": 0.4736552109596302,
+      "exec_s": 2111.2403640065313,
+      "spread": 1.0131323662051015
     },
     "x86-64/fork": {
-      "n": 19179,
-      "wall_med_s": 1.937313404865563,
-      "per_exec_ms": 0.10101222195451082,
-      "exec_s": 9899.792130603102,
-      "spread": 1.0099674086050279
+      "n": 19602,
+      "wall_med_s": 1.9628197439014912,
+      "per_exec_ms": 0.10013364676571224,
+      "exec_s": 9986.653161047361,
+      "spread": 1.0244049223900846
     },
     "x86-64/persist": {
-      "n": 5449003,
-      "wall_med_s": 1.8939287848770618,
-      "per_exec_ms": 0.00034757345240534127,
-      "exec_s": 2877089.7002622536,
-      "spread": 1.0057242088197722
+      "n": 5482670,
+      "wall_med_s": 1.899972771294415,
+      "per_exec_ms": 0.00034654151559266103,
+      "exec_s": 2885657.143530937,
+      "spread": 1.0275793095040786
     },
     "armel/qemu6.2/floor": {
       "n": 300,
-      "wall_med_s": 2.6537173921242356,
-      "per_exec_ms": 8.845724640414119,
-      "exec_s": 113.04896327331124,
-      "spread": 1.0087200350055125
+      "wall_med_s": 2.6786001338623464,
+      "per_exec_ms": 8.92866711287449,
+      "exec_s": 111.99879974896508,
+      "spread": 1.0119780876817115
     },
     "armel/qemu6.2/spawn": {
       "n": 300,
-      "wall_med_s": 2.7111525391228497,
-      "per_exec_ms": 9.0371751304095,
-      "exec_s": 110.65404681990347,
-      "spread": 1.3025054212485678
+      "wall_med_s": 2.689747978001833,
+      "per_exec_ms": 8.965826593339443,
+      "exec_s": 111.53461307659938,
+      "spread": 1.0008870312304061
     },
     "armel/qemu6.2/fork": {
       "n": 2000,
-      "wall_med_s": 1.7408971092663705,
-      "per_exec_ms": 0.8704485546331853,
-      "exec_s": 1148.8329720087925,
-      "spread": 1.0091481838515974
+      "wall_med_s": 1.7009585201740265,
+      "per_exec_ms": 0.8504792600870132,
+      "exec_s": 1175.8076262761413,
+      "spread": 1.0091244354244964
     },
     "armel/qemu6.2/persist": {
-      "n": 2106036,
-      "wall_med_s": 1.8198421075940132,
-      "per_exec_ms": 0.0008641077871384977,
-      "exec_s": 1157263.0346400542,
-      "spread": 1.013514613717251
+      "n": 2160272,
+      "wall_med_s": 1.8619193420745432,
+      "per_exec_ms": 0.0008618911609623896,
+      "exec_s": 1160239.3031660723,
+      "spread": 1.0221716966870684
+    },
+    "armel/stock11.1/floor": {
+      "n": 300,
+      "wall_med_s": 3.626069024205208,
+      "per_exec_ms": 12.086896747350693,
+      "exec_s": 82.73422210040707,
+      "spread": 1.006678691394799
+    },
+    "armel/stock11.1/spawn": {
+      "n": 300,
+      "wall_med_s": 3.6442889804020524,
+      "per_exec_ms": 12.147629934673509,
+      "exec_s": 82.32058478713256,
+      "spread": 1.0058603756133595
+    },
+    "armel/stock11.1/fork": {
+      "n": 2000,
+      "wall_med_s": 2.1862376970238984,
+      "per_exec_ms": 1.0931188485119492,
+      "exec_s": 914.8136100308664,
+      "spread": 1.0081788368072293
+    },
+    "armel/stock11.1/persist": {
+      "n": 1878696,
+      "wall_med_s": 1.8411882133223116,
+      "per_exec_ms": 0.000980035201715611,
+      "exec_s": 1020371.5114002429,
+      "spread": 1.0256518175077853
     },
     "armel/igloo11.1/floor": {
       "n": 300,
-      "wall_med_s": 4.424208946991712,
-      "per_exec_ms": 14.74736315663904,
-      "exec_s": 67.80873227155969,
-      "spread": 1.005170139173811
+      "wall_med_s": 3.653146257158369,
+      "per_exec_ms": 12.177154190527895,
+      "exec_s": 82.1209934894196,
+      "spread": 1.0017316774214777
     },
     "armel/igloo11.1/spawn": {
       "n": 300,
-      "wall_med_s": 4.481479439418763,
-      "per_exec_ms": 14.938264798062542,
-      "exec_s": 66.94217926366505,
-      "spread": 1.0229932330111544
+      "wall_med_s": 3.6926374160684645,
+      "per_exec_ms": 12.308791386894882,
+      "exec_s": 81.2427450078239,
+      "spread": 1.005222321039989
     },
     "armel/igloo11.1/fork": {
       "n": 2000,
-      "wall_med_s": 2.2038722368888557,
-      "per_exec_ms": 1.1019361184444278,
-      "exec_s": 907.4936225991682,
-      "spread": 1.0063655940725824
+      "wall_med_s": 2.1837256918661296,
+      "per_exec_ms": 1.0918628459330648,
+      "exec_s": 915.8659475636225,
+      "spread": 1.0094622324592908
     },
     "armel/igloo11.1/persist": {
-      "n": 1827190,
-      "wall_med_s": 1.7802241360768676,
-      "per_exec_ms": 0.0009742961246924883,
-      "exec_s": 1026381.9948125366,
-      "spread": 1.0032926687900587
+      "n": 1888285,
+      "wall_med_s": 1.8344219140708447,
+      "per_exec_ms": 0.0009714751290567075,
+      "exec_s": 1029362.4304834134,
+      "spread": 1.0128836475221332
+    },
+    "mipsel/stock11.1/floor": {
+      "n": 300,
+      "wall_med_s": 3.502964197192341,
+      "per_exec_ms": 11.67654732397447,
+      "exec_s": 85.64175455759806,
+      "spread": 1.016382355829676
+    },
+    "mipsel/stock11.1/spawn": {
+      "n": 300,
+      "wall_med_s": 3.4950135750696063,
+      "per_exec_ms": 11.65004525023202,
+      "exec_s": 85.83657646995698,
+      "spread": 1.0034484056930169
+    },
+    "mipsel/stock11.1/fork": {
+      "n": 2000,
+      "wall_med_s": 2.4243704262189567,
+      "per_exec_ms": 1.2121852131094784,
+      "exec_s": 824.9564416272789,
+      "spread": 1.0083801651884157
+    },
+    "mipsel/stock11.1/persist": {
+      "n": 2168850,
+      "wall_med_s": 1.8270867951214314,
+      "per_exec_ms": 0.0008424219264224964,
+      "exec_s": 1187053.6231727593,
+      "spread": 1.1291314636812175
     },
     "mipsel/igloo11.1/floor": {
       "n": 300,
-      "wall_med_s": 4.395830869209021,
-      "per_exec_ms": 14.65276956403007,
-      "exec_s": 68.24648375381683,
-      "spread": 1.0360382789732798
+      "wall_med_s": 3.5046888841316104,
+      "per_exec_ms": 11.682296280438702,
+      "exec_s": 85.59960952834585,
+      "spread": 1.001392315904288
     },
     "mipsel/igloo11.1/spawn": {
       "n": 300,
-      "wall_med_s": 4.330676873680204,
-      "per_exec_ms": 14.435589578934014,
-      "exec_s": 69.27323574364493,
-      "spread": 1.0118738743755191
+      "wall_med_s": 3.5197753151878715,
+      "per_exec_ms": 11.732584383959571,
+      "exec_s": 85.23271320913483,
+      "spread": 1.0030435205859356
     },
     "mipsel/igloo11.1/fork": {
       "n": 2000,
-      "wall_med_s": 2.3925462518818676,
-      "per_exec_ms": 1.1962731259409338,
-      "exec_s": 835.929503317602,
-      "spread": 1.0110330317253506
+      "wall_med_s": 2.4241435341537,
+      "per_exec_ms": 1.21207176707685,
+      "exec_s": 825.0336549061753,
+      "spread": 1.0057129585406461
     },
     "mipsel/igloo11.1/persist": {
-      "n": 2139879,
-      "wall_med_s": 1.825371258892119,
-      "per_exec_ms": 0.0008530254555945074,
-      "exec_s": 1172297.958333565,
-      "spread": 1.0285632408857641
+      "n": 2167722,
+      "wall_med_s": 1.8349930560216308,
+      "per_exec_ms": 0.000846507557713411,
+      "exec_s": 1181324.3613573909,
+      "spread": 1.0247068117813745
     }
   },
   "scale": {
     "x86-64/0MB": {
       "touch_mb": 0,
-      "per_fork_ms": 0.10002855661635598,
-      "exec_s": 9997.145153611933,
-      "spread": 1.0973460665369597
+      "per_fork_ms": 0.09878305966655414,
+      "exec_s": 10123.193221343183,
+      "spread": 1.0239209697907212
     },
     "x86-64/1MB": {
       "touch_mb": 1,
-      "per_fork_ms": 0.15073816602428752,
-      "exec_s": 6634.019945810379,
-      "spread": 1.0139812565710402
+      "per_fork_ms": 0.151972826415052,
+      "exec_s": 6580.123720729563,
+      "spread": 1.0104820255594322
     },
     "x86-64/2MB": {
       "touch_mb": 2,
-      "per_fork_ms": 0.1938973272529741,
-      "exec_s": 5157.368666022504,
-      "spread": 1.0414284129118732
+      "per_fork_ms": 0.1940135710562269,
+      "exec_s": 5154.278613376952,
+      "spread": 1.0273063518370564
     },
     "x86-64/4MB": {
       "touch_mb": 4,
-      "per_fork_ms": 0.2777598546817899,
-      "exec_s": 3600.232298312621,
-      "spread": 1.027720573999707
+      "per_fork_ms": 0.27766838142027456,
+      "exec_s": 3601.418335371846,
+      "spread": 1.0137463539446363
     },
     "x86-64/8MB": {
       "touch_mb": 8,
-      "per_fork_ms": 0.4394302540458739,
-      "exec_s": 2275.6739910211236,
-      "spread": 1.0391867449970837
+      "per_fork_ms": 0.4455422392735879,
+      "exec_s": 2244.4561073051123,
+      "spread": 1.0080569437541098
     },
     "x86-64/12MB": {
       "touch_mb": 12,
-      "per_fork_ms": 0.6018024291843176,
-      "exec_s": 1661.6749143990644,
-      "spread": 1.0139113731401797
+      "per_fork_ms": 0.5932978913187981,
+      "exec_s": 1685.4939392708338,
+      "spread": 1.0120415541184637
     },
     "x86-64/16MB": {
       "touch_mb": 16,
-      "per_fork_ms": 0.759220833114038,
-      "exec_s": 1317.1398312377396,
-      "spread": 1.0090955619088637
+      "per_fork_ms": 0.7482295376248658,
+      "exec_s": 1336.4882695948345,
+      "spread": 1.006634350364872
     },
     "x86-64/32MB": {
       "touch_mb": 32,
-      "per_fork_ms": 1.2951856045983732,
-      "exec_s": 772.0901131464414,
-      "spread": 1.0193521179405476
+      "per_fork_ms": 1.2827501993936798,
+      "exec_s": 779.5750103743286,
+      "spread": 1.0505259076606195
     },
     "x86-64/64MB": {
       "touch_mb": 64,
-      "per_fork_ms": 1.8836732786148787,
-      "exec_s": 530.8776268968098,
-      "spread": 1.0090390410244474
+      "per_fork_ms": 1.6161188087426126,
+      "exec_s": 618.7663893213576,
+      "spread": 1.173556902328756
     },
     "x86-64/256MB": {
       "touch_mb": 256,
-      "per_fork_ms": 4.780325599946082,
-      "exec_s": 209.1907714426982,
-      "spread": 1.455339849211687
+      "per_fork_ms": 4.513268095441163,
+      "exec_s": 221.56893383091884,
+      "spread": 1.012770246758854
     },
     "x86-64/1024MB": {
       "touch_mb": 1024,
-      "per_fork_ms": 17.994743884230655,
-      "exec_s": 55.571782873571806,
-      "spread": 1.2057886722811502
+      "per_fork_ms": 17.213203276662774,
+      "exec_s": 58.09493932810138,
+      "spread": 1.022372613297772
     },
     "armel/qemu6.2/0MB": {
       "touch_mb": 0,
-      "per_fork_ms": 0.8225980643182993,
-      "exec_s": 1215.6605314026804,
-      "spread": 1.0388298492149088
+      "per_fork_ms": 0.8472731554259856,
+      "exec_s": 1180.2569143090902,
+      "spread": 1.0590850518246804
     },
     "armel/qemu6.2/1MB": {
       "touch_mb": 1,
-      "per_fork_ms": 0.8825075800220171,
-      "exec_s": 1133.13474313167,
-      "spread": 1.008665143867186
+      "per_fork_ms": 0.8758932823936144,
+      "exec_s": 1141.6915965689684,
+      "spread": 1.025763526897773
     },
     "armel/qemu6.2/2MB": {
       "touch_mb": 2,
-      "per_fork_ms": 0.9172423652683696,
-      "exec_s": 1090.2243920094304,
-      "spread": 1.0136151030054008
+      "per_fork_ms": 0.9205005696664254,
+      "exec_s": 1086.3654330625607,
+      "spread": 1.0419205802524365
     },
     "armel/qemu6.2/4MB": {
       "touch_mb": 4,
-      "per_fork_ms": 1.0023305180172126,
-      "exec_s": 997.674900668671,
-      "spread": 1.0096843134394815
+      "per_fork_ms": 1.023665043680618,
+      "exec_s": 976.8820437635246,
+      "spread": 1.0046160715131673
     },
     "armel/qemu6.2/8MB": {
       "touch_mb": 8,
-      "per_fork_ms": 1.1715691125330825,
-      "exec_s": 853.5561319450219,
-      "spread": 1.0065371283876106
+      "per_fork_ms": 1.1618689013024173,
+      "exec_s": 860.6823014877433,
+      "spread": 1.0052009724739628
     },
     "armel/qemu6.2/12MB": {
       "touch_mb": 12,
-      "per_fork_ms": 1.3141112529362242,
-      "exec_s": 760.9705782258692,
-      "spread": 1.0010123455647189
+      "per_fork_ms": 1.2949784245962899,
+      "exec_s": 772.2136376996015,
+      "spread": 1.0160816560186148
     },
     "armel/qemu6.2/16MB": {
       "touch_mb": 16,
-      "per_fork_ms": 1.4436467646931608,
-      "exec_s": 692.6902234374103,
-      "spread": 1.0027615229443454
+      "per_fork_ms": 1.4478858772975705,
+      "exec_s": 690.6621686693056,
+      "spread": 1.0171138449100032
     },
     "armel/qemu6.2/32MB": {
       "touch_mb": 32,
-      "per_fork_ms": 1.8927338006906211,
-      "exec_s": 528.3363141901517,
-      "spread": 1.003957622447976
+      "per_fork_ms": 1.8556124369303384,
+      "exec_s": 538.9056357340748,
+      "spread": 1.0080840427506599
     },
     "armel/qemu6.2/64MB": {
       "touch_mb": 64,
-      "per_fork_ms": 2.4540413551342986,
-      "exec_s": 407.49109541606504,
-      "spread": 1.0058630316544321
+      "per_fork_ms": 2.3451240197755396,
+      "exec_s": 426.41668055394086,
+      "spread": 1.0113647515028543
     },
     "armel/qemu6.2/256MB": {
       "touch_mb": 256,
-      "per_fork_ms": 5.330650007352233,
-      "exec_s": 187.59438316542304,
-      "spread": 1.0031879480090995
+      "per_fork_ms": 5.104173040017486,
+      "exec_s": 195.91812271250393,
+      "spread": 1.0059956208007788
     },
     "armel/qemu6.2/1024MB": {
       "touch_mb": 1024,
-      "per_fork_ms": 18.80502113063509,
-      "exec_s": 53.177286696631725,
-      "spread": 1.0615417883441696
+      "per_fork_ms": 17.779182373701282,
+      "exec_s": 56.24555612181502,
+      "spread": 1.0063946933340757
+    },
+    "armel/stock11.1/0MB": {
+      "touch_mb": 0,
+      "per_fork_ms": 1.065235202666372,
+      "exec_s": 938.759813322839,
+      "spread": 1.0169859721833947
+    },
+    "armel/stock11.1/1MB": {
+      "touch_mb": 1,
+      "per_fork_ms": 1.1115185663414497,
+      "exec_s": 899.6700822474681,
+      "spread": 1.0133895428131585
+    },
+    "armel/stock11.1/2MB": {
+      "touch_mb": 2,
+      "per_fork_ms": 1.1604525777511299,
+      "exec_s": 861.7327576952132,
+      "spread": 1.0059766499081872
+    },
+    "armel/stock11.1/4MB": {
+      "touch_mb": 4,
+      "per_fork_ms": 1.2295966528666518,
+      "exec_s": 813.2748228198445,
+      "spread": 1.0175486839067054
+    },
+    "armel/stock11.1/8MB": {
+      "touch_mb": 8,
+      "per_fork_ms": 1.3761604671987395,
+      "exec_s": 726.6594440367571,
+      "spread": 1.0138966766409068
+    },
+    "armel/stock11.1/12MB": {
+      "touch_mb": 12,
+      "per_fork_ms": 1.5226149333951375,
+      "exec_s": 656.7648707938212,
+      "spread": 1.0134215987610191
+    },
+    "armel/stock11.1/16MB": {
+      "touch_mb": 16,
+      "per_fork_ms": 1.6578552809854348,
+      "exec_s": 603.1889583303052,
+      "spread": 1.006449480233231
+    },
+    "armel/stock11.1/32MB": {
+      "touch_mb": 32,
+      "per_fork_ms": 2.0560598579856255,
+      "exec_s": 486.3671629578555,
+      "spread": 1.013732830387419
+    },
+    "armel/stock11.1/64MB": {
+      "touch_mb": 64,
+      "per_fork_ms": 2.5993244776812694,
+      "exec_s": 384.71533992249067,
+      "spread": 1.0214779941503356
+    },
+    "armel/stock11.1/256MB": {
+      "touch_mb": 256,
+      "per_fork_ms": 5.363868976943195,
+      "exec_s": 186.43259264880257,
+      "spread": 1.0116539878681368
+    },
+    "armel/stock11.1/1024MB": {
+      "touch_mb": 1024,
+      "per_fork_ms": 17.683041625656188,
+      "exec_s": 56.55135701027292,
+      "spread": 1.0100335828817348
     },
     "armel/igloo11.1/0MB": {
       "touch_mb": 0,
-      "per_fork_ms": 1.0876478999853134,
-      "exec_s": 919.4151894317114,
-      "spread": 1.0065141650260907
+      "per_fork_ms": 1.0622223429381847,
+      "exec_s": 941.4224871545507,
+      "spread": 1.0022006554781837
     },
     "armel/igloo11.1/1MB": {
       "touch_mb": 1,
-      "per_fork_ms": 1.1336309912924964,
-      "exec_s": 882.1212613990566,
-      "spread": 1.016467228106256
+      "per_fork_ms": 1.1057878880140684,
+      "exec_s": 904.3325676101796,
+      "spread": 1.007306971466313
     },
     "armel/igloo11.1/2MB": {
       "touch_mb": 2,
-      "per_fork_ms": 1.179088011694451,
-      "exec_s": 848.1131095234475,
-      "spread": 1.0006490518708093
+      "per_fork_ms": 1.1394854149160285,
+      "exec_s": 877.5891177805838,
+      "spread": 1.013694779579005
     },
     "armel/igloo11.1/4MB": {
       "touch_mb": 4,
-      "per_fork_ms": 1.2611045753583312,
-      "exec_s": 792.9556513708304,
-      "spread": 1.0106803671522822
+      "per_fork_ms": 1.214115984427432,
+      "exec_s": 823.6445387642206,
+      "spread": 1.0136151992501166
     },
     "armel/igloo11.1/8MB": {
       "touch_mb": 8,
-      "per_fork_ms": 1.4334189519286156,
-      "exec_s": 697.6327462773774,
-      "spread": 1.0095070011852656
+      "per_fork_ms": 1.3705735152276852,
+      "exec_s": 729.6215700139776,
+      "spread": 1.0041355667223586
     },
     "armel/igloo11.1/12MB": {
       "touch_mb": 12,
-      "per_fork_ms": 1.5635787009571989,
-      "exec_s": 639.5584689071393,
-      "spread": 1.0030408414894678
+      "per_fork_ms": 1.546010040988525,
+      "exec_s": 646.8263293817912,
+      "spread": 1.0155781159061399
     },
     "armel/igloo11.1/16MB": {
       "touch_mb": 16,
-      "per_fork_ms": 1.7097932184115052,
-      "exec_s": 584.8660465088618,
-      "spread": 1.0164153770269324
+      "per_fork_ms": 1.6620134126084547,
+      "exec_s": 601.6798615545138,
+      "spread": 1.0015518138138564
     },
     "armel/igloo11.1/32MB": {
       "touch_mb": 32,
-      "per_fork_ms": 2.0994645512352386,
-      "exec_s": 476.3119241101933,
-      "spread": 1.1003319288134081
+      "per_fork_ms": 2.030054087905834,
+      "exec_s": 492.5977125228133,
+      "spread": 1.003020308346368
     },
     "armel/igloo11.1/64MB": {
       "touch_mb": 64,
-      "per_fork_ms": 2.345424664672464,
-      "exec_s": 426.3620209432942,
-      "spread": 1.008322570393159
+      "per_fork_ms": 2.4815898986222846,
+      "exec_s": 402.96746878087095,
+      "spread": 1.0260386439196512
     },
     "armel/igloo11.1/256MB": {
       "touch_mb": 256,
-      "per_fork_ms": 5.679394949693233,
-      "exec_s": 176.0750940650842,
-      "spread": 1.053796458204788
+      "per_fork_ms": 5.40199651538084,
+      "exec_s": 185.11674288436674,
+      "spread": 1.0075929347241466
     },
     "armel/igloo11.1/1024MB": {
       "touch_mb": 1024,
-      "per_fork_ms": 21.56074326330175,
-      "exec_s": 46.380590306554346,
-      "spread": 1.137246737932965
+      "per_fork_ms": 17.56278891333689,
+      "exec_s": 56.93856510685592,
+      "spread": 1.0023316705988066
+    },
+    "mipsel/stock11.1/0MB": {
+      "touch_mb": 0,
+      "per_fork_ms": 1.1791373112549386,
+      "exec_s": 848.0776500369705,
+      "spread": 1.0340439235660868
+    },
+    "mipsel/stock11.1/1MB": {
+      "touch_mb": 1,
+      "per_fork_ms": 1.1975200170030198,
+      "exec_s": 835.0591103292417,
+      "spread": 1.009964567051544
+    },
+    "mipsel/stock11.1/2MB": {
+      "touch_mb": 2,
+      "per_fork_ms": 1.240712217676143,
+      "exec_s": 805.9886779167877,
+      "spread": 1.0192141640836982
+    },
+    "mipsel/stock11.1/4MB": {
+      "touch_mb": 4,
+      "per_fork_ms": 1.3274385117304823,
+      "exec_s": 753.3305619530165,
+      "spread": 1.0039086669717447
+    },
+    "mipsel/stock11.1/8MB": {
+      "touch_mb": 8,
+      "per_fork_ms": 1.4673296172792714,
+      "exec_s": 681.5101312097852,
+      "spread": 1.0104146409027772
+    },
+    "mipsel/stock11.1/12MB": {
+      "touch_mb": 12,
+      "per_fork_ms": 1.608368562379231,
+      "exec_s": 621.748039218522,
+      "spread": 1.0097431152300158
+    },
+    "mipsel/stock11.1/16MB": {
+      "touch_mb": 16,
+      "per_fork_ms": 1.7391823303575316,
+      "exec_s": 574.982842537519,
+      "spread": 1.0105507649106322
+    },
+    "mipsel/stock11.1/32MB": {
+      "touch_mb": 32,
+      "per_fork_ms": 2.122065941337496,
+      "exec_s": 471.23889061134446,
+      "spread": 1.0100911172099523
+    },
+    "mipsel/stock11.1/64MB": {
+      "touch_mb": 64,
+      "per_fork_ms": 2.569274881388992,
+      "exec_s": 389.2148742992356,
+      "spread": 1.0240776188851795
+    },
+    "mipsel/stock11.1/256MB": {
+      "touch_mb": 256,
+      "per_fork_ms": 5.445575155007342,
+      "exec_s": 183.6353317207412,
+      "spread": 1.0163917543346148
+    },
+    "mipsel/stock11.1/1024MB": {
+      "touch_mb": 1024,
+      "per_fork_ms": 17.565814956091344,
+      "exec_s": 56.9287563656833,
+      "spread": 1.0021992010178737
     },
     "mipsel/igloo11.1/0MB": {
       "touch_mb": 0,
-      "per_fork_ms": 1.2476108190603554,
-      "exec_s": 801.5320039891568,
-      "spread": 1.007000938661895
+      "per_fork_ms": 1.1789873706487317,
+      "exec_s": 848.1855063890592,
+      "spread": 1.0277065501741947
     },
     "mipsel/igloo11.1/1MB": {
       "touch_mb": 1,
-      "per_fork_ms": 1.2826243292850754,
-      "exec_s": 779.6515138282089,
-      "spread": 1.0022538263616008
+      "per_fork_ms": 1.2126906448975205,
+      "exec_s": 824.6126118046419,
+      "spread": 1.016661126133569
     },
     "mipsel/igloo11.1/2MB": {
       "touch_mb": 2,
-      "per_fork_ms": 1.3246682492705684,
-      "exec_s": 754.9059929160771,
-      "spread": 1.0051592041616566
+      "per_fork_ms": 1.2562805339694023,
+      "exec_s": 796.0005531888277,
+      "spread": 1.0029331289503125
     },
     "mipsel/igloo11.1/4MB": {
       "touch_mb": 4,
-      "per_fork_ms": 1.4040083410218358,
-      "exec_s": 712.246480866489,
-      "spread": 1.0110099729761206
+      "per_fork_ms": 1.3274525070252519,
+      "exec_s": 753.3226196099062,
+      "spread": 1.0097387549477461
     },
     "mipsel/igloo11.1/8MB": {
       "touch_mb": 8,
-      "per_fork_ms": 1.5394196974424024,
-      "exec_s": 649.5954297982569,
-      "spread": 1.0107797618358854
+      "per_fork_ms": 1.4715162793484826,
+      "exec_s": 679.5711430679872,
+      "spread": 1.0151210854323565
     },
     "mipsel/igloo11.1/12MB": {
       "touch_mb": 12,
-      "per_fork_ms": 1.6965298213375113,
-      "exec_s": 589.4385040703967,
-      "spread": 1.0163552941578389
+      "per_fork_ms": 1.611649977043271,
+      "exec_s": 620.4821234413427,
+      "spread": 1.0091412698902353
     },
     "mipsel/igloo11.1/16MB": {
       "touch_mb": 16,
-      "per_fork_ms": 1.8187741016348205,
-      "exec_s": 549.8208926007587,
-      "spread": 1.004335164188008
+      "per_fork_ms": 1.756435730649779,
+      "exec_s": 569.3348082995659,
+      "spread": 1.0091116451286974
     },
     "mipsel/igloo11.1/32MB": {
       "touch_mb": 32,
-      "per_fork_ms": 2.2172086479452746,
-      "exec_s": 451.01754448175956,
-      "spread": 1.0076717773971067
+      "per_fork_ms": 2.146004111971706,
+      "exec_s": 465.98233173058543,
+      "spread": 1.0088256202042114
     },
     "mipsel/igloo11.1/64MB": {
       "touch_mb": 64,
-      "per_fork_ms": 2.6947656196231646,
-      "exec_s": 371.08978707389025,
-      "spread": 1.032003083716691
+      "per_fork_ms": 2.8424835822855434,
+      "exec_s": 351.8050222812314,
+      "spread": 1.044751750413162
     },
     "mipsel/igloo11.1/256MB": {
       "touch_mb": 256,
-      "per_fork_ms": 5.512093295653662,
-      "exec_s": 181.41928054601502,
-      "spread": 1.011600021098879
+      "per_fork_ms": 5.6242996837633354,
+      "exec_s": 177.7999139851807,
+      "spread": 1.021006411240334
     },
     "mipsel/igloo11.1/1024MB": {
       "touch_mb": 1024,
-      "per_fork_ms": 18.018060942335673,
-      "exec_s": 55.49986778268552,
-      "spread": 1.0189271372644035
+      "per_fork_ms": 18.30721297270308,
+      "exec_s": 54.623278895102565,
+      "spread": 1.0068709615758993
     }
   },
   "reps": 3,
   "runners": {
     "x86-64": "native",
     "armel/qemu6.2": "qemu-arm version 6.2.0 (Debian 1:6.2+dfsg-2ubuntu6.30)",
+    "armel/stock11.1": "qemu-arm version 11.1.0",
     "armel/igloo11.1": "qemu-arm version 11.1.0",
+    "mipsel/stock11.1": "qemu-mipsel version 11.1.0",
     "mipsel/igloo11.1": "qemu-mipsel version 11.1.0"
   },
   "toolchains": {
     "x86-64": "gcc",
     "armel/qemu6.2": "arm-linux-gnueabi-gcc",
+    "armel/stock11.1": "arm-linux-gnueabi-gcc",
     "armel/igloo11.1": "arm-linux-gnueabi-gcc",
+    "mipsel/stock11.1": "/nix/store/riamjybpbfm9bq1h55zaal0qvh2mjrmv-mipsel-unknown-linux-gnu-gcc-wrapper-15.3.0/bin/mipsel-unknown-linux-gnu-gcc",
     "mipsel/igloo11.1": "/nix/store/riamjybpbfm9bq1h55zaal0qvh2mjrmv-mipsel-unknown-linux-gnu-gcc-wrapper-15.3.0/bin/mipsel-unknown-linux-gnu-gcc"
   },
   "skipped": [],
   "fastsnap_reset_ms": 0.404,
-  "fastsnap_iter_ms": 0.7243
+  "fastsnap_iter_ms": 0.7243,
+  "syscost": {
+    "x86-64/+0": {
+      "extra_syscalls": 0,
+      "per_record_us": 0.35519659984856844,
+      "spread": 1.0041733937402684
+    },
+    "x86-64/+1": {
+      "extra_syscalls": 1,
+      "per_record_us": 0.48589688958600163,
+      "spread": 1.0298296351462437
+    },
+    "x86-64/+2": {
+      "extra_syscalls": 2,
+      "per_record_us": 0.641793196555227,
+      "spread": 1.031755879863183
+    },
+    "x86-64/+4": {
+      "extra_syscalls": 4,
+      "per_record_us": 0.8929633861407638,
+      "spread": 1.010873587076794
+    },
+    "x86-64/+8": {
+      "extra_syscalls": 8,
+      "per_record_us": 1.418286794796586,
+      "spread": 1.006550865651065
+    },
+    "x86-64/+16": {
+      "extra_syscalls": 16,
+      "per_record_us": 2.433805230539292,
+      "spread": 1.0037614155146137
+    },
+    "x86-64/+32": {
+      "extra_syscalls": 32,
+      "per_record_us": 4.510869670193642,
+      "spread": 1.0115869095667736
+    },
+    "x86-64/slope_us_per_syscall": 0.1294825042750836,
+    "x86-64/intercept_us": 0.3687734283328308,
+    "armel/qemu6.2/+0": {
+      "extra_syscalls": 0,
+      "per_record_us": 0.9296255907975137,
+      "spread": 1.354590892827927
+    },
+    "armel/qemu6.2/+1": {
+      "extra_syscalls": 1,
+      "per_record_us": 1.2366159446537495,
+      "spread": 1.008196157775747
+    },
+    "armel/qemu6.2/+2": {
+      "extra_syscalls": 2,
+      "per_record_us": 1.5701459650881588,
+      "spread": 1.0090623648759127
+    },
+    "armel/qemu6.2/+4": {
+      "extra_syscalls": 4,
+      "per_record_us": 2.1918610157445073,
+      "spread": 1.0129661288415408
+    },
+    "armel/qemu6.2/+8": {
+      "extra_syscalls": 8,
+      "per_record_us": 3.4749160148203373,
+      "spread": 1.0107697936051108
+    },
+    "armel/qemu6.2/+16": {
+      "extra_syscalls": 16,
+      "per_record_us": 5.9575926791876554,
+      "spread": 1.007954546513204
+    },
+    "armel/qemu6.2/+32": {
+      "extra_syscalls": 32,
+      "per_record_us": 11.066103100311011,
+      "spread": 1.0536800876620105
+    },
+    "armel/qemu6.2/slope_us_per_syscall": 0.31646456057380856,
+    "armel/qemu6.2/intercept_us": 0.9270847134932847,
+    "armel/stock11.1/+0": {
+      "extra_syscalls": 0,
+      "per_record_us": 1.0823641787283123,
+      "spread": 1.2046649260477686
+    },
+    "armel/stock11.1/+1": {
+      "extra_syscalls": 1,
+      "per_record_us": 1.4467405644245446,
+      "spread": 1.3402354299237342
+    },
+    "armel/stock11.1/+2": {
+      "extra_syscalls": 2,
+      "per_record_us": 1.795293320901692,
+      "spread": 1.0376410692691187
+    },
+    "armel/stock11.1/+4": {
+      "extra_syscalls": 4,
+      "per_record_us": 2.5479825655929744,
+      "spread": 1.0419992337892128
+    },
+    "armel/stock11.1/+8": {
+      "extra_syscalls": 8,
+      "per_record_us": 4.1359478258527815,
+      "spread": 1.0722663961269463
+    },
+    "armel/stock11.1/+16": {
+      "extra_syscalls": 16,
+      "per_record_us": 7.170003375504166,
+      "spread": 1.118222174956474
+    },
+    "armel/stock11.1/+32": {
+      "extra_syscalls": 32,
+      "per_record_us": 13.207029548939317,
+      "spread": 1.1469948826711052
+    },
+    "armel/stock11.1/slope_us_per_syscall": 0.3799418386341514,
+    "armel/stock11.1/intercept_us": 1.0641465065703217,
+    "armel/igloo11.1/+0": {
+      "extra_syscalls": 0,
+      "per_record_us": 1.0449303244240582,
+      "spread": 1.0540512207035673
+    },
+    "armel/igloo11.1/+1": {
+      "extra_syscalls": 1,
+      "per_record_us": 1.6412320197559893,
+      "spread": 1.1366447313290982
+    },
+    "armel/igloo11.1/+2": {
+      "extra_syscalls": 2,
+      "per_record_us": 1.845213824417442,
+      "spread": 1.39240578176925
+    },
+    "armel/igloo11.1/+4": {
+      "extra_syscalls": 4,
+      "per_record_us": 2.580897440202534,
+      "spread": 1.003387551987943
+    },
+    "armel/igloo11.1/+8": {
+      "extra_syscalls": 8,
+      "per_record_us": 4.116611294448376,
+      "spread": 1.0173037274546157
+    },
+    "armel/igloo11.1/+16": {
+      "extra_syscalls": 16,
+      "per_record_us": 7.203541691415012,
+      "spread": 1.0073814761674142
+    },
+    "armel/igloo11.1/+32": {
+      "extra_syscalls": 32,
+      "per_record_us": 13.237656075507402,
+      "spread": 1.0073301356133504
+    },
+    "armel/igloo11.1/slope_us_per_syscall": 0.37897124966457113,
+    "armel/igloo11.1/intercept_us": 1.1135562773289758,
+    "mipsel/stock11.1/+0": {
+      "extra_syscalls": 0,
+      "per_record_us": 0.9053071099333465,
+      "spread": 1.0297495865617903
+    },
+    "mipsel/stock11.1/+1": {
+      "extra_syscalls": 1,
+      "per_record_us": 1.6291939443908632,
+      "spread": 1.1020442150875212
+    },
+    "mipsel/stock11.1/+2": {
+      "extra_syscalls": 2,
+      "per_record_us": 1.6066515888087451,
+      "spread": 1.142608613307848
+    },
+    "mipsel/stock11.1/+4": {
+      "extra_syscalls": 4,
+      "per_record_us": 2.5469238846562803,
+      "spread": 1.0158158064019414
+    },
+    "mipsel/stock11.1/+8": {
+      "extra_syscalls": 8,
+      "per_record_us": 3.5995183954946697,
+      "spread": 1.026321693004334
+    },
+    "mipsel/stock11.1/+16": {
+      "extra_syscalls": 16,
+      "per_record_us": 6.4787191385403275,
+      "spread": 1.0530003705804387
+    },
+    "mipsel/stock11.1/+32": {
+      "extra_syscalls": 32,
+      "per_record_us": 11.509525866713375,
+      "spread": 1.022993492064105
+    },
+    "mipsel/stock11.1/slope_us_per_syscall": 0.32745377746770127,
+    "mipsel/stock11.1/intercept_us": 1.0923217068674895,
+    "mipsel/igloo11.1/+0": {
+      "extra_syscalls": 0,
+      "per_record_us": 0.9099908848293126,
+      "spread": 1.0459087367214388
+    },
+    "mipsel/igloo11.1/+1": {
+      "extra_syscalls": 1,
+      "per_record_us": 1.3067704136483371,
+      "spread": 1.0119721514963371
+    },
+    "mipsel/igloo11.1/+2": {
+      "extra_syscalls": 2,
+      "per_record_us": 1.7147994204424322,
+      "spread": 1.1929101463581542
+    },
+    "mipsel/igloo11.1/+4": {
+      "extra_syscalls": 4,
+      "per_record_us": 2.392396880313754,
+      "spread": 1.0255090839305043
+    },
+    "mipsel/igloo11.1/+8": {
+      "extra_syscalls": 8,
+      "per_record_us": 3.8009896455332637,
+      "spread": 1.038316181353067
+    },
+    "mipsel/igloo11.1/+16": {
+      "extra_syscalls": 16,
+      "per_record_us": 6.477101866621524,
+      "spread": 1.046581741061272
+    },
+    "mipsel/igloo11.1/+32": {
+      "extra_syscalls": 32,
+      "per_record_us": 11.811822401359677,
+      "spread": 1.012236493348516
+    },
+    "mipsel/igloo11.1/slope_us_per_syscall": 0.33909896871525524,
+    "mipsel/igloo11.1/intercept_us": 1.0072337833838887
+  },
+  "hookcost_ref": {
+    "source": "result_stridelinx_hookcost.json",
+    "cheapest_frequent_bracket_ms": 0.1332,
+    "syscall": "fcntl64",
+    "n": 1926,
+    "host_python_in_callback_ms": 0.00072,
+    "note": "enter->return bracket WITH a penguin hook attached; an upper bound on per-syscall cost. Target A (armel lighttpd), not bugbench."
+  },
+  "crossover": {
+    "reset_us": 404.0,
+    "fork_us": 1179.1373112549386,
+    "full_us_per_syscall": 133.2,
+    "user_us_per_syscall": 0.32745377746770127,
+    "syscalls_per_iteration": 5.833690504859853
+  }
 }

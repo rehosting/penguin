@@ -234,7 +234,14 @@ int main(int argc, char **argv)
 {
     unsigned char req[BENCH_REC];
     int do_fork = (argc > 1 && strcmp(argv[1], "fork") == 0);
+    long i;
     long touch_mb = (argc > 2) ? atol(argv[2]) : 0;
+    /* argv[3]: extra syscalls per record. The comparison against the
+     * full-system loop turns on cost PER SYSCALL, not per iteration, and the
+     * user-mode side of that term was the one number still estimated. A
+     * getpid() is the cheapest real syscall available -- glibc stopped caching
+     * it in 2.25, so each call is a genuine trap. */
+    long extra_calls = (argc > 3) ? atol(argv[3]) : 0;
     long done = 0;
 
     /* argv[2] is how many MB to allocate and TOUCH before the loop starts.
@@ -270,6 +277,10 @@ int main(int argc, char **argv)
         }
         if (got < BENCH_REC) {
             break;
+        }
+
+        for (i = 0; i < extra_calls; i++) {
+            sink += (unsigned int)getpid();
         }
 
         if (do_fork) {

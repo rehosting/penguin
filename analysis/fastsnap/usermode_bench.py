@@ -34,7 +34,8 @@ translate path, so codegen still matches penguin's QEMU.
 
 Environment (rows whose tools are absent are skipped and named):
 
-  IGLOO_QEMU_BUILD     dir holding the built qemu-arm / qemu-mipsel
+  IGLOO_QEMU_BUILD     dir holding qemu-arm / qemu-mipsel built from penguin's tree
+  STOCK_QEMU_BUILD     the same, built from the pristine v11.1.0 tarball
   MIPSEL_GCC           mipsel cross compiler
   MIPSEL_LDFLAGS       e.g. -L<static glibc>/lib
 
@@ -85,6 +86,7 @@ def discover_targets():
     a reader would otherwise reach for, then penguin's own QEMU at the loop's
     own architecture."""
     igloo = os.environ.get("IGLOO_QEMU_BUILD", "")
+    stock = os.environ.get("STOCK_QEMU_BUILD", "")
     mips_gcc = os.environ.get("MIPSEL_GCC") or shutil.which(
         "mipsel-unknown-linux-gnu-gcc") or shutil.which("mipsel-linux-gnu-gcc")
     mips_ld = os.environ.get("MIPSEL_LDFLAGS", "").split()
@@ -101,15 +103,27 @@ def discover_targets():
         rows.append({"label": label, "cc": cc, "ldflags": ldflags,
                      "runner": runner, "note": note})
 
+    def qemu(build_dir, binary):
+        return [os.path.join(build_dir, binary)] if build_dir else [binary]
+
     add("x86-64", "gcc", [], [], "native, no emulation")
     add("armel/qemu6.2", "arm-linux-gnueabi-gcc", [],
         [shutil.which("qemu-arm-static") or "qemu-arm-static"],
-        "distro qemu-user, NOT the QEMU penguin runs")
+        "distro qemu-user, a DIFFERENT QEMU from the one penguin runs")
+    # stock and igloo are the same tarball and the same configure line; the
+    # only delta is the 17-patch series and the vendored src/ overlay. That
+    # pair is what separates "the patches cost something" from "the version
+    # does", and stock is also the fairest competitor -- a user-mode fuzzer
+    # would not be carrying IGLOO patches.
+    add("armel/stock11.1", "arm-linux-gnueabi-gcc", [],
+        qemu(stock, "qemu-arm"), "upstream 11.1.0, no IGLOO series")
     add("armel/igloo11.1", "arm-linux-gnueabi-gcc", [],
-        [os.path.join(igloo, "qemu-arm")] if igloo else ["qemu-arm"],
-        "penguin's QEMU tree, user mode")
+        qemu(igloo, "qemu-arm"), "penguin's QEMU tree, user mode")
+    add("mipsel/stock11.1", mips_gcc or "", mips_ld,
+        qemu(stock, "qemu-mipsel"),
+        "upstream 11.1.0 at the loop's own architecture")
     add("mipsel/igloo11.1", mips_gcc or "", mips_ld,
-        [os.path.join(igloo, "qemu-mipsel")] if igloo else ["qemu-mipsel"],
+        qemu(igloo, "qemu-mipsel"),
         "penguin's QEMU tree AND the loop's own architecture")
     return rows, skipped
 
@@ -202,6 +216,43 @@ def run_shape(row, built, outdir, shape, reps):
             "exec_s": n / med, "spread": max(walls) / min(walls)}
 
 
+# Extra syscalls per record for the per-syscall sweep. The comparison against
+# the loop turns on cost PER SYSCALL: full-system pays ~133 us for a hooked one
+# (hookcost.py, cheapest frequent bracket) against whatever this measures.
+SYSCALLS_N = [0, 1, 2, 4, 8, 16, 32]
+
+
+def run_syscost(rows, built, outdir, reps, n=200000):
+    """User-mode cost per guest syscall, from the slope of persist against
+    extra getpid() calls per record. An intercept-and-slope fit rather than a
+    single point, so a per-record fixed cost cannot be read as syscall cost."""
+    path = records_file(outdir, n)
+    out = {}
+    for row in rows:
+        pts = []
+        for extra in SYSCALLS_N:
+            argv = row["runner"] + [built[(row["label"], "bench")],
+                                    "persist", "0", str(extra)]
+            walls = [time_stream(argv, path, n) for _ in range(reps)]
+            med = statistics.median(walls)
+            pts.append((extra, med / n * 1e6))        # us per record
+            out[f"{row['label']}/+{extra}"] = {
+                "extra_syscalls": extra, "per_record_us": med / n * 1e6,
+                "spread": max(walls) / min(walls)}
+        # Least squares through the points; the slope is the per-syscall cost.
+        xs = [a for a, _ in pts]
+        ys = [b for _, b in pts]
+        mx = sum(xs) / len(xs)
+        my = sum(ys) / len(ys)
+        denom = sum((x - mx) ** 2 for x in xs)
+        slope = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / denom
+        out[f"{row['label']}/slope_us_per_syscall"] = slope
+        out[f"{row['label']}/intercept_us"] = my - slope * mx
+        sys.stderr.write(f"  {row['label']:<18} {slope:.4f} us/syscall, "
+                         f"base {my - slope * mx:.4f} us/record\n")
+    return out
+
+
 def run_scale(rows, built, outdir, reps, n=3000):
     """Fork cost against resident address-space size -- the axis the shape table
     cannot show, because at one record size every mechanism looks constant."""
@@ -222,6 +273,8 @@ def run_scale(rows, built, outdir, reps, n=3000):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--syscost", action="store_true",
+                    help="also fit user-mode cost per guest syscall")
     ap.add_argument("--scale", action="store_true",
                     help="also sweep fork cost against resident address size")
     ap.add_argument("--reps", type=int, default=3)
@@ -254,6 +307,7 @@ def main():
         print(f"{key:<26}{r['n']:>10,}{r['per_exec_ms']:>11.4f} ms"
               f"{r['exec_s']:>14,.0f}{r['spread']:>8.2f}x")
 
+    syscost = run_syscost(rows, built, args.outdir, args.reps) if args.syscost else {}
     scale = run_scale(rows, built, args.outdir, args.reps) if args.scale else {}
     if scale:
         print(f"\n{'fork vs resident':<26}{'per fork':>13}{'exec/s':>14}")
@@ -263,7 +317,8 @@ def main():
 
     if args.json:
         with open(args.json, "w") as fh:
-            json.dump({"records": results, "scale": scale, "reps": args.reps,
+            json.dump({"records": results, "scale": scale, "syscost": syscost,
+                       "reps": args.reps,
                        "runners": versions,
                        "toolchains": {r["label"]: r["cc"] for r in rows},
                        "skipped": skipped,

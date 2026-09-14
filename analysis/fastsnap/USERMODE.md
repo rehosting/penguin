@@ -1,190 +1,216 @@
 # qemu-user, priced against the loop
 
-Measured 2026-09-14 on an idle 96-core host (load 0.34, no containers).
-Artifact: `result_usermode_bench.json`. Reproduce: see "Building the user-mode
-QEMU" below, then `python3 usermode_bench.py --reps 3 --scale`.
+Measured 2026-09-14 on an idle 96-core host. Artifact:
+`result_usermode_bench.json`. Reproduce: see "Building the user-mode QEMU",
+then `python3 usermode_bench.py --reps 3 --scale --syscost`.
 
-`LOOP-RESULTS.md` answers "how fast can a whole emulated system be rewound".
-It does not answer the question anyone choosing a fuzzing architecture asks
-first: **is that faster than not emulating the system at all?** qemu-user runs
-the binary and passes syscalls to the host -- no kernel, no device model, no
-system state -- and a fresh process per input is already a reset. If it wins,
-the snapshot work is a fidelity tax rather than a speed win, and that should be
-said out loud rather than left unmeasured.
+## The headline, and the correction it needed
 
-## The comparison is against penguin's own QEMU, at the loop's own architecture
+First published as "the snapshot loop beats a qemu-user forkserver". That is
+true of the victim it was measured on and **does not generalise**, and the
+reason is the thing a reader would ask first: qemu-user does not carry a
+kernel, so the host answers the guest's syscalls natively instead of the
+guest's own kernel being emulated instruction by instruction.
 
-A first pass used the distro `qemu-arm-static`, and reported the QEMU version
-gap (6.2.0 against penguin's 11.1.0) and the architecture gap (armel against
-the loop's mipsel) as uncorrected confounds. Both are now closed, and the
-distro row is kept so their size is measured rather than asserted.
+Quantified, the two mechanisms are a fixed cost plus a per-syscall slope:
 
-| confound | measured cost, `fork` shape | direction |
-|---|---|---|
-| QEMU 6.2.0 -> penguin's 11.1.0, armel | 0.844 -> 1.056 ms, **1.25x** | 6.2 **flattered** the competitor |
-| armel -> mipsel, both on 11.1.0 | 1.056 -> 1.164 ms, **1.10x** | armel flattered it further |
+    full-system   =   404 us (reset)  +  133.2 us per syscall
+    qemu-user     = 1,179 us (fork)   +    0.33 us per syscall
 
-Penguin's QEMU is *slower* in user mode than the distro's on every shape --
-25% on `fork`, 12% on `persist`, 35% on `floor`. Correcting the confound
-therefore strengthens the conclusion below rather than weakening it, which is
-the opposite of what a convenient error looks like.
+The full-system loop starts **775 us ahead** and spends that lead at
+**407x** the rate per syscall. So:
+
+> **The snapshot loop wins only while an iteration makes fewer than about
+> 6 syscalls.**
+
+| syscalls/iteration | full-system | qemu-user | winner |
+|---|---|---|---|
+| 1 | 537 us | 1,179 us | full-system |
+| 2 | 670 us | 1,180 us | full-system |
+| 4 | 937 us | 1,180 us | full-system |
+| 6 | 1,203 us | 1,181 us | qemu-user |
+| 8 | 1,470 us | 1,182 us | qemu-user |
+| 16 | 2,535 us | 1,184 us | qemu-user |
+| 32 | 4,666 us | 1,190 us | qemu-user |
+
+`bugbench_victim` makes **one**. A real HTTP request handler -- accept, read,
+stat, open, read, write, close, poll -- makes dozens. So on any realistic
+firmware daemon qemu-user would win decisively, and the original headline held
+only because the victim sits a factor of six below the crossover.
+
+Two qualifiers, both widening the crossover rather than narrowing it: the
+133.2 us is measured **with a penguin hook attached** (`hookcost.py`, cheapest
+frequently-firing bracket, `fcntl64`, n=1926), so it is an upper bound on
+per-syscall cost; and it was taken on target A (armel lighttpd), not bugbench.
+
+## Where the 133 us actually goes, which is not where I first said
+
+`hookcost.py` splits the bracket:
+
+| | |
+|---|---|
+| enter->return bracket, `fcntl64` | **133.2 us** |
+| host-side Python inside the callback | **0.72 us** |
+
+Python is **0.5%**. The remaining ~132 us is entirely guest-side: the emulated
+kernel executing the syscall, plus igloo_driver's hypercall traps on enter and
+return, every instruction of it emulated. An earlier version of this document
+attributed the gap to "the emulated kernel **plus** penguin's hypercall into
+Python"; the second half is noise and the claim was wrong.
+
+That also relocates where optimising pays. Not the 404 us reset, and not the
+Python plugin layer -- **the per-syscall emulated-guest round trip**, which at
+133 us dominates everything else in this lane by an order of magnitude.
+
+## What this can and cannot compare
+
+- **The victim is the best case for qemu-user**, and now we know by how much:
+  one syscall per iteration against a crossover of six. Targets A, B and C are
+  vendor daemons reaching NVRAM, ioctls, device nodes and a network stack, and
+  **qemu-user cannot run them at all**, so the comparison stays academic for
+  them. What it prices is the mechanism, not the choice.
+- **The competitor is steelmanned**: the forkserver shape omits AFL's pipe
+  handshake and input file.
+- **Optimisation settings match.** `qemu_builder/configs/default.json` passes
+  no optimisation-related configure flags and neither does this build -- both
+  are QEMU defaults, `-O2 -g`, `b_ndebug=false`, asserts active, read back from
+  `meson-info/intro-buildoptions.json` rather than assumed.
+- **Rates are on non-crashing input** (opcode `0x00`, the declared negative
+  control): the mechanisms differ 39x in crash handling (1.119 ms lap vs
+  43.70 ms) and that would swamp the comparison.
+
+The victim gained one `#ifdef BUGBENCH_BENCH` mode and nothing else; 7/7
+planted bugs still fault at their manifest signals, negative control clean.
+
+## The confounds, closed and measured
+
+A first pass used the distro `qemu-arm-static` -- QEMU 6.2.0 against penguin's
+11.1.0, armel against the loop's mipsel -- and named both as uncorrected. Both
+are now closed, and every row is kept so their size is measured:
+
+| | stock 11.1 | igloo 11.1 | patch cost |
+|---|---|---|---|
+| armel `fork` | 1.0931 ms | 1.0919 ms | **-0.1%** |
+| armel `persist` | 0.0010 ms | 0.0010 ms | **+0.0%** |
+| mipsel `fork` | 1.2122 ms | 1.2121 ms | **-0.0%** |
+
+**The IGLOO series costs nothing measurable in user mode** -- mipsel `fork` is
+identical to four significant figures. Predicted before the run, from the
+mechanism: the ARM hook sits inside `trans_MCR`, gated on one exact encoding
+(`cp==7, opc1==0, rt==0, crn==0, crm==0, opc2==0`), so it runs at TRANSLATE
+time and a parser decodes no MCR instructions.
+
+Which means the whole 6.2 -> 11.1 slowdown is **upstream QEMU's**, not
+penguin's fork: 1.29x on `fork`, 1.35x on `floor`, 1.11x on `persist`. Worth
+someone's attention upstream; it is not something this project introduced.
 
 ### Penguin's QEMU cannot build a linux-user target
 
-Found while building it, and worth recording on its own. The IGLOO series
-routes guest hypercalls into Penguin from the per-target TCG helpers and
-**guards none of those call sites with `CONFIG_USER_ONLY`** -- verified zero
-guards across all five targets it patches (arm, mips, ppc, riscv, loongarch).
-A `--target-list=*-linux-user` build compiles the call and then fails to link:
+Found while building it. The series routes guest hypercalls into Penguin from
+the per-target TCG helpers and **guards none of those call sites with
+`CONFIG_USER_ONLY`** -- zero guards across all five targets it patches. A
+`--target-list=*-linux-user` build compiles the call and fails to link:
 
 ```
 target/arm/tcg/op_helper.c:96: undefined reference to `penguin_handle_guest_hypercall'
 ```
 
-The implementation lives in `system/penguin.c`, which is system-mode only.
-Nothing in penguin needs a user-mode target today, so this is latent rather
-than broken -- but it is one stub away from building, and the stub is the
-correct semantics: in user mode there is no Penguin, so "not handled, take the
-normal path" is what the function means.
-
-## What this can and cannot compare
-
-Taken before the numbers, because this lane's recurring failure is a quantity
-measured against the wrong referent.
-
-- **The victim is the best case for qemu-user.** `bugbench_victim` is a static,
-  single-threaded parser that reads a buffer and switches on one byte.
-  Targets A, B and C are vendor daemons reaching NVRAM, ioctls, device nodes
-  and a network stack; **qemu-user cannot run them at all.** So this prices
-  full-system fidelity on the one program in the lane that does not need it.
-  It is a floor on what fidelity costs, not a verdict on whether to pay it.
-- **The competitor is steelmanned.** The forkserver shape omits AFL's pipe
-  handshake and input file, so its per-iteration cost here is lower than a real
-  AFL++ `qemu_mode` would pay.
-- **Optimisation settings match.** `qemu_builder/configs/default.json` passes
-  no optimisation-related configure flags and neither does this build, so both
-  are QEMU's defaults: `-O2 -g`, `b_ndebug=false`, asserts active. Verified
-  from `meson-info/intro-buildoptions.json` rather than assumed.
-- **Rates are measured on non-crashing input** (opcode `0x00`, the victim's
-  declared negative control). The mechanisms differ by two orders of magnitude
-  in crash handling -- an ordinary lap is 1.119 ms, a crash-closed one 43.70 ms
-  -- which would swamp what is being compared.
-
-The victim gained one `#ifdef BUGBENCH_BENCH` mode and nothing else. A second
-copy of it would have made this a comparison of two programs. After the edit,
-7/7 planted bugs still fault at their manifest signals and the negative control
-is still clean.
+`system/penguin.c` is system-mode only. Nothing in penguin needs a user-mode
+target today, so this is latent rather than broken, and it is one stub away --
+returning false means "not handled, take the normal path", which is what user
+mode means.
 
 ## The four shapes
 
-Each isolates one mechanism. `floor` runs the one-shot victim on empty input,
-so it reads, gets 0, and exits: everything measured is process creation, ELF
-load and translation -- the cost a forkserver exists to pay once.
+`floor` runs the one-shot victim on empty input: it reads, gets 0, exits, so
+everything measured is process creation, ELF load and translation -- the cost a
+forkserver exists to pay once.
 
-| shape | resets between inputs | mipsel/11.1 | armel/11.1 | armel/6.2 | x86-64 native |
+| shape | mipsel/stock | mipsel/igloo | armel/stock | armel/6.2 | x86-64 |
 |---|---|---|---|---|---|
-| `floor` | whole process, no work | 11.56 ms / **87** | 11.98 / 83 | 8.87 / 113 | 0.457 / 2,190 |
-| `spawn` | whole process, one parse | 11.59 ms / **86** | 12.07 / 83 | 8.91 / 112 | 0.459 / 2,179 |
-| `fork` | process memory, warm parent | 1.164 ms / **859** | 1.056 / 947 | 0.844 / 1,185 | 0.098 / 10,244 |
-| `persist` | nothing | 0.0009 ms / **1,169,576** | 0.0010 / 1,027,190 | 0.0009 / 1,172,958 | 0.0003 / 2,862,049 |
+| `floor` | 11.6765 ms / 86 | 11.6823 ms / 86 | 12.0869 ms / 83 | 8.9287 ms / 112 | 0.4673 ms / 2,140 |
+| `spawn` | 11.6500 ms / 86 | 11.7326 ms / 85 | 12.1476 ms / 82 | 8.9658 ms / 112 | 0.4737 ms / 2,111 |
+| `fork` | 1.2122 ms / 825 | 1.2121 ms / 825 | 1.0931 ms / 915 | 0.8505 ms / 1,176 | 0.1001 ms / 9,987 |
+| `persist` | 0.0008 ms / 1,187,054 | 0.0008 ms / 1,181,324 | 0.0010 ms / 1,020,372 | 0.0009 ms / 1,160,239 | 0.0003 ms / 2,885,657 |
 
-Within-run spreads are 1.00-1.03x. **Across** runs, `floor` and `spawn` moved
-as much as 45% for an identical configuration (armel/6.2 gave 12.81 ms one run
-and 8.87 ms the next); `fork` and `persist` held to 3%. Nothing below rests on
-`floor` or `spawn`.
+Within-run spreads 1.00-1.03x. **Across** runs `floor` and `spawn` moved up to
+45% for an identical configuration (armel/6.2 gave 12.81 ms one run and 8.87 ms
+the next); `fork` and `persist` held to 3%. Nothing here rests on `floor` or
+`spawn`.
 
-`spawn - floor` is **0.03 ms**: the parse is nothing, and every figure in this
-document measures a reset mechanism, not emulation speed.
+## Per-syscall cost, fitted
 
-## Against the loop
+`--syscost` adds N `getpid()` calls per record and fits a line, so a per-record
+fixed cost cannot be misread as syscall cost. glibc stopped caching `getpid`
+in 2.25, so each call is a genuine trap.
 
-Both confounds closed: penguin's QEMU, the loop's architecture. From
-`LOOP-RESULTS.md`, bugbench, mipsel, 256 MB guest, 23 pages restored:
-
-| | per iteration | exec/s |
+| runner | us per syscall | base us per record |
 |---|---|---|
-| user-mode persistent, no reset | 0.0009 ms | **1,169,576** |
-| full-system `bare`, no reset | 0.1112 ms | 8,996 |
-| **full-system snapshot loop** | **0.7243 ms** (404 us reset) | **1,381** |
-| qemu-user forkserver, empty address space | 1.175 ms | 851 |
-| full-system loop + injection + attribution | 1.119 ms | 894 |
-| qemu-user forkserver at bugbench's 256 MB | 6.025 ms | 166 |
-| qemu-user, no forkserver | 11.56 ms | 87 |
+| mipsel/stock11.1 | 0.3275 | 1.0923 |
+| mipsel/igloo11.1 | 0.3391 | 1.0072 |
+| armel/stock11.1 | 0.3799 | 1.0641 |
+| armel/igloo11.1 | 0.3790 | 1.1136 |
+| armel/qemu6.2 | 0.3165 | 0.9271 |
+| x86-64 | 0.1295 | 0.3688 |
 
-**The in-process full-system snapshot reset is 2.9x cheaper than fork()ing a
-user-mode emulator that holds nothing at all** -- 404 us against 1,175 us, same
-QEMU, same architecture. End to end the loop is **1.6x** the forkserver (1,381
-vs 859), **8.3x** it at bugbench's own 256 MB footprint (vs 166), and **16x**
-naive per-process execution (vs 87).
+Against **133.2 us** for a hooked syscall under full-system emulation.
 
-That was not the expected result.
+## Why fork and reset scale differently
 
-## Why: the two mechanisms scale along different axes
+`fork()` copies the page tables of everything mapped, so its per-iteration cost
+grows with the **address space**. A dirty-page reset writes back the pages the
+iteration **wrote**. ms per fork:
 
-`fork()` copies the page tables of everything the parent has mapped, so its
-per-iteration cost grows with the **address space**. A dirty-page reset writes
-back the pages the iteration **wrote**. Sweeping resident size, ms per fork:
+| touched | x86-64 | armel/6.2 | armel/stock | mipsel/stock | mipsel/igloo |
+|---|---|---|---|---|---|
+| 0 MB | 0.099 | 0.847 | 1.065 | 1.179 | 1.179 |
+| 4 MB | 0.278 | 1.024 | 1.230 | 1.327 | 1.327 |
+| 8 MB | 0.446 | 1.162 | 1.376 | 1.467 | 1.472 |
+| 16 MB | 0.748 | 1.448 | 1.658 | 1.739 | 1.756 |
+| 64 MB | 1.616 | 2.345 | 2.599 | 2.569 | 2.842 |
+| 256 MB | 4.513 | 5.104 | 5.364 | 5.446 | 5.624 |
+| 1024 MB | 17.213 | 17.779 | 17.683 | 17.566 | 18.307 |
 
-| touched | x86-64 | armel/6.2 | armel/11.1 | mipsel/11.1 |
-|---|---|---|---|---|
-| 0 MB | **0.099** | 0.847 | 1.036 | 1.175 |
-| 4 MB | 0.276 | 0.973 | 1.233 | 1.320 |
-| 8 MB | 0.436 | 1.143 | 1.363 | 1.468 |
-| 16 MB | 0.748 | 1.411 | 1.641 | 1.750 |
-| 64 MB | 1.838 | 2.251 | 2.568 | 2.773 |
-| 256 MB | 4.547 | 5.105 | 5.459 | 6.025 |
-| 1024 MB | 17.42 | 17.45 | 18.87 | 18.98 |
+Linear in resident size everywhere. The loop's reset over the comparable range
+is nearly flat: **404 us for 23 pages** on bugbench, **490 us for 227 pages** on
+target A -- a ~10x change in dirty set for 21% of cost. So a native forkserver
+is cheaper than the snapshot reset only below about **7 MB resident**
+(interpolated between the 4 and 8 MB points), and a qemu-user forkserver never
+is, at any size.
 
-Linear in resident size everywhere. The loop's own reset over the comparable
-range is nearly flat: **404 us for 23 pages** on bugbench, **490 us for 227
-pages** on target A -- a ~10x change in dirty set for a 21% change in cost.
-
-So there is a crossover, and it is low:
-
-> A **native** forkserver is cheaper than the full-system snapshot reset only
-> while the target's resident set stays under about **7 MB** (interpolated
-> between the 4 MB and 8 MB points). A **qemu-user** forkserver is never
-> cheaper, at any size, because forking the emulator already costs 1.175 ms
-> before the guest maps anything.
-
-Any real daemon is past 7 MB.
+That axis stands. It is simply not the axis that decides the comparison -- the
+syscall count is.
 
 ## What it does not say
 
-The counterweight is larger than the win. **User-mode persistent mode is
-1,169,576 exec/s**, 847x the full-system loop and 130x the full-system's own
-no-reset ceiling of 8,996. Nothing in the reset can touch that gap, because it
-is not a reset gap -- it is the cost of running a system. Part of that 130x is
-penguin's per-iteration detector, which is a hypercall into a Python pyplugin
-rather than TCG; how much is unmeasured here.
+**User-mode persistent mode is over 1.1 million exec/s**, ~850x the loop and
+~130x the loop's own no-reset ceiling of 8,996. That gap is not a reset gap and
+nothing in the reset can touch it; it is the cost of running a system, and the
+per-syscall term above is most of it.
 
-So the honest reading is two claims, not one:
+So the honest reading is three claims:
 
 1. **As a reset mechanism, the snapshot loop beats fork at any realistic
-   footprint**, and by a widening margin. The fidelity is not being paid for in
-   reset speed.
-2. **As an execution mode, full-system costs two orders of magnitude** against
-   a user-mode loop that never resets -- and that is the ceiling worth
-   attacking, not the 404 us.
+   memory footprint**, by a widening margin. Fidelity is not paid for in reset
+   speed.
+2. **As an execution mode, full-system costs ~400x per syscall**, and that term
+   decides any real comparison. Past ~6 syscalls per iteration a qemu-user
+   forkserver is ahead.
+3. **For this project's targets the choice does not arise**, because qemu-user
+   cannot run them -- which is why the interesting consequence of (2) is where
+   to optimise, not which emulator to pick.
 
-Claim 1 retires "why not just use qemu-user" for this project's targets, with
-numbers rather than the one-line dismissal in `LIBAFL-PORT.md`. Claim 2 says
-the remaining headroom on the full-system path is in the per-iteration harness,
-above the reset, and that `BUGBENCH.md`'s finding still governs: a loop that
-cannot reset spends its budget on restarts (5,212 inputs against 237,575), so
-the persistent-mode ceiling is not reachable on a crash-dense target in any
-execution mode.
+`BUGBENCH.md`'s finding still governs the ceiling: a loop that cannot reset
+spends its budget on restarts (5,212 inputs against 237,575), so persistent
+mode's rate is not reachable on a crash-dense target in any execution mode.
 
 ## Building the user-mode QEMU
-
-Not a packaged target, so the recipe is here:
 
 ```sh
 tar xf qemu-11.1.0.tar.xz && cd qemu-11.1.0
 while read -r p; do patch -p1 -i "$QEMU_BUILDER/patches/$p"; done \
     < "$QEMU_BUILDER/patches/11.1.0/series"
 cp -r "$QEMU_BUILDER/src/." .
-# The one stub: see "cannot build a linux-user target" above.
 cat >> accel/tcg/user-exec-stub.c <<'EOF'
 #include "system/penguin.h"
 bool penguin_handle_guest_hypercall(CPUState *cs, uint64_t nr,
@@ -199,28 +225,30 @@ mkdir build-user && cd build-user
 ninja qemu-arm qemu-mipsel
 ```
 
-Then point the harness at it:
+The stock rows use the identical configure line on the pristine tarball, with
+no series, no `src/` overlay and no stub. Then:
 
 ```sh
 export IGLOO_QEMU_BUILD=.../qemu-11.1.0/build-user
+export STOCK_QEMU_BUILD=.../qemu111-stock/qemu-11.1.0/build-user
 export MIPSEL_GCC=$(nix build --no-link --print-out-paths \
     'nixpkgs#pkgsCross.mipsel-linux-gnu.buildPackages.gcc')/bin/mipsel-unknown-linux-gnu-gcc
 export MIPSEL_LDFLAGS=-L$(nix build --no-link --print-out-paths \
     'nixpkgs#pkgsCross.mipsel-linux-gnu.glibc.static')/lib
-python3 usermode_bench.py --reps 3 --scale --json result_usermode_bench.json
+python3 usermode_bench.py --reps 3 --scale --syscost --json result_usermode_bench.json
 ```
 
-Rows whose tools are missing are skipped and named, so a host without the nix
-cross toolchain still produces the native and distro rows.
+Rows whose tools are missing are skipped and named.
 
 ## Not established
 
-One host, one day, one seed. The 7 MB crossover is interpolated between the
-4 MB and 8 MB points, not measured at the crossing. `floor` and `spawn` swing
-up to 45% between runs and carry none of the argument. The mipsel victim is
-built by gcc 15.3.0 against a nixpkgs static glibc, which is not the toolchain
-that built the loop's guest -- irrelevant at ~1 us of guest work per record,
-but not zero. And the scaling sweep touches one byte per 4096-byte page, making
-every page present and private: a real process with shared or file-backed pages
-forks more cheaply, so the crossover is a lower bound on where fork stops
-winning, not an upper one.
+One host, one day, one seed. The 7 MB crossover is interpolated, not measured
+at the crossing. The **6-syscall crossover mixes sources**: the reset and fork
+terms are from this lane's own runs, the 133.2 us per-syscall term is from
+`hookcost.py` on a different target and architecture, with a hook attached. A
+same-target measurement of the unhooked per-syscall cost would tighten it and
+is not done. `floor` and `spawn` swing up to 45% between runs and carry none of
+the argument. The mipsel victim is built by gcc 15.3.0 against a nixpkgs static
+glibc, not the toolchain that built the loop's guest. And the scaling sweep
+touches one byte per 4096-byte page, making every page present and private, so
+the memory crossover is a lower bound on where fork stops winning.
