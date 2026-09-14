@@ -412,7 +412,35 @@ class FastLoop(Plugin):
             self.errors.append("no symbol-level preflight available")
             self.state = "done"
 
-        syscalls.syscall(f"on_sys_{self.detector}_enter",
+        # ENTER OR RETURN, and it is worth a knob because it is worth a
+        # syscall boundary.
+        #
+        # The injector hooks `on_sys_read_return` and this hooked
+        # `on_sys_read_enter`, so a lap that is ONE guest read paid for TWO
+        # trap-and-dispatch round trips. This lane already priced that
+        # boundary on another target: 133 us for the cheapest syscall, 208 us
+        # for `read`, against a lap that is 528 us here. Collapsing both
+        # callbacks onto one trap is therefore the largest host-side lever
+        # left, larger than everything in the injector's own cost table.
+        #
+        # It is a knob and not a change because it MOVES THE ARMING POINT. An
+        # iteration is the span from the armed instant to the next detector
+        # hit, so arming at read-return instead of read-enter rewinds the guest
+        # to a different instant -- one where the kernel has already filled the
+        # buffer. That is a different measurement, not a faster one, and the
+        # controls have to say whether it is still the right one: the fork
+        # oracle for the reset, `arm_progress` for the injection, and the crash
+        # rate for whether the victim is still being fuzzed the same way.
+        at = (self.get_arg("detector_at") or "enter").lower()
+        if at not in ("enter", "return"):
+            self.logger.error(
+                f"fastloop: detector_at={at!r} is not 'enter' or 'return'; "
+                f"refusing rather than silently picking one")
+            self.errors.append(f"bad detector_at: {at!r}")
+            self.state = "done"
+            at = "enter"
+        self.detector_at = at
+        syscalls.syscall(f"on_sys_{self.detector}_{at}",
                          comm_filter=self.comm)(self.on_hit)
 
         # A fatal signal is an iteration boundary too. Registered here rather
@@ -1431,6 +1459,7 @@ class FastLoop(Plugin):
             "mode": self.mode,
             "comm": self.comm,
             "detector": self.detector,
+            "detector_at": getattr(self, "detector_at", "enter"),
             "state": self.state,
             "hits": self.hits,
             "iterations": self.n_iters,

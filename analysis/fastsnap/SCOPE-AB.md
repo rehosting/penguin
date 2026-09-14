@@ -218,3 +218,80 @@ delivered 287,000 inputs against 200,000 laps -- and a subscriber holding the
 final lap index goes on stamping the tail with it. Fixed: the loop now
 announces `on_lap(None, "end")`, and the subscriber falls back to the join it
 uses when there is no loop.
+
+---
+
+# `cpu_common`: both halves of the old story were arming artifacts
+
+The claim carried in this lane was "a real scope miss; covering it costs 4x the
+lap". Re-measured on the current code with the fast oracle:
+
+| run | scope | lap | reset | pages | exec/s | crash rate | cpu_common diffs | verdict |
+|---|---|---|---|---|---|---|---|---|
+| 16 | cpu,cpu_common,rtc *(old code)* | 1616 us | 95 | **59** | 248 | **0.00%** | 0/160 | FAILED |
+| 32 | cpu,cpu_common *(old code)* | 2132 us | 93 | **59** | 242 | **0.01%** | 0/266 | FAILED |
+| 58 | cpu,rtc | 539 us | 61 | 24 | 1141 | 1.33% | 1/1000 | FAILED |
+| 61 | cpu,rtc | 528 us | 59 | 23 | **1760** | 1.33% | 0/1000 | VALID |
+| 62 | cpu,cpu_common,rtc | 655 us | 75 | 24 | 1441 | 1.33% | **0/1000** | VALID |
+
+**Runs 16 and 32 delivered no inputs.** Crash rates of 0.00% and 0.01% against
+1.33% everywhere else: those draws never reached the injector, which is exactly
+the idle-arm failure the two-sided probe was later built to reject. Their
+1.6-2.1 ms laps and 59-page dirty sets were properties of that draw, not of
+`cpu_common`. The "4x" was never measured on a run that was fuzzing anything.
+
+Measured properly, covering `cpu_common` costs **+127 us of lap, 18% of
+throughput** -- and it buys a verdict that stops being a coin flip. Without it
+the section diverges on 0.1-4.7% of verifications, so a 1000-verification run
+returns FAILED or VALID depending on whether a rare event landed (run 58 caught
+exactly one and failed; run 61 caught none and passed).
+
+## Where that 127 us goes, which is the interesting part
+
+| | before the guest resumes | after it resumes |
+|---|---|---|
+| `cpu_common` costs | +22.6 us | **+102.6 us** |
+
+Only 18% of it is the reset doing more work. The other 82% is the guest
+**executing differently**, which is the whole purchase: `vmstate_cpu_common`
+carries `halted` and `interrupt_request`, so with it in the block the guest
+resumes from the interrupt state the arm actually captured instead of carrying
+forward whatever the previous lap left behind. It is a fidelity cost, not
+overhead.
+
+That also gives the two failures one cause. `mc146818rtc` is unrestorable
+because its save reads the live clock -- and it is the periodic timer whose
+interrupts set `interrupt_request`. A section that cannot be rewound, driving
+the field that occasionally fails to match, is one story rather than two.
+
+**Recommendation: cover it.** 18% is the right price for a scope that is
+actually complete, and the alternative is a verdict decided by a coin flip.
+
+# The hook point is worth 4%, not a syscall boundary
+
+The injector hooks `on_sys_read_return` and the detector hooked
+`on_sys_read_enter`, so one guest read drove two dispatches. This lane had
+measured a syscall boundary at 133-208 us on another target, which predicted a
+large win from collapsing them onto one trap. `detector_at` makes that
+selectable; one variable, same scope:
+
+| | 62 `enter` | 63 `return` |
+|---|---|---|
+| lap | 654.9 us | **606.8 us** |
+| exec/s | 1,441 | **1,502** |
+| crash rate | 1.33% | 1.33% |
+| RAM diffs | 0/1000 | 0/1000 |
+| verdict | VALID | VALID |
+
+**7.3% on the lap, not 25-40%.** The prediction is falsified and the reason is
+worth more than the speedup: penguin's enter and return hooks on the same
+syscall are *not* two independent guest traps. Whatever the driver does, the
+second hook point is nearly free, so "fewer hook points" is not the lever it
+looked like -- and the 490 us still sitting in `bh_to_observed` is not made of
+dispatches.
+
+Left as a knob rather than a default, because it moves the arming point: an
+iteration is the span from the armed instant to the next detector hit, and
+arming at read-return rewinds to an instant where the kernel has already filled
+the buffer. Same crash rate, same oracle, but a different instant, and 4% is
+not enough to change a measurement's meaning for.

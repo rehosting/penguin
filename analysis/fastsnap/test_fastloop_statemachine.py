@@ -243,8 +243,14 @@ def make(mode, tmpdir, missing=(), **args):
 
     # The plugin registers its hook through the module-level `syscalls`
     # object; stub it so construction does not need penguin.
+    hooks = []
+
     class _Sys:
-        def syscall(self, *a, **k):
+        def syscall(self, name, *a, **k):
+            # Record the hook NAME. A test that only checked an attribute
+            # would pass while the plugin registered something else, which is
+            # the failure this file exists to catch.
+            hooks.append(name)
             return lambda fn: fn
 
     mod.syscalls = _Sys()
@@ -279,6 +285,7 @@ def make(mode, tmpdir, missing=(), **args):
     mod.plugins.subscribe = _subscribe
 
     p = Harnessed()
+    p._test_hooks = hooks
     p._test_mod = mod
     p._test_events = events
     return p, qemu
@@ -522,6 +529,47 @@ def _health_loop(tmp, **kw):
     assert p.state == "loop", p.state
     assert p._probe_done, "the probe never finished; the window never engages"
     return p, q, prog
+
+
+def detector_at_tests(tmp):
+    # ---- ONE TRAP OR TWO ----------------------------------------------
+    # The injector hooks read-return and this hooked read-enter, so a lap that
+    # is one guest read paid for two trap-and-dispatch round trips. Which hook
+    # point is used is therefore worth a syscall boundary -- 133-208 us
+    # measured on another target, against a 528 us lap here.
+    p, q = make("loop", tmp)
+    assert p.detector_at == "enter", p.detector_at
+    assert p._test_hooks[-1] == "on_sys_read_enter", p._test_hooks
+
+    p, q = make("loop", tmp, detector_at="return")
+    assert p.detector_at == "return", p.detector_at
+    assert p._test_hooks[-1] == "on_sys_read_return", p._test_hooks
+    to_loop(p, q)
+    for _ in range(4):
+        q.run_bottom_half()
+        hit(p)
+    assert p.n_iters >= 4, p.n_iters
+    print("ok  the detector can share the injector's hook point, and the loop "
+          "still runs")
+
+    # A value that is neither must refuse, not pick one. Registering
+    # `on_sys_read_banana` would simply never fire, and the run would report
+    # zero iterations from a configuration that looked accepted.
+    p, q = make("loop", tmp, detector_at="banana")
+    assert p.state == "done", p.state
+    assert any("detector_at" in e for e in p.errors), p.errors
+    print("ok  an unrecognised detector_at refuses the run rather than "
+          "registering a hook that can never fire")
+
+    # It has to reach the report, or an A/B between the two cannot be told
+    # apart afterwards -- which is exactly how this lane lost a TB A/B to an
+    # off-by-one directory mapping.
+    p, q = make("loop", tmp, detector_at="return")
+    to_loop(p, q)
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    assert out["detector_at"] == "return", out["detector_at"]
+    print("ok  and which one was used is recorded in the results")
 
 
 def oracle_method_tests(tmp):
@@ -884,6 +932,7 @@ def main():
     lap_tests(tmp)
     health_tests(tmp)
     oracle_method_tests(tmp)
+    detector_at_tests(tmp)
 
     # ---- mode=loop: the full path -------------------------------------
     p, q = make("loop", tmp)
