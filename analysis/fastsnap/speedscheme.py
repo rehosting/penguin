@@ -228,8 +228,17 @@ class SpeedMark(Plugin):
         self.marks = []
         self.n_getpid = 0
 
+        # scope_filter=False, and this is what the scope_out config turned on.
+        # The clock this whole scheme runs on is delivered BY a hooked syscall,
+        # and analysis_scope: firmware gates hooks off for anything outside the
+        # firmware subtree -- which the probe, living in /igloo/init.d, is. So
+        # the scoped config silently produced zero marks: the instrument gated
+        # away its own clock. The marker opts out of scoping the same way the
+        # portal transport does; the WORKLOAD hook below deliberately does not,
+        # because being gated is the thing it is there to measure.
         plugins.syscalls.syscall("on_sys_getppid_enter",
-                                 comm_filter=self.comm)(self.on_mark)
+                                 comm_filter=self.comm,
+                                 scope_filter=False)(self.on_mark)
         if self.hook_getpid:
             # The variable under test. It counts and does nothing else, so the
             # difference against an unhooked run is dispatch cost rather than

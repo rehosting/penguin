@@ -4,6 +4,15 @@ Measured 2026-09-14 on an idle 96-core host. Artifact:
 `result_usermode_bench.json`. Reproduce: see "Building the user-mode QEMU",
 then `python3 usermode_bench.py --reps 3 --scale --syscost`.
 
+> **SUPERSEDED, 2026-09-15.** The crossover below was built on a
+> per-syscall cost of 133.2 us that was measured WITH A PENGUIN HOOK ATTACHED,
+> on a different target and architecture. Measured directly on bugbench's own
+> architecture (`speedscheme.py`, three controls passing), an **unhooked**
+> syscall costs **1.161 us** and a **hooked** one **95.880 us**. The crossover
+> is not a property of the guest at all. The section immediately below is kept
+> as the record of what was published and why it was wrong; **"The crossover is
+> ours to set" replaces it.**
+
 ## The headline, and the correction it needed
 
 First published as "the snapshot loop beats a qemu-user forkserver". That is
@@ -43,29 +52,76 @@ Two qualifiers, both widening the crossover rather than narrowing it: the
 frequently-firing bracket, `fcntl64`, n=1926), so it is an upper bound on
 per-syscall cost; and it was taken on target A (armel lighttpd), not bugbench.
 
-## Where the 133 us actually goes, which is not where I first said
+## The crossover is ours to set
 
-`hookcost.py` splits the bracket:
+`speedscheme.py` prices a syscall on bugbench's own architecture, on a host
+clock driven by the guest, with an injected-delay control, a null pair and a
+linearity check that all have to pass before it will report a slope:
 
-| | |
+| | us per `getpid` |
 |---|---|
-| enter->return bracket, `fcntl64` | **133.2 us** |
-| host-side Python inside the callback | **0.72 us** |
+| **unhooked** -- emulated kernel + igloo_driver, no hook matching | **1.161** |
+| **hooked** -- the same syscall with one pyplugin hook on it | **95.880** |
 
-Python is **0.5%**. The remaining ~132 us is entirely guest-side: the emulated
-kernel executing the syscall, plus igloo_driver's hypercall traps on enter and
-return, every instruction of it emulated. An earlier version of this document
-attributed the gap to "the emulated kernel **plus** penguin's hypercall into
-Python"; the second half is noise and the claim was wrong.
+Reproduced across separate boots: unhooked 1.165 and 1.161 (0.3% apart).
 
-That also relocates where optimising pays. Not the 404 us reset, and not the
-Python plugin layer -- **the per-syscall emulated-guest round trip**, which at
-133 us dominates everything else in this lane by an order of magnitude.
+**A hooked syscall costs 83x an unhooked one.** So the number the old crossover
+rested on was never a property of emulation; 133 us was ~132 us of portal
+round trip and ~1 us of emulated kernel, and this document previously
+attributed all of it to the guest. That was wrong, and wrong in the direction
+that made our own mechanism look like an immovable constraint.
+
+Re-solving the crossover against each term:
+
+| per-syscall cost used | crossover vs a qemu-user forkserver |
+|---|---|
+| 1.161 us -- nothing hooked | **933 syscalls** |
+| 95.880 us -- everything hooked | **8 syscalls** |
+
+Two orders of magnitude apart, and **which one a run gets is a penguin config,
+not a fact about full-system emulation.** The real shape is neither extreme,
+because a fuzzing loop hooks a few syscalls and not the rest:
+
+    cost = 404 us (reset) + 1.161 x (unhooked) + 95.880 x (hooked)
+
+| an iteration of 30 syscalls, of which... | full-system | qemu-user | winner |
+|---|---|---|---|
+| 0 hooked | 439 us | 1,189 us | full-system |
+| 1 hooked | 534 us | 1,189 us | full-system |
+| 3 hooked | 723 us | 1,189 us | full-system |
+| 5 hooked | 912 us | 1,189 us | full-system |
+| 30 hooked (every one) | 3,280 us | 1,189 us | qemu-user |
+
+**This reverses the headline above for realistic targets.** "A real HTTP
+request handler makes dozens of syscalls, so qemu-user would win decisively"
+is false unless penguin hooks most of them. At a handful of hooks per
+iteration -- which is what a fuzzing loop actually needs, a detector and a
+feeder -- full-system stays ahead at 30 syscalls per iteration and well
+beyond.
+
+The practical consequence is a rule with a number in it: **each syscall hook
+that fires once per iteration costs ~96 us of that iteration, so a hook is
+worth roughly 83 guest syscalls.** Hooks that earn that are worth keeping;
+hooks that merely count are not. `snapfeed`'s fifteen-hook census -- carrying
+the comment "cheap: one counter increment per call" -- was the first thing this
+rule disqualified, and is now off by default.
+
+### What this still does not separate
+
+The unhooked 1.161 us covers the emulated kernel AND igloo_driver's hypercall
+path when no hook matches; it does not say how that splits. The scoped
+configuration meant to isolate it (`analysis_scope: firmware`, putting the
+probe out of scope) cannot: the clock is delivered by a hooked marker syscall,
+and scoping gates hooks off, so the instrument gates away its own clock. The
+marker now opts out with `scope_filter=False`, but even then a host-side
+observer cannot see whether the guest still trapped -- only whether the host
+was told. That split needs the driver-side accumulator.
 
 ## What this can and cannot compare
 
 - **The victim is the best case for qemu-user**, and now we know by how much:
-  one syscall per iteration against a crossover of six. Targets A, B and C are
+  one syscall per iteration against a crossover of 933 unhooked syscalls (8 if
+  every one is hooked). Targets A, B and C are
   vendor daemons reaching NVRAM, ioctls, device nodes and a network stack, and
   **qemu-user cannot run them at all**, so the comparison stays academic for
   them. What it prices is the mechanism, not the choice.
@@ -153,7 +209,10 @@ in 2.25, so each call is a genuine trap.
 | armel/qemu6.2 | 0.3165 | 0.9271 |
 | x86-64 | 0.1295 | 0.3688 |
 
-Against **133.2 us** for a hooked syscall under full-system emulation.
+Against **95.880 us** for a hooked syscall under full-system emulation, and
+**1.161 us** for an unhooked one -- so user mode is ~3.5x cheaper per syscall
+than our emulated kernel, and ~290x cheaper than our portal round trip. The
+gap that matters is the second one, and it is ours.
 
 ## Why fork and reset scale differently
 
@@ -243,11 +302,14 @@ Rows whose tools are missing are skipped and named.
 ## Not established
 
 One host, one day, one seed. The 7 MB crossover is interpolated, not measured
-at the crossing. The **6-syscall crossover mixes sources**: the reset and fork
-terms are from this lane's own runs, the 133.2 us per-syscall term is from
-`hookcost.py` on a different target and architecture, with a hook attached. A
-same-target measurement of the unhooked per-syscall cost would tighten it and
-is not done. `floor` and `spawn` swing up to 45% between runs and carry none of
+at the crossing. The 6-syscall crossover mixed sources and **has been
+replaced**: its per-syscall term came from `hookcost.py` on a different target
+and architecture with a hook attached. `speedscheme.py` now measures both
+terms on bugbench's own architecture (1.161 us unhooked, 95.880 us hooked),
+which is what the superseded banner at the top points at. Still open: that
+1.161 us does not separate the emulated kernel from igloo_driver's hypercall
+path, and a host-side instrument cannot separate them -- see "What this still
+does not separate". `floor` and `spawn` swing up to 45% between runs and carry none of
 the argument. The mipsel victim is built by gcc 15.3.0 against a nixpkgs static
 glibc, not the toolchain that built the loop's guest. And the scaling sweep
 touches one byte per 4096-byte page, making every page present and private, so
