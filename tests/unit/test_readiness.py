@@ -60,6 +60,22 @@ def test_shell_endpoints_backends_and_ports(tmp_path, monkeypatch):
     assert ep() == ""
 
 
+def test_shell_endpoints_gated_on_gateway_liveness(tmp_path, monkeypatch):
+    # A vsock front door whose gateway failed to launch (up == False) must not be
+    # advertised, so READY never points a user at a door that will refuse.
+    monkeypatch.setenv("CONTAINER_IP", "10.1.1.1")
+    lp = load_pyplugin(
+        str(READINESS), outdir=tmp_path,
+        args=dict(root_shell_enabled=True, root_shell_backend="vsock",
+                  telnet_port=23, ssh_port=22),
+    )
+    assert lp.plugin._shell_endpoints() == "telnet=10.1.1.1 ssh=root@10.1.1.1"  # both up (unknown)
+    lp.plugin.ssh_up = False
+    assert lp.plugin._shell_endpoints() == "telnet=10.1.1.1"
+    lp.plugin.telnet_up = False
+    assert lp.plugin._shell_endpoints() == ""
+
+
 def test_on_readiness_ignores_other_kinds(tmp_path):
     lp = load_pyplugin(str(READINESS), outdir=tmp_path)
     assert lp.plugin.on_readiness("something_else", "x") == (0, "")
