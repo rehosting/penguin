@@ -1011,7 +1011,10 @@ def run_config(
     # the port (exactly as find_free_port() does for telnet) and fall back to a
     # free high port rather than launching a gateway that silently can't bind.
     ssh_port = (
-        _pick_gateway_port(_env_int("PENGUIN_SSH_PORT", 22, min_value=1))
+        _pick_gateway_port(
+            _env_int("PENGUIN_SSH_PORT", 22, min_value=1),
+            exclude={telnet_port},
+        )
         if vsock_console
         else None
     )
@@ -1292,6 +1295,13 @@ def run_config(
             ssh_gateway_proc = _launch_ssh_gateway(
                 vpn_args["uds_path"], 12341234, ssh_port, out_dir=out_dir
             )
+        # Tell Readiness which doors actually came up so the READY line (emitted
+        # later, once the guest signals init readiness) only advertises doors a
+        # user can really reach -- not one whose gateway failed to bind.
+        readiness = plugins.get_plugin_by_name("Readiness")
+        if readiness is not None:
+            readiness.telnet_up = telnet_gateway_proc is not None
+            readiness.ssh_up = ssh_gateway_proc is not None
 
     logger.info("Launching rehosting")
 
@@ -1337,23 +1347,33 @@ def _port_is_free(port: int) -> bool:
             return False
 
 
-def _random_free_port() -> int:
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(("0.0.0.0", 0))
-        return sock.getsockname()[1]
+def _random_free_port(exclude=()) -> int:
+    # Retry a few times so we can avoid an already-claimed port (e.g. the telnet
+    # door's port when picking the ssh door's) rather than returning a collision.
+    port = 0
+    for _ in range(20):
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("0.0.0.0", 0))
+            port = sock.getsockname()[1]
+        if port not in exclude:
+            return port
+    return port  # give up avoiding after 20 tries (astronomically unlikely)
 
 
-def _pick_gateway_port(preferred: int) -> int:
+def _pick_gateway_port(preferred: int, exclude=()) -> int:
     """Return `preferred` if this process can actually bind it, else a free high
     port. Privileged ports (<1024) need the container's NET_BIND_SERVICE cap to
     be *effective*, which it is not for the non-root user the run drops to on the
     non-rootless path -- so `_port_is_free(22)` fails there and we self-heal to a
     high port instead of launching a gateway that can never bind. Mirrors how
-    find_free_port() keeps the telnet door from silently failing to bind 23."""
-    if _port_is_free(preferred):
+    find_free_port() keeps the telnet door from silently failing to bind 23.
+
+    `exclude` ports are treated as unavailable so two doors (telnet + ssh) can't
+    be handed the same number when either falls back to a random high port."""
+    if preferred not in exclude and _port_is_free(preferred):
         return preferred
-    return _random_free_port()
+    return _random_free_port(exclude)
 
 
 def find_free_port():

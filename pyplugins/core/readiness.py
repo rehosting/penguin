@@ -9,6 +9,13 @@ class Readiness(Plugin):
         self.outdir = self.get_arg("outdir")
         self.init_seen = False
         self.netbind_seen = False
+        # Whether the vsock front-door gateways actually launched. penguin_run
+        # sets these after launching them (None == not yet known / not applicable,
+        # in which case we still advertise). Gating the READY line on real
+        # liveness stops us announcing a door that failed to bind, which would
+        # otherwise leave the user with connection-refused and only a buried WARN.
+        self.telnet_up = None
+        self.ssh_up = None
 
         # Broadcast a steady-state signal other plugins can observe (the raw
         # send_hypercall "readiness" event is single-subscriber and owned here).
@@ -40,11 +47,26 @@ class Readiness(Plugin):
         backend = self.get_arg("root_shell_backend") or "vsock"
         tport = self.get_arg("telnet_port") or 23
         sport = self.get_arg("ssh_port")
-        endpoints = [f"telnet={guest}" if tport == 23 else f"telnet={guest}:{tport}"]
-        if backend == "vsock" and sport:
-            endpoints.append(
-                f"ssh=root@{guest}" if sport == 22 else f"ssh=root@{guest}:{sport}"
-            )
+
+        def telnet_ep():
+            return f"telnet={guest}" if tport == 23 else f"telnet={guest}:{tport}"
+
+        def ssh_ep():
+            return f"ssh=root@{guest}" if sport == 22 else f"ssh=root@{guest}:{sport}"
+
+        if backend != "vsock":
+            # Legacy telnet backend = the in-guest serial console (no gateway),
+            # always advertised.
+            return telnet_ep()
+
+        # vsock backend: the doors are host-side gateways that may have failed to
+        # launch. Advertise a door only when we didn't observe it die
+        # (`*_up is False`); None (unknown) still advertises.
+        endpoints = []
+        if self.telnet_up is not False:
+            endpoints.append(telnet_ep())
+        if sport and self.ssh_up is not False:
+            endpoints.append(ssh_ep())
         return " ".join(endpoints)
 
     def on_readiness(self, kind: str, value: str = ""):

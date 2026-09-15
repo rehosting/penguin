@@ -83,18 +83,32 @@ def kill_vpn() -> None:
             pass
 
 
-def guest_cmd(cmd: str) -> subprocess.CompletedProcess:
+def guest_cmd(cmd: str, timeout: float = 30.0) -> subprocess.CompletedProcess:
     """
     Run a command in the guest using guesthopper.
 
+    Bounded on both ends: ``--timeout 20`` caps the command guest-side, and the
+    subprocess ``timeout`` caps the host-side wait, so a guest agent that is not
+    up yet or has wedged can't block the caller forever (this runs during bridge
+    setup). A timeout is surfaced as a failed run, not an exception, so callers
+    take their normal error path.
+
     Args:
         cmd (str): Command to run in the guest.
+        timeout (float): Max seconds to wait host-side.
     Returns:
         subprocess.CompletedProcess: Result of the command execution.
     """
-    result = subprocess.run(["python3", "/igloo_static/guesthopper/guest_cmd.py", cmd],
-                            capture_output=True)
-    return result
+    try:
+        return subprocess.run(
+            ["python3", "/igloo_static/guesthopper/guest_cmd.py", "--timeout", "20", cmd],
+            capture_output=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as e:
+        return subprocess.CompletedProcess(
+            e.cmd, returncode=124, stdout=e.stdout or b"", stderr=b"guest_cmd timed out",
+        )
 
 
 atexit.register(kill_vpn)
@@ -556,18 +570,25 @@ class VPN(Plugin):
         """
         guest_addr = f"{sock_type}:{ip}:{guest_port}"
         source_ip = ip
-        with self.lock:
-            if self.spoof and (spoof := self.spoof.get(guest_addr)) is not None:
-                # If we have a source IP to spoof, make sure we have a device to spoof it on
-                source_ip = spoof["source"]
-                self.logger.debug(f"Will spoof source address for {guest_addr} with {source_ip}")
+        # Resolve spoofing OUTSIDE self.lock: ensure_dev_has_ip does guest RPCs
+        # (guest_cmd), and holding the lock across them would let one slow/hung
+        # guest agent stall every other bridge's file/endpoint updates. A failure
+        # is logged and the bridge is still recorded (without the spoof source).
+        if self.spoof and (spoof := self.spoof.get(guest_addr)) is not None:
+            source_ip = spoof["source"]
+            self.logger.debug(f"Will spoof source address for {guest_addr} with {source_ip}")
+            try:
                 self.ensure_dev_has_ip(source_ip, spoof["dev"], ipvn)
+            except RuntimeError as e:
+                self.logger.error(f"spoof setup failed for {guest_addr}: {e}")
+                source_ip = ip
 
-            # Interface matrix: route this service to an owned interface (real
-            # ingress on that iface) or, if none matches, the loopback path
-            # (empty field). Independent of spoof's source-IP choice above.
-            iface = self.routes.get(guest_addr) or self.default_interface or ""
+        # Interface matrix: route this service to an owned interface (real
+        # ingress on that iface) or, if none matches, the loopback path
+        # (empty field). Independent of spoof's source-IP choice above.
+        iface = self.routes.get(guest_addr) or self.default_interface or ""
 
+        with self.lock:
             with open(self.event_file.name, "a") as f:
                 f.write(f"{sock_type},{ip}:{guest_port},0.0.0.0:{host_port},{source_ip}:0,{iface}\n")
 
