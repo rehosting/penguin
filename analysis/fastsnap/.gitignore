@@ -1,0 +1,6 @@
+# Generated harness scratch: a rootfs tarball, a penguin project, and per-boot
+# logs, rebuilt from the image on every run. work_speed*/ got committed early in
+# this lane before this file existed -- including a guest busybox binary -- and
+# those stay tracked rather than being churned out now, but nothing new joins them.
+work_speed_scheme/
+work_syscost/
