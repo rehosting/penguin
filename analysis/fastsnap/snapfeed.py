@@ -121,6 +121,9 @@ class SnapFeed(Plugin):
         self.ptr_size = int(self._arg("ptr_size", 4))
         self.pin_filter = bool(int(self._arg("pin_filter", 0)))
         self.answer_select = bool(int(self._arg("answer_select", 1)))
+        # The syscall census. OFF by default, and the default changed once the
+        # per-syscall cost was actually measured -- see the census block below.
+        self.census_on = bool(int(self._arg("census", 0)))
         # Requests fed per connection before returning EOF. 0 = unlimited
         # (right for keep-alive); 1 matches a connection-per-request victim.
         self.feeds_per_conn = int(self._arg("feeds_per_conn", 0))
@@ -181,14 +184,35 @@ class SnapFeed(Plugin):
         # victim waits have now been wrong -- the detector, then select() --
         # and each cost a build and a run to disprove. These hooks only COUNT,
         # so the next run names the blocking syscall instead of testing
-        # another guess. Cheap: one counter increment per call, no memory
-        # access, no skip.
-        for nm in ("epoll_wait", "epoll_pwait", "poll", "ppoll", "accept",
-                   "accept4", "nanosleep", "clock_nanosleep", "futex",
-                   "recvfrom", "recvmsg", "sendto", "sendmsg", "close",
-                   "shutdown"):
-            syscalls.syscall(f"on_sys_{nm}_enter", comm_filter=self.comm,
-                             pin_filter=pf)(self._census(nm))
+        # another guess.
+        #
+        # OFF BY DEFAULT, and this comment used to end "Cheap: one counter
+        # increment per call, no memory access, no skip." That was wrong, and
+        # wrong by about two orders of magnitude. The Python body IS one
+        # increment -- 0.72 us, measured -- but the body is not what a hook
+        # costs. Getting to it costs a guest hypercall trap, a portal
+        # round trip and a dispatch, and `speedscheme.py` prices the whole
+        # path at ~93 us against an UNHOOKED syscall's 1.16 us. Roughly 80x,
+        # for a counter.
+        #
+        # Fifteen hooks on the syscalls a busy server makes constantly --
+        # poll, futex, close, recvfrom -- is therefore not a rounding error on
+        # a lap, it is potentially the largest single item in one. Nothing
+        # here ever measured that, because "cheap" was asserted rather than
+        # priced, and the census is a DIAGNOSTIC that has already returned its
+        # answer: the blocking syscall was named, select() is handled, and
+        # every lane target is running without it.
+        #
+        # It stays available for the next unknown victim, because it is the
+        # right tool for that job -- it just is not free, so turning it on is
+        # now a decision rather than a default. `census: 1` restores it.
+        if self.census_on:
+            for nm in ("epoll_wait", "epoll_pwait", "poll", "ppoll", "accept",
+                       "accept4", "nanosleep", "clock_nanosleep", "futex",
+                       "recvfrom", "recvmsg", "sendto", "sendmsg", "close",
+                       "shutdown"):
+                syscalls.syscall(f"on_sys_{nm}_enter", comm_filter=self.comm,
+                                 pin_filter=pf)(self._census(nm))
         if self.answer_select:
             # A victim that waits in select() never reaches the read() this
             # plugin feeds. Target A gets to read() directly and won 28x;
@@ -542,6 +566,7 @@ class SnapFeed(Plugin):
             "n_select": self.n_select,
             "n_select_pass": self.n_select_pass,
             "answer_select": self.answer_select,
+            "census_on": self.census_on,
             "n_swallowed": self.n_swallowed,
             "swallow_writes": self.swallow_writes,
             "passthrough": self.passthrough,

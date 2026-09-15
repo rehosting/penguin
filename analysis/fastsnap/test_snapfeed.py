@@ -323,11 +323,33 @@ def main():
     # Three hypotheses about where the victim waits have been wrong, each
     # costing a build and a run. The census counts without intervening, so
     # the next run NAMES the blocking syscall instead of testing another guess.
-    c, _, creg = make(tmp)
+    # ...but it is OFF by default, because it is not free. Each of those
+    # fifteen hooks costs a full portal round trip -- ~93 us measured, against
+    # an unhooked syscall's 1.16 us -- on syscalls a busy server makes
+    # constantly. The Python body really is one increment; getting to the body
+    # is the 93 us. This asserts the default, because the cost of the old
+    # default was invisible precisely because nothing asserted anything.
+    off, _, offreg = make(tmp)
+    offnames = [n for n, _ in offreg]
+    for unwanted in ("on_sys_epoll_wait_enter", "on_sys_poll_enter",
+                     "on_sys_futex_enter", "on_sys_close_enter"):
+        assert unwanted not in offnames, (
+            f"{unwanted} registered with census off", offnames)
+    assert off.census_on is False
+    # Learning connection fds must survive the census going away: it hooks
+    # accept RETURN, which is a different hook from the census's accept ENTER.
+    # Turning the census off must not cost snapfeed its fd table.
+    for want in ("on_sys_accept_return", "on_sys_accept4_return"):
+        assert want in offnames, (want, offnames)
+
+    c, _, creg = make(tmp, census=1)
     cnames = [n for n, _ in creg]
     for want in ("on_sys_epoll_wait_enter", "on_sys_poll_enter",
                  "on_sys_accept_enter", "on_sys_nanosleep_enter"):
         assert want in cnames, (want, cnames)
+    assert c.census_on is True
+    print("ok  snapfeed: the census is off by default and `census: 1` "
+          "restores it; accept-return fd learning is independent of it")
     # A census hook must be a generator (penguin drives every hook with
     # `yield from`) and must not touch the syscall.
     h = c._census("epoll_wait")
