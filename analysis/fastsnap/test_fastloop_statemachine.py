@@ -257,9 +257,22 @@ def load_class():
     """Exec the plugin the way penguin does: into a synthetic module with no
     source file, with the penguin imports stripped."""
     tree = ast.parse((HERE / "fastloop.py").read_text())
-    keep = [n for n in tree.body
-            if isinstance(n, ast.Import)
-            and n.names[0].name in ("json", "os", "statistics", "time")]
+    # penguin execs the plugin with its own imports available; this loader
+    # re-creates that with a fixed whitelist. It used to DROP anything else
+    # silently, which is a NameError that appears only under test and only on
+    # the line that finally uses it -- `math` cost a round trip that way, and
+    # `collections.Counter` cost snapfeed one before it. Refuse instead: if
+    # the plugin has grown an import, that is a decision to make here.
+    ALLOWED = ("json", "os", "statistics", "time")
+    imports = [n for n in tree.body if isinstance(n, ast.Import)]
+    unknown = sorted({a.name for n in imports for a in n.names}
+                     - set(ALLOWED))
+    if unknown:
+        raise AssertionError(
+            f"fastloop.py imports {unknown}, which this loader does not "
+            f"provide. Add it to ALLOWED if the plugin really needs it, or "
+            f"drop the import -- do not let it fail later as a NameError.")
+    keep = imports
     fns = [n for n in tree.body if isinstance(n, ast.FunctionDef)]
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef))
     cls.bases = []

@@ -2289,6 +2289,65 @@ class FastLoop(Plugin):
         lap = it.get("median")
         if not fwd or not lap or fwd <= 0 or lap <= 0:
             return None
+        # WHICH forward cost is this lap supposed to match?
+        #
+        # The baseline is the median of the draw's forward samples, and on a
+        # bimodal workload the median is a value the span never actually
+        # takes. Target A, one draw, five samples:
+        #
+        #   [10189.65, 2.36, 10214.19, 3.31, 10225.93]
+        #
+        # The victim alternates between serving a request on a live
+        # connection (2-3 ms) and waiting out a dead one (10.2 s). The median
+        # picks the waiting mode; a replayed lap of 3.32 ms then scores 0.0003
+        # and is called a 3,000x divergence, when it is an exact match for the
+        # serving mode sitting in the same list. Both the "divergence" and the
+        # size of it would be artifacts of summarising two behaviours as one.
+        #
+        # So when the samples are clearly bimodal -- a gap of `spread_bound`
+        # or more between adjacent sorted samples -- score against the mode
+        # the lap actually matches, and SAY which one and what the other was.
+        # The alternative readings stay visible; what changes is that the
+        # number is quoted against a cost the span is observed to have.
+        #
+        # This is not licence to shop for a flattering baseline. It applies
+        # only to a genuine gap, it reports both modes and the matched one
+        # every time, and with unimodal samples nothing changes at all.
+        modes = self._forward_modes()
+        matched = None
+        if modes:
+            lo, hi = modes
+            # Closest by RATIO, not by difference: a difference would say so
+            # only by accident of scale. max(a/b, b/a) is the symmetric ratio
+            # distance -- the same ordering abs(log(a/b)) gives, without
+            # importing math for it. (penguin's loader admits a fixed set of
+            # imports and drops the rest silently, so a new one is a
+            # NameError that surfaces only under test.)
+            fold = lambda a, b: a / b if a > b else b / a       # noqa: E731
+            matched = "low" if fold(lap, lo) <= fold(lap, hi) else "high"
+        # THE CLASS IS STILL SCORED AGAINST THE MEDIAN, deliberately.
+        #
+        # It is tempting to score against the matched mode instead: on a
+        # bimodal draw the median is a cost the span never actually takes, and
+        # a lap that sits on the low mode then reads as a 3,000x divergence
+        # when it is an exact match for a value in the same list.
+        #
+        # The reason not to is that the two explanations are observationally
+        # identical here. A cheap forward sample can mean the workload really
+        # has a cheap mode -- or it can be the arming pause: the vCPU is
+        # stopped for ~250 ms, so the first span after resume serves a request
+        # that queued up during the stop rather than a fresh one. Run 88's
+        # samples were [2.39, 1073.13, 1047.99, 1051.94, 1054.88], cheap
+        # sample FIRST, which is exactly that signature. Scoring against the
+        # low mode would have called that run faithful and quietly restored
+        # the 303 exec/s this lane has already retracted once.
+        #
+        # So: report the modes, report which one the lap matches, keep the
+        # conservative class, and name the measurement that WOULD separate
+        # them -- the warmup gap distribution, which is sampled with no
+        # arming pause anywhere near it. If the matched mode agrees with the
+        # warmup gaps, the cheap mode is the workload; if only the arming
+        # samples are ever cheap, it is the pause.
         ratio = lap / fwd
         # How stable was the baseline this ratio is quoted against? Target A
         # returned forward samples of [1062, 2.8, 2.3, 1047, 1072] within a
@@ -2315,12 +2374,47 @@ class FastLoop(Plugin):
         k = self.fidelity_bound
         row = {"forward_ms": round(fwd, 4), "lap_ms": round(lap, 4),
                "ratio": round(ratio, 6), "bound": k,
-               "forward_spread": (None if spread is None else round(spread, 1))}
+               "forward_spread": (None if spread is None else round(spread, 1)),
+               "forward_modes": ([round(modes[0], 4), round(modes[1], 4)]
+                                 if modes else None),
+               "matched_mode": matched,
+               "matched_mode_ms": (round(modes[0 if matched == "low" else 1],
+                                         4) if modes else None),
+               "ratio_vs_matched": (
+                   round(lap / modes[0 if matched == "low" else 1], 6)
+                   if modes else None),
+               "warm_gaps_p10_ms": self._warm_p10()}
+        if modes:
+            wp10 = self._warm_p10()
+            m_ms = modes[0 if matched == "low" else 1]
+            agrees = (wp10 is not None and m_ms > 0
+                      and max(wp10 / m_ms, m_ms / wp10) < k)
+            caveat_mode = (
+                f" The forward samples are BIMODAL at {modes[0]:.2f} ms and "
+                f"{modes[1]:.2f} ms ({self.arm_forward_samples[0]}), and the "
+                f"replayed lap matches the {matched} mode "
+                f"({m_ms:.2f} ms, ratio {lap / m_ms:.3f}). The ratio above is "
+                f"still quoted against their MEDIAN, because a cheap forward "
+                f"sample is equally consistent with a genuinely cheap mode "
+                f"and with the arming pause handing the first span a request "
+                f"that queued while the vCPU was stopped.")
+            if wp10 is not None:
+                caveat_mode += (
+                    f" The warmup gaps, sampled with no arming pause near "
+                    f"them, have p10 {wp10:.2f} ms -- "
+                    + (f"consistent with that mode, so the cheap mode looks "
+                       f"like the workload."
+                       if agrees else
+                       f"NOT consistent with it, so the cheap mode looks like "
+                       f"the pause rather than the workload."))
+        else:
+            caveat_mode = ""
         caveat = ("" if spread is None or spread < 4 else
                   f" NOTE: the forward samples behind that baseline span "
                   f"{spread:.0f}x ({self.arm_forward_samples[0]}), so the "
                   f"armed span's forward cost is bimodal and this ratio is a "
                   f"summary of two different behaviours, not one measurement.")
+        caveat += caveat_mode
         if ratio > k:
             row["class"] = "slower"
             row["note"] = (
@@ -2343,8 +2437,54 @@ class FastLoop(Plugin):
                 f"span whose input was already there." + caveat)
         else:
             row["class"] = "faithful"
-            row["note"] = None
+            # A faithful verdict reached by picking a mode owes the reader
+            # the same sentence a diverged one does: the run is faithful to
+            # ONE of two behaviours the span was seen to have, and which one
+            # is the whole of what it means.
+            row["note"] = (caveat_mode.strip() or None) if modes else None
         return row
+
+    def _warm_p10(self):
+        """A low percentile of the warmup gaps, as an independent reference.
+
+        The forward samples are taken around the arm, which stops the vCPU;
+        the warmup gaps are not. So they answer the question the forward
+        samples cannot: does this workload have a cheap mode at all, or is
+        every cheap span a consequence of having been paused?
+        """
+        if len(self.warm_gaps_ms) < 10:
+            return None
+        try:
+            return statistics.quantiles(self.warm_gaps_ms, n=100)[9]
+        except Exception:                                   # noqa: BLE001
+            return None
+
+    def _forward_modes(self):
+        """The two clusters of this draw's forward samples, or None.
+
+        Splits at the largest RATIO gap between adjacent sorted samples and
+        returns (low median, high median) when that gap is at least the
+        fidelity bound. Ratio rather than difference: these samples span
+        milliseconds to seconds, and a gap of "10 seconds" means something
+        different at each end while "3000x" does not.
+
+        None whenever the samples are unimodal, too few to split, or carry a
+        non-positive value -- in which case the caller keeps the median and
+        behaves exactly as before.
+        """
+        samples = (self.arm_forward_samples[0]
+                   if self.arm_forward_samples else None)
+        if not samples or len(samples) < 4 or any(x <= 0 for x in samples):
+            return None
+        xs = sorted(samples)
+        gaps = [(xs[i + 1] / xs[i], i) for i in range(len(xs) - 1)]
+        best, at = max(gaps)
+        if best < self.fidelity_bound:
+            return None
+        lo, hi = xs[:at + 1], xs[at + 1:]
+        if not lo or not hi:
+            return None
+        return statistics.median(lo), statistics.median(hi)
 
     def _wall_notes(self, out):
         """Sentences the verdict owes the reader about where the time went.
