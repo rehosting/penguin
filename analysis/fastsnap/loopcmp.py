@@ -15,10 +15,17 @@ the raw files leave implicit:
 
   exec/s        the outcome
   lap_ms        median plain lap
-  fwd_ms        forward traversal measured at the arming draw. When this is
-                close to lap_ms the replay is faithful; when lap_ms is much
-                larger than fwd_ms the loop is replaying something the arming
-                draw did not sample.
+  fwd_ms        THE ARMED SPAN's own forward traversal -- sample 1 of the
+                draw's five, the only one that starts where every replayed
+                lap starts. The other four are the spans that followed it and
+                begin from states the loop never visits, so their median is a
+                local cost estimate for the arming axis and not a fidelity
+                reference. Reading the median as "the armed span's cost"
+                retracted a real rate in this lane once already: run 88's
+                sample 1 is 2.39 ms against a 3.30 ms lap (faithful, 1.38),
+                while their median is 1051.94 (an apparent 319x divergence).
+  fid1          lap_ms / fwd_ms -- the fidelity ratio that matters. Near 1 the
+                loop replays what it armed on.
   reset_us      cost of the reset itself
   pages         pages restored per lap
   reset_frac    reset_us / lap_ms -- how much of the lap the mechanism under
@@ -50,6 +57,7 @@ Usage:  python3 loopcmp.py <results_dir> [<results_dir> ...]
 
 import json
 import os
+import statistics
 import sys
 
 US_PER_HOOK_FIRING = 95.880      # analysis/fastsnap/result_speedscheme.json
@@ -69,6 +77,46 @@ def med(stat):
     if isinstance(stat, dict):
         return stat.get("median")
     return None
+
+
+def forward_modes(samples, bound=3.0):
+    """Split a draw's forward samples at their largest ratio gap.
+
+    Returns (low median, high median) when the gap is at least `bound`, else
+    None. Mirrors fastloop's own `_forward_modes` so a run recorded before
+    that existed can still be read this way.
+    """
+    if not samples or len(samples) < 4 or any(x <= 0 for x in samples):
+        return None
+    xs = sorted(samples)
+    best, at = max((xs[i + 1] / xs[i], i) for i in range(len(xs) - 1))
+    if best < bound:
+        return None
+    return statistics.median(xs[:at + 1]), statistics.median(xs[at + 1:])
+
+
+def cheap_mode_verdict(fl):
+    """Is the cheap forward mode the workload, or the arming pause?
+
+    The forward samples are taken around the arm, which stops the vCPU for
+    ~250 ms -- so the first span after resume serves a request that queued
+    during the stop rather than a fresh one, and reads cheap for a reason
+    that has nothing to do with the workload. The warmup gaps are sampled
+    with no arming pause near them, so they answer what the forward samples
+    cannot.
+
+    Returns None (not bimodal), "workload" (the warmup gaps sit on the same
+    cheap mode), or "pause" (they do not).
+    """
+    samples = (fl.get("arm_forward_samples") or [[]])[0]
+    modes = forward_modes(samples)
+    if not modes:
+        return None
+    p10 = (fl.get("warm_gaps_ms") or {}).get("p10")
+    if not p10 or p10 <= 0:
+        return None
+    lo = modes[0]
+    return "workload" if max(p10 / lo, lo / p10) < 3.0 else "pause"
 
 
 def row(d):
@@ -96,8 +144,15 @@ def row(d):
     disjoint = epw.get("disjoint")
     n_epoll_pass = sf.get("n_epoll_pass")
 
+    samples = (fl.get("arm_forward_samples") or [[]])[0]
+    modes = forward_modes(samples)
+    s1 = samples[0] if samples else None
     return {
+        "fwd1_ms": s1,
+        "fid1": (lap / s1) if (s1 and lap) else None,
         "run": os.path.basename(os.path.normpath(d)),
+        "fwd_lo": modes[0] if modes else None,
+        "cheap": cheap_mode_verdict(fl),
         "exec_s": fl.get("exec_per_s_median"),
         "iters": iters,
         "lap_ms": lap,
@@ -131,7 +186,8 @@ COLS = [
     ("reset_frac", "{:.4%}", 11), ("attempts", "{}", 5),
     ("acc/lap", "{:.2f}", 8), ("fed/lap", "{:.2f}", 8),
     ("disjoint", "{:.0%}", 9), ("hook_ms_lap", "{:.3f}", 12),
-    ("spread", "{:.1f}x", 8), ("fidel", "{}", 18),
+    ("spread", "{:.1f}x", 8), ("fwd1_ms", "{:.2f}", 10),
+    ("fid1", "{:.3f}", 8), ("cheap", "{}", 10),
 ]
 
 
@@ -151,9 +207,10 @@ def main(dirs):
         if r["lap_src"] != "plain":
             print(f"  run {r['run']}: no plain laps -- lap_ms is from the "
                   f"verify sample ({r['iters']} iteration(s) total)")
-        if r["fidel"] and not r["faithful"]:
-            print(f"  run {r['run']}: replay {r['fidel']} -- exec_s is NOT a "
-                  f"rate for the armed span")
+        f1 = r.get("fid1")
+        if f1 is not None and not (1 / 3.0 <= f1 <= 3.0):
+            print(f"  run {r['run']}: lap/armed-span {f1:.4f} -- exec_s is "
+                  f"NOT a rate for the armed span")
         if (r["feed_wall"] and r["loop_wall"]
                 and r["feed_wall"] < 0.5 * r["loop_wall"]):
             print(f"  run {r['run']}: fed for {r['feed_wall']:.0f}s of a "

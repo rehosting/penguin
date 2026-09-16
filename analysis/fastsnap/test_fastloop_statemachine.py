@@ -1381,12 +1381,41 @@ def replay_fidelity_tests(tmp):
     assert r["class"] == "faithful" and "bimodal" not in (r["note"] or ""), r
     print("ok  replay fidelity: a stable baseline gets no caveat")
 
-    # No baseline, no claim.
+    # No baseline, no claim. BOTH have to go: the baseline is sample 1 of
+    # arm_forward_samples -- the only span that starts where the replayed
+    # laps start -- and arm_forward_ms is the fallback, so clearing one and
+    # leaving the other is a state no real arm produces.
     p.arm_forward_ms = None
+    p.arm_forward_samples = []
     assert p._replay_fidelity({"iter_ms": {"median": 6.3}}) is None
     p.arm_forward_ms = 6.0
     assert p._replay_fidelity({"iter_ms": {}}) is None
     print("ok  replay fidelity: with no forward baseline it makes no claim")
+
+    # THE BASELINE IS SAMPLE ONE, not the median of the five. The samples are
+    # five consecutive DIFFERENT spans -- fwd_probe clocks the armed instant
+    # to the next detector hit, then that hit to the next -- so only the
+    # first begins where every replayed lap begins. Run 88's draw:
+    p.arm_forward_ms = 1051.94                      # the median of the five
+    p.arm_forward_samples = [[2.3942, 1073.1322, 1047.9932, 1051.9367,
+                              1054.8789]]
+    r = p._replay_fidelity({"iter_ms": {"median": 3.297}})
+    assert r["forward_ms"] == 2.3942, r["forward_ms"]
+    assert r["forward_median_ms"] == 1051.94, r
+    assert abs(r["ratio"] - 3.297 / 2.3942) < 1e-4, r["ratio"]
+    assert r["class"] == "faithful", r
+    print("ok  replay fidelity: scored against the armed span's own "
+          "traversal, not the median of five different spans")
+
+    # And it does not simply flatter everything: run 91 armed on the
+    # expensive mode and its replay really is a 200x divergence.
+    p.arm_forward_samples = [[1052.0072, 3.6225, 1040.4758, 9.7671,
+                              1043.5643]]
+    r = p._replay_fidelity({"iter_ms": {"median": 4.973}})
+    assert r["forward_ms"] == 1052.0072, r["forward_ms"]
+    assert r["class"] == "faster", r
+    print("ok  replay fidelity: a draw that armed on the expensive mode is "
+          "still called diverged")
 
     # And it reaches the VERDICT, not just the JSON -- the whole point is that
     # a number nobody has to read is a number nobody reads.
@@ -1395,7 +1424,10 @@ def replay_fidelity_tests(tmp):
     for _ in range(12):
         q.run_bottom_half()
         hit(p)
-    p.arm_forward_ms = 100000.0          # force the faster branch on close
+    # Force the faster branch on close. The baseline is SAMPLE 1, so that is
+    # what has to be large -- setting arm_forward_ms alone no longer does it.
+    p.arm_forward_ms = 100000.0
+    p.arm_forward_samples = [[100000.0, 100000.0, 100000.0, 100000.0]]
     p.uninit()
     out = json.load(open(os.path.join(tmp, "fastloop.json")))
     assert out["replay_fidelity"]["class"] == "faster", out["replay_fidelity"]
@@ -1428,6 +1460,7 @@ def replay_fidelity_tests(tmp):
         q.run_bottom_half()
         hit(p)
     p.arm_forward_ms = 100000.0
+    p.arm_forward_samples = [[100000.0, 100000.0, 100000.0, 100000.0]]
     p.verdict_override = "DEGRADED: the loop came apart"
     p.uninit()
     out = json.load(open(os.path.join(tmp, "fastloop.json")))
@@ -1451,6 +1484,7 @@ def replay_fidelity_tests(tmp):
     # microseconds, so the ratio is dominated by fixed overhead and lands on
     # "slower" -- an artifact of synthetic timings, not a property under test.
     p.arm_forward_ms = statistics.median(p.iter_ms)
+    p.arm_forward_samples = [[statistics.median(p.iter_ms)] * 4]
     p.uninit()
     out = json.load(open(os.path.join(tmp, "fastloop.json")))
     assert out["replay_fidelity"]["class"] == "faithful", \

@@ -741,16 +741,27 @@ class FastLoop(Plugin):
             self.arm_forward_ms = self._fwd_this_arm
         spread = (max(self._fwd_samples) / min(self._fwd_samples)
                   if min(self._fwd_samples) > 0 else None)
+        # The wording matters here and used to be wrong: this said "the armed
+        # span traverses FORWARD in <median> ms (median of 5)", which reads as
+        # five measurements of one span. They are five CONSECUTIVE DIFFERENT
+        # spans -- the armed instant to the first hit, that hit to the next,
+        # and so on. Only the first starts where the replayed laps start, so
+        # only the first is the armed span's own cost; the median is a local
+        # estimate used by the cost axis, and a ratio against it on a bimodal
+        # workload compares the loop to a span it never runs.
         self.logger.info(
-            f"fastloop: baseline -- the armed span traverses FORWARD in "
-            f"{self._fwd_this_arm:.3f} ms (median of {len(self._fwd_samples)}: "
-            f"{[round(x, 2) for x in self._fwd_samples]}), un-reset. Every lap "
-            f"below replays this same span, so the two are comparable and the "
-            f"difference is what the reset costs the guest."
+            f"fastloop: baseline -- the ARMED SPAN traverses forward in "
+            f"{self._fwd_samples[0]:.3f} ms, un-reset. Every lap below "
+            f"replays that same span, so the two are comparable and the "
+            f"difference is what the reset costs the guest. The next "
+            f"{len(self._fwd_samples) - 1} spans after it took "
+            f"{[round(x, 2) for x in self._fwd_samples[1:]]} ms (median of "
+            f"all {len(self._fwd_samples)}: {self._fwd_this_arm:.3f} ms, "
+            f"which is the COST AXIS's reference, not the fidelity one)."
             + ("" if spread is None or spread < 4 else
-               f" NOTE: those samples span {spread:.0f}x, so this draw's "
-               f"forward cost is not a stable quantity and any ratio against "
-               f"it should be read with that in mind."))
+               f" NOTE: those samples span {spread:.0f}x, so the workload "
+               f"around this draw alternates between two costs; which one the "
+               f"arm landed on is what the first number says."))
         self.state = "split_control"
         self._sched(self.panda.FASTSNAP_LOOP_RESET)
 
@@ -2284,7 +2295,37 @@ class FastLoop(Plugin):
         idle axis exists to prevent -- an excellent number for a guest that is
         not doing the work -- arriving through a different door.
         """
-        fwd = self.arm_forward_ms
+        # THE ARMED SPAN'S OWN FORWARD TRAVERSAL IS SAMPLE ONE, and only
+        # sample one.
+        #
+        # `arm_forward_samples` are five CONSECUTIVE, DIFFERENT spans, not
+        # five measurements of one: `fwd_probe` starts its clock at the armed
+        # instant and the next detector hit closes sample 1; sample 2 is that
+        # hit to the next, and so on. Only sample 1 begins where every
+        # replayed lap begins, so only sample 1 is the controlled comparison
+        # -- same starting state, one traversal without a reset against many
+        # with one. Samples 2-5 start from states the loop never visits.
+        #
+        # Scoring against their MEDIAN was wrong in a way that mattered. On a
+        # workload that alternates between serving a pipelined request (~3 ms)
+        # and waiting out a connection boundary (~1050 ms), a draw that armed
+        # on the cheap mode reads:
+        #
+        #   run 88  sample 1 2.39 ms, lap 3.30 ms  -- ratio 1.38 FAITHFUL
+        #           median 1051.94 ms              -- ratio 0.003 "diverged"
+        #
+        # and the median verdict was used, in this lane's own notes, to
+        # retract a rate that was real. It does not uniformly flatter either:
+        # run 91's sample 1 is 1052.01 ms against a 4.97 ms lap, which is a
+        # genuine 209x divergence by both references.
+        #
+        # The median stays as `forward_ms` because the COST axis wants a
+        # robust local estimate for its ceiling, and rejecting a draw is an
+        # action with a cost. Reporting is not, so reporting uses the span
+        # the run actually replays.
+        samples = (self.arm_forward_samples[0]
+                   if self.arm_forward_samples else None)
+        fwd = samples[0] if samples else self.arm_forward_ms
         it = out.get("iter_ms") or {}
         lap = it.get("median")
         if not fwd or not lap or fwd <= 0 or lap <= 0:
@@ -2372,7 +2413,13 @@ class FastLoop(Plugin):
         # of many laps can carry a factor of two or so honestly; it cannot
         # carry eight.
         k = self.fidelity_bound
-        row = {"forward_ms": round(fwd, 4), "lap_ms": round(lap, 4),
+        row = {"forward_ms": round(fwd, 4),
+               "forward_ms_note": ("the armed span's own traversal (sample 1);"
+                                   " samples 2-5 start from states the loop "
+                                   "never visits"),
+               "forward_median_ms": (round(self.arm_forward_ms, 4)
+                                     if self.arm_forward_ms else None),
+               "lap_ms": round(lap, 4),
                "ratio": round(ratio, 6), "bound": k,
                "forward_spread": (None if spread is None else round(spread, 1)),
                "forward_modes": ([round(modes[0], 4), round(modes[1], 4)]
@@ -2393,11 +2440,11 @@ class FastLoop(Plugin):
                 f" The forward samples are BIMODAL at {modes[0]:.2f} ms and "
                 f"{modes[1]:.2f} ms ({self.arm_forward_samples[0]}), and the "
                 f"replayed lap matches the {matched} mode "
-                f"({m_ms:.2f} ms, ratio {lap / m_ms:.3f}). The ratio above is "
-                f"still quoted against their MEDIAN, because a cheap forward "
-                f"sample is equally consistent with a genuinely cheap mode "
-                f"and with the arming pause handing the first span a request "
-                f"that queued while the vCPU was stopped.")
+                f"({m_ms:.2f} ms, ratio {lap / m_ms:.3f}). The ratio above "
+                f"is quoted against sample 1 -- the armed span's own forward "
+                f"traversal, the only one that starts where the replayed laps "
+                f"start. Read the modes as what the workload alternates "
+                f"between, not as a menu of baselines.")
             if wp10 is not None:
                 caveat_mode += (
                     f" The warmup gaps, sampled with no arming pause near "
