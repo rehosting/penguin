@@ -1101,6 +1101,65 @@ Worth stating plainly: **the 69.54 ms figure this document is built on and the
 not two different regimes. Neither was ever traced to a blocking call, because
 nothing counted blocking calls until now.
 
+## The draw can be selected for, not just hoped for (run 107)
+
+The arming axes could reject a draw for being too EXPENSIVE. Nothing could
+reject one for the opposite, and the opposite is the more dangerous of the two
+because it produces a large, quotable number: a span whose wait the forward
+pass already waited replays without paying it, and reports a rate for work
+nobody did. Run 106 is that case -- armed span forward 10,189.66 ms, lap 3.35
+ms, accepted on attempt 1, reported 298.9 exec/s.
+
+`arm_fidelity_mult` (default 3.0) closes it, scoring the probe lap against the
+armed span's own forward traversal and re-drawing when the replay is more than
+3x faster. Run 107, on real firmware:
+
+```
+arm 1 REJECTED on FIDELITY -- the draw replays in 3.42 ms a span that
+traverses forward in 10186.84 ms, 2977x faster. The span contains a wait the
+replay never pays, so its rate would be a number for a span nobody ran.
+Drawing again.
+
+baseline -- the ARMED SPAN traverses forward in 2.575 ms, un-reset. The next
+4 spans after it took [3.03, 4.08, 2.56, 2.73] ms.
+
+arm 2 accepted -- 0/200 probe laps closed on a fatal signal (0.0%), probe lap
+3.46 ms against a 10.34 ms ceiling
+```
+
+The redraw landed on a live-connection span and the four spans behind it are
+all cheap -- no bimodality caveat, because there is no boundary in that
+neighbourhood. `arm_history` reads `['unfaithful, re-arming', 'accepted']`.
+
+| run 107 | |
+|---|---|
+| lap (median) | 3.452 ms |
+| exec/s from the median | 289.70 |
+| exec/s over the wall clock | 68.11 |
+| replay / armed span | **1.341, faithful** |
+| reset | 315 us (9.1% of the lap) |
+| syscall hooks, from the armed mark | 575 us (16.7%) |
+| pages restored | 74 |
+| accepts per lap | 0.08 |
+| oracle | **VALID** -- 20/20 verifications byte-identical across 403,054,592 bytes, every device section in scope restored |
+
+Two things this run also caught, both now fixed. Its verdict was emitted as
+`RATE IS NOT A RATE (faster, replay/forward 0.0003) -- VALID: ...` because
+`_replay_fidelity` read `arm_forward_samples[0]`, the draw its own fidelity
+axis had just rejected. `arm_forward_ms` had the same shape and predates all
+of this work -- assigned `if ... is None`, it froze on attempt 1, so every
+multi-attempt run in this file has reported a forward baseline from a span it
+did not use. Both now read the accepted attempt.
+
+**Where that leaves the two driver shapes.** Run 107's held-open connection
+gives the quietest guest measured here -- 74 pages, 0.575 ms of hooks, 0.08
+accepts per lap -- but its median-to-wall ratio is 4.3x, because the
+connection dies and takes about two seconds to come back. Run 88's
+pipelined-burst driver delivers **248 exec/s over the wall clock** at 1.2x.
+For throughput the burst driver still wins; what run 107 establishes is that
+the good draw can now be selected rather than waited for, which is what made
+run 88 luck and run 91 not.
+
 ## The arming draw is the whole rate, and the default was making it worse
 
 Four runs, 2026-09-15, same project, same image, same target, differing only
