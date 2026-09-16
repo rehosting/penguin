@@ -1167,7 +1167,28 @@ default.
 
 So `LEAN-LAP.md` was right and this file was wrong to dismiss it: **the arming
 point sets the rate.** The reset is a 0.5 ms constant, penguin's syscall hooks
-are ~35% of a lap, and the draw is the rest.
+are ~15% of it, and the draw is the rest.
+
+The hook share is now measured rather than extrapolated, and it moved. The
+earlier ~35% came from dividing `hook_budget`'s whole-run total by the loop's
+iterations, which charges laps for the tens of thousands of hook firings boot
+is responsible for. Run 106 carries an `armed` mark, so the split is directly
+available: 33,545 firings total, 23,154 already spent by the time the loop
+armed, leaving 10,391 across 2,000 laps -- **5.2 firings per lap, 0.498 ms**
+at the measured 95.880 us/firing. Against that run's 3.346 ms lap the budget
+is:
+
+| term | per lap | share |
+|---|---|---|
+| reset | 313 us | 9.4% |
+| penguin syscall hooks | 498 us | 14.9% |
+| the guest actually serving the request | ~2.54 ms | 76% |
+
+Part of the drop is real rather than arithmetic: census off, `one_outstanding`
+and the epoll answer cut the hook traffic, and a held-open connection removes
+the `accept`/`accept4` pair that fired 3,085 times in run 99. Runs without an
+armed mark cannot be compared against this and `loopcmp` now says so instead
+of printing them side by side.
 
 What the draw decides is which mode of a bimodal workload the replayed span
 sits in. This victim is connection-per-request: inside a connection it serves
