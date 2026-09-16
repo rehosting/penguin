@@ -1100,3 +1100,50 @@ Worth stating plainly: **the 69.54 ms figure this document is built on and the
 1053 ms here are probably the same phenomenon at different timeout values**,
 not two different regimes. Neither was ever traced to a blocking call, because
 nothing counted blocking calls until now.
+
+## The arming draw is the whole rate, and the default was making it worse
+
+Four runs, 2026-09-15, same project, same image, same target, differing only
+in which instant the arm caught and (from run 90) `arm_retries`:
+
+| run | `arm_retries` | attempts | accepted lap | exec/s |
+|---|---|---|---|---|
+| 88 | 3 | 1 | 3.30 ms | **303.3** |
+| 89 | 3 | 3, all costly -> **accepted anyway** | 1054.58 ms | **0.9** |
+| 90 | 12 | 3 (2 costly, 3rd cheap) | 4.53 ms | **225.7** |
+| 91 | 12 | **4 (3 costly, 4th cheap)** | 5.11 ms | **201.1** |
+
+**Run 91 is the direct evidence, and run 89 is what it would have been.** Its
+first three draws replayed at 1067.68, 1056.73 and 1055.63 ms and were each
+correctly called costly. Under the old default of 3, the third of those is
+where the counter ran out and the draw is taken regardless -- the exact path
+run 89 went down for 0.9 exec/s. With retries available, attempt 4 came back
+at 5.11 ms and was accepted on merit. A 207x difference on one run, from a
+default.
+
+So `LEAN-LAP.md` was right and this file was wrong to dismiss it: **the arming
+point sets the rate.** The reset is a 0.5 ms constant; penguin's syscall hooks
+are ~35% of a lap; the draw is 300x. Nothing else in this lane is close.
+
+The mechanism is no longer mysterious either. `fastloop`'s own verdict names
+it: the armed span either does or does not contain a ~1.05 s wait for input,
+and a replay never pays that wait again because the input is already queued.
+That is why the expensive laps are flat to 0.02% -- a timer, not a workload --
+and why 194 pages could cost more than 227. The three device- and cache-level
+hypotheses this file built and killed were all looking for a cost; there was
+no cost, there was a wait.
+
+**What the retry change does not fix.** It buys more draws; it cannot make a
+target whose every draw is expensive into a fast one. Runs 89 and 91 both drew
+three expensive spans in a row, so the cheap mode here is well under half. A
+target where it is rarer still would exhaust 12 the same way -- the honest
+report for that case is the low rate, which is what "accepted anyway" already
+produces, flagged as an unselected sample.
+
+**And it needed a cap to be safe.** `arm_cost_relax` widens the ceiling per
+rejected attempt; at 1.5 each it compounds to 86x by attempt 12. Raising the
+retries without capping it turns the axis into a rubber stamp -- caught by the
+state-machine suite, where a 455 ms lap passed a 1427 ms ceiling and recorded
+"accepted". Capped at 4x. Run 91's ladder ran 14.4 -> 21.5 -> 32.3 -> 48.5 ms,
+so the cap does not bind until attempt 5, which is the intended shape: forgive
+a draw that is merely close, never forgive one that is 300x.
