@@ -307,8 +307,8 @@ Connect to this penguin run's guest over the vsock command channel.
                   connect.sh 'a | b > /tmp/c'
   -h, --help    show this help
 
-The guest also answers on its container IP via the telnet and ssh front
-doors (see the header comment above and results/*/runtime.yaml).
+The guest also answers on its container IP via the front doors listed in
+the header comment above and in results/*/runtime.yaml.
 EOF
 }
 
