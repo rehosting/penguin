@@ -66,14 +66,21 @@ the raw files leave implicit:
                 95.880 us/firing. Compare against lap_ms, not against zero.
 
                 Counted from the ARMED MARK onwards where the run has one:
-                hook_budget's total covers the whole run, and boot fires tens
-                of thousands of hooks that no lap is responsible for. Charging
-                those to laps overstated this column by about 3x -- run 106
-                reads 1.608 ms/lap from the raw total and 0.498 ms/lap from
-                the mark, against a 3.346 ms lap, which is the difference
-                between "hooks are half the lap" and "hooks are a seventh of
-                it". A trailing `?` marks a run with no armed mark, whose
-                number is the inflated one and is not comparable.
+                hook_budget's total covers the whole run, and boot fires
+                thousands of hooks no lap is responsible for. Run 107 fired
+                34,461 in total, 12,003 of them before it armed, leaving
+                22,458 across 2,000 laps -- 11.23 firings and 1.077 ms per
+                lap against a 3.452 ms lap, or 31.2% of it.
+
+                `marks.armed.firings` is already the POST-arm count (each
+                row's `firings_since` is `n - snapshot`, and the mark's total
+                is their sum), so it is used directly. An earlier version
+                subtracted it from the total and reported the boot half
+                instead, which halved this column and made hooks look like a
+                seventh of the lap rather than a third.
+
+                Runs with no armed mark are flagged: their number includes
+                boot and is an upper bound, not comparable with a marked run.
 
 Usage:  python3 loopcmp.py <results_dir> [<results_dir> ...]
         python3 loopcmp.py work/stride/proj/results/{88,99,102}
@@ -160,9 +167,15 @@ def row(d):
     feed = sf.get("feed_wall_s")
 
     firings = hb.get("total_firings")
-    at_arm = ((hb.get("marks") or {}).get("armed") or {}).get("firings")
-    if firings is not None and at_arm is not None:
-        firings, marked = max(0, firings - at_arm), True
+    # `marks.armed.firings` is ALREADY the post-arm count, not a snapshot
+    # taken at the arm: syscalls.py computes each row's `firings_since` as
+    # `n - snap` and the mark's total is the sum of those. Subtracting it from
+    # the total therefore yields the BOOT half -- the opposite of what is
+    # wanted. Checked both ways round on run 107: total 34,461, mark 22,458,
+    # and the per-hook `firings_since` values sum to exactly 22,458.
+    post_arm = ((hb.get("marks") or {}).get("armed") or {}).get("firings")
+    if post_arm is not None:
+        firings, marked = post_arm, True
     else:
         marked = False
     hook_ms = (firings * US_PER_HOOK_FIRING / 1000.0 / iters

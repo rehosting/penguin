@@ -1226,28 +1226,45 @@ default.
 
 So `LEAN-LAP.md` was right and this file was wrong to dismiss it: **the arming
 point sets the rate.** The reset is a 0.5 ms constant, penguin's syscall hooks
-are ~15% of it, and the draw is the rest.
+are ~31% of it, and the draw is the rest.
 
-The hook share is now measured rather than extrapolated, and it moved. The
-earlier ~35% came from dividing `hook_budget`'s whole-run total by the loop's
-iterations, which charges laps for the tens of thousands of hook firings boot
-is responsible for. Run 106 carries an `armed` mark, so the split is directly
-available: 33,545 firings total, 23,154 already spent by the time the loop
-armed, leaving 10,391 across 2,000 laps -- **5.2 firings per lap, 0.498 ms**
-at the measured 95.880 us/firing. Against that run's 3.346 ms lap the budget
-is:
+The hook share is now measured from the `armed` mark rather than extrapolated
+across the whole run. Run 107 fired 34,461 hook events in total, 12,003 of
+them before it armed, leaving **22,458 across 2,000 laps -- 11.23 firings and
+1.077 ms per lap** at the measured 95.880 us/firing. Against its 3.452 ms lap:
 
 | term | per lap | share |
 |---|---|---|
-| reset | 313 us | 9.4% |
-| penguin syscall hooks | 498 us | 14.9% |
-| the guest actually serving the request | ~2.54 ms | 76% |
+| reset | 315 us | 9.1% |
+| penguin syscall hooks | 1.077 ms | **31.2%** |
+| the guest actually serving the request | ~2.06 ms | 60% |
 
-Part of the drop is real rather than arithmetic: census off, `one_outstanding`
-and the epoll answer cut the hook traffic, and a held-open connection removes
-the `accept`/`accept4` pair that fired 3,085 times in run 99. Runs without an
-armed mark cannot be compared against this and `loopcmp` now says so instead
-of printing them side by side.
+And the hooks are concentrated, which is what makes the number actionable:
+
+| hook | firings/lap | ms/lap | share of lap |
+|---|---|---|---|
+| `ioctl:return` (**no comm filter**) | 4.41 | 0.423 | **12.2%** |
+| `read:enter` lighttpd | 1.56 | 0.150 | 4.3% |
+| `writev:enter` lighttpd | 1.18 | 0.113 | 3.3% |
+| `writev:enter` lighttpd (**second hook, same syscall**) | 1.18 | 0.113 | 3.3% |
+| `write:enter` lighttpd | 1.09 | 0.105 | 3.0% |
+| `sys_stat64:return` | 0.43 | 0.041 | 1.2% |
+| `epoll_wait:enter` | 0.38 | 0.036 | 1.1% |
+| `epoll_ctl:enter` | 0.32 | 0.031 | 0.9% |
+| everything else (13 hooks) | 0.68 | 0.065 | 1.9% |
+
+One unfiltered hook from `interfaces` is an eighth of the lap, and `writev` is
+hooked twice -- by `snapfeed` and by `fastloop`'s own detector -- for another
+3.3%.
+
+> **Correction.** A previous version of this table said 14.9% and 0.498 ms,
+> from `marks.armed.firings` read as a snapshot taken AT the arm and
+> subtracted from the total. It is already the POST-arm count: `syscalls.py`
+> computes each row's `firings_since` as `n - snapshot` and the mark's total
+> is the sum of those. Subtracting it yielded the BOOT half. Checked both ways
+> on run 107 -- the per-hook `firings_since` values sum to exactly 22,458, the
+> mark's own figure. The original ~35% estimate was much closer than the
+> "correction" that replaced it.
 
 What the draw decides is which mode of a bimodal workload the replayed span
 sits in. This victim is connection-per-request: inside a connection it serves
