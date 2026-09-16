@@ -108,7 +108,13 @@ def make(tmpdir, **args):
     class Harnessed(cls):
         def __init__(self):
             self.logger = FakeLogger()
-            self._args = dict(outdir=str(tmpdir), comm="v")
+            # one_outstanding defaults ON in the plugin: feed a request,
+            # then withhold until the victim answers. Most tests here drive
+            # the feed path directly, several feeds in a row with no response
+            # in between, and are about WHAT gets fed rather than about the
+            # alternation. They keep the unbounded behaviour explicitly; the
+            # alternation has its own tests below.
+            self._args = dict(outdir=str(tmpdir), comm="v", one_outstanding=0)
             self._args.update(args)
             super().__init__()
 
@@ -609,10 +615,11 @@ def main():
     DATA = b"\xef\xbe\xad\xde\x11\x22\x33\x44"   # the victim's payload
     EVP, EVOUT = 0x9000, 0x9100
     # epoll_ctl(ADD) is watched, not answered: it is how the payload is learnt.
-    qmem.contents[EVP] = bytes(4) + bytes(4) + DATA       # events, pad, data
+    EPOLLIN_LE = (0x001).to_bytes(4, "little")
+    qmem.contents[EVP] = EPOLLIN_LE + bytes(4) + DATA    # events, pad, data
     sc = FakeSyscall()
     list(q.on_epoll_ctl_enter(None, None, sc, 7, q.EPOLL_CTL_ADD, 5, EVP))
-    assert q.epoll_reg[5] == DATA, q.epoll_reg
+    assert q.epoll_reg[5] == (0x001, DATA), q.epoll_reg
     assert sc.skip_syscall is False, "epoll_ctl must run; it is only observed"
 
     # With a learned+registered fd, epoll_wait is answered without the host.
@@ -635,7 +642,7 @@ def main():
     # waiting on a timer, a pipe or a listening socket, and claiming
     # readiness there corrupts its logic rather than accelerating it.
     q2, q2mem, _ = make(tmp, answer_epoll=1)
-    q2.epoll_reg[9] = DATA          # registered, but never fed
+    q2.epoll_reg[9] = (0x001, DATA)   # registered, but never fed
     sc = FakeSyscall()
     list(q2.on_epoll_wait_enter(None, None, sc, 7, EVOUT, 16))
     assert sc.skip_syscall is False, "answered an epoll for an unfed fd"
@@ -646,7 +653,7 @@ def main():
     # EPOLL_CTL_DEL forgets, so a closed-then-reused fd cannot be answered
     # with a stale payload pointing at a freed connection object.
     q3, _, _ = make(tmp, answer_epoll=1)
-    q3.epoll_reg[5] = DATA
+    q3.epoll_reg[5] = (0x001, DATA)
     list(q3.on_epoll_ctl_enter(None, None, FakeSyscall(), 7,
                                q3.EPOLL_CTL_DEL, 5, 0))
     assert 5 not in q3.epoll_reg, q3.epoll_reg
@@ -658,12 +665,113 @@ def main():
     # flags and loop, looking exactly like this plugin doing nothing.
     q4, q4mem, _ = make(tmp, answer_epoll=1)
     q4._little = False
-    q4.epoll_reg[5] = DATA
+    q4.epoll_reg[5] = (0x001, DATA)
     q4.fds.add(5)
     list(q4.on_epoll_wait_enter(None, None, FakeSyscall(), 7, EVOUT, 16))
     ev = q4mem.contents[EVOUT]
     assert int.from_bytes(ev[0:4], "big") == q4.EPOLLIN, ev[:4].hex()
     print("ok  snapfeed: the events word goes out in the guest's byte order")
+
+    # A victim that has switched to EPOLLOUT is waiting to WRITE, and saying
+    # "readable" there is how this plugin starved the write path: 267,914
+    # requests fed against 104 responses written, with lighttpd re-arming
+    # through EPOLL_CTL_MOD 134,044 times trying to get a writable event it
+    # was never given. The loop detects writev, so no responses meant no laps
+    # at all -- iters=0 after ten minutes.
+    q5, _, _ = make(tmp, answer_epoll=1)
+    EPOLLOUT = 0x004
+    q5.epoll_reg[5] = (EPOLLOUT, DATA)     # flushing a reply, not reading
+    q5.fds.add(5)
+    sc = FakeSyscall()
+    list(q5.on_epoll_wait_enter(None, None, sc, 7, EVOUT, 16))
+    assert sc.skip_syscall is False, (
+        "claimed EPOLLIN for a victim waiting to write")
+    assert q5.n_epoll_pass == 1, q5.n_epoll_pass
+    print("ok  snapfeed: an fd whose interest is EPOLLOUT is left alone, so "
+          "the victim can finish writing its response")
+
+    # ---- ONE OUTSTANDING REQUEST ----------------------------------------
+    # Invisible while the victim blocked in epoll_wait, because that wait WAS
+    # the throttle: 7,224 feeds produced 4,569 responses. Answering epoll
+    # removed it and the feeder turned out to have none of its own -- 328,052
+    # requests fed against 85 responses written, because snapfeed answers
+    # every read() and lighttpd therefore never saw a would-block, never left
+    # its read loop, and never reached the writev the loop detects.
+    r, rmem, _ = make(tmp, one_outstanding=1)
+    r.fds.add(3)
+    sc = FakeSyscall()
+    list(r.on_read_enter(None, None, sc, 3, 0x1000, 512))
+    assert sc.skip_syscall is True, "first request was not fed"
+    assert 3 in r.pending, r.pending
+
+    # Second read WITHOUT a response in between is left to the host, which on
+    # a non-blocking socket returns EAGAIN -- the signal that sends the victim
+    # off to write its reply.
+    sc2 = FakeSyscall()
+    list(r.on_read_enter(None, None, sc2, 3, 0x1000, 512))
+    assert sc2.skip_syscall is False, "fed a second request before the first "\
+                                      "was answered"
+    assert r.n_withheld == 1, r.n_withheld
+    # ...and epoll must agree with the read path, or the victim spins on a
+    # readable event whose read then declines to feed.
+    r.epoll_reg[3] = (0x001, b"12345678")
+    sc3 = FakeSyscall()
+    list(r.on_epoll_wait_enter(None, None, sc3, 7, 0xA000, 16))
+    assert sc3.skip_syscall is False, "epoll said readable with a request "\
+                                      "still outstanding"
+
+    # The victim writes: that is the response, and the next request may go.
+    rmem.ptrs[0x5000] = 0x6000
+    rmem.contents[0x6000] = b"HTTP/1.1 200 OK\r\n"
+    list(r.on_writev_enter(None, None, FakeSyscall(), 3, 0x5000, 1))
+    assert 3 not in r.pending, r.pending
+    sc4 = FakeSyscall()
+    list(r.on_read_enter(None, None, sc4, 3, 0x1000, 512))
+    assert sc4.skip_syscall is True, "not fed again after the response"
+    print("ok  snapfeed: one outstanding request per connection -- the next "
+          "feed waits for the victim's response, which is the iteration "
+          "boundary the loop detects")
+
+    # A lap rewind puts the guest back before the request was fed, so the
+    # victim is NOT waiting on a response it never received. Leaving pending
+    # set would withhold the replayed span's first feed and stall the lap.
+    r2, _, _ = make(tmp, one_outstanding=1)
+    r2.fds.add(3)
+    list(r2.on_read_enter(None, None, FakeSyscall(), 3, 0x1000, 512))
+    assert 3 in r2.pending
+    r2.on_lap()
+    assert not r2.pending, r2.pending
+    sc = FakeSyscall()
+    list(r2.on_read_enter(None, None, sc, 3, 0x1000, 512))
+    assert sc.skip_syscall is True, "replayed span was not fed"
+    print("ok  snapfeed: a lap rewind clears the outstanding set, so the "
+          "replayed span gets the feed the forward pass got")
+
+    # EVERY pass must record a reason. The first cut of this diagnostic
+    # shipped with the reason-increments missing -- the counter said 2,279
+    # passes and the breakdown said {} -- so a whole run was spent producing
+    # an empty answer to the question it existed to settle. The invariant is
+    # cheap to assert and the failure is silent without it.
+    for name, setup in (
+        ("no_state",    lambda q: None),                      # no fds at all
+        ("disjoint",    lambda q: (q.fds.add(3),
+                                   q.epoll_reg.__setitem__(9, (0x001, b"8"*8)))),
+        ("outstanding", lambda q: (q.fds.add(3),
+                                   q.epoll_reg.__setitem__(3, (0x001, b"8"*8)),
+                                   q.pending.add(3))),
+        ("no_epollin",  lambda q: (q.fds.add(3),
+                                   q.epoll_reg.__setitem__(3, (0x004, b"8"*8)))),
+    ):
+        qq, _, _ = make(tmp, answer_epoll=1, one_outstanding=1)
+        setup(qq)
+        before = qq.n_epoll_pass
+        list(qq.on_epoll_wait_enter(None, None, FakeSyscall(), 7, 0xB000, 16))
+        assert qq.n_epoll_pass == before + 1, name
+        assert sum(qq._epass.values()) == 1, (name, qq._epass)
+        assert qq._epass.get(name) == 1, (name, qq._epass)
+    print("ok  snapfeed: every epoll pass records WHY -- no_state, disjoint, "
+          "outstanding and no_epollin are distinguishable rather than one "
+          "undifferentiated counter")
 
     print("\nPASS")
 

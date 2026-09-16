@@ -145,6 +145,36 @@ class SnapFeed(Plugin):
         # synthesised event with the right fd and the wrong data is worse than
         # no event at all.
         self.epoll_reg = {}
+        # One outstanding request per connection: feed a request, then say
+        # nothing more until the victim has written its response.
+        #
+        # This was invisible while the victim blocked in epoll_wait, because
+        # that wait WAS the throttle -- one request per ~1 s, and 7,224 feeds
+        # produced 4,569 responses. Answering epoll removed the throttle and
+        # the feeder turned out to have none of its own: 328,052 requests fed
+        # against 85 responses written. snapfeed answers every read(), so
+        # lighttpd never saw a would-block, never left its read loop, and
+        # never reached the writev the loop detects.
+        #
+        # Request/response alternation is also just what an HTTP client does
+        # on a keep-alive connection, and what a fuzzer wants: one input per
+        # iteration, with the response as the iteration boundary -- which is
+        # exactly what fastloop's writev detector keys on. Set 0 to restore
+        # the unbounded feeder for a victim that genuinely pipelines.
+        self.one_outstanding = bool(int(self._arg("one_outstanding", 1)))
+        self.pending = set()     # fds fed a request that is not yet answered
+        # WHY an epoll_wait was left alone, not just that it was. n_epoll came
+        # back 0 against 2,391 passes and one counter could not say whether
+        # the fds were unknown, unregistered, busy, or waiting on something
+        # else entirely -- four different bugs behind one number, and a
+        # control that cannot distinguish its own failure modes costs a run
+        # per guess.
+        # A plain dict, not a Counter: test_snapfeed loads this module through
+        # an AST whitelist that admits `import json/os/random/time` and drops
+        # every `from ... import ...`, so a collections import here is present
+        # in the file and absent under test -- a NameError that only ever
+        # appears in the harness.
+        self._epass = {}
         # The events word is a u32 written into guest memory, so it has to go
         # out in the guest's byte order. Two of this lane's targets are
         # big-endian (mipseb, ppc), and a byte-swapped EPOLLIN is 0x01000000 --
@@ -167,6 +197,7 @@ class SnapFeed(Plugin):
         self.n_lap_resets = 0    # laps that rewound the feed counts
         self.n_eof = 0           # connections ended by returning 0
         self.n_select = 0        # selects answered without reaching the host
+        self.n_withheld = 0      # reads left alone: response still outstanding
         self.n_epoll = 0         # epoll_waits answered without reaching the host
         self.n_epoll_pass = 0    # ...and those left alone
         self.n_select_pass = 0   # ...and those left alone
@@ -310,6 +341,11 @@ class SnapFeed(Plugin):
         """
         self.fd_feeds.clear()
         self.n_lap_resets += 1
+        # The guest was rewound to before the request was fed, so the victim
+        # is not waiting on a response it never received. Leaving these set
+        # would withhold the replayed span's very first feed and stall the
+        # lap -- the same class of bug as feeds_per_conn not being rewound.
+        self.pending.clear()
 
     def _census(self, name):
         """One counting hook. Returns a generator function, because penguin's
@@ -377,6 +413,13 @@ class SnapFeed(Plugin):
                     f"before it reads, and that comm= names the right process.")
             return
 
+        if self.one_outstanding and int(fd) in self.pending:
+            # Already fed; waiting on the response. Let the real read run: on
+            # a non-blocking socket it returns EAGAIN, which is precisely the
+            # signal that sends the victim off to write its reply.
+            self.n_withheld += 1
+            return
+
         if self.passthrough and self.rng.random() < self.passthrough:
             self.n_pass += 1
             return                      # goes to the host -- see __init__
@@ -420,6 +463,8 @@ class SnapFeed(Plugin):
         syscall.skip_syscall = True
 
         self.n_sent += 1
+        if self.one_outstanding:
+            self.pending.add(int(fd))
         now = time.time()
         if self.t_first is None:
             self.t_first = now
@@ -432,6 +477,16 @@ class SnapFeed(Plugin):
         code = (parts[1][:3].decode("latin-1", "replace")
                 if len(parts) > 1 else "???")
         self.responses[code] = self.responses.get(code, 0) + 1
+
+    def _answered(self, fd):
+        """The victim wrote on this fd, so its request is answered.
+
+        Called from both response paths. Clearing here rather than in the read
+        hook is what makes the alternation follow the VICTIM's progress rather
+        than this plugin's own bookkeeping.
+        """
+        if self.one_outstanding:
+            self.pending.discard(int(fd))
 
     def on_writev_enter(self, regs, proto, syscall, fd, iov, iovcnt):
         """Swallow the response, and tally what it was.
@@ -454,6 +509,7 @@ class SnapFeed(Plugin):
         """
         if int(iovcnt) <= 0 or int(fd) not in self.fds:
             return
+        self._answered(fd)
         try:
             base = yield from plugins.mem.read_ptr(iov)
             data = yield from plugins.mem.read_bytes(base, size=16)
@@ -487,6 +543,7 @@ class SnapFeed(Plugin):
         n = int(count)
         if n <= 0 or int(fd) not in self.fds:
             return
+        self._answered(fd)
         try:
             data = yield from plugins.mem.read_bytes(int(buf), size=16)
         except Exception:                                   # noqa: BLE001
@@ -524,8 +581,20 @@ class SnapFeed(Plugin):
         except Exception:                                   # noqa: BLE001
             return
         if raw and len(raw) >= self.epoll_data_off + 8:
-            self.epoll_reg[fd] = bytes(
-                raw[self.epoll_data_off:self.epoll_data_off + 8])
+            # The MASK matters as much as the payload, and dropping it was a
+            # real bug with a loud signature: 267,914 requests fed and 104
+            # responses written. A server alternates interest -- EPOLLIN while
+            # it wants a request, EPOLLOUT while it flushes the reply -- and
+            # re-arms through EPOLL_CTL_MOD each time (134,044 of them in that
+            # run). Answering EPOLLIN unconditionally told lighttpd "there is
+            # more to read" every time it tried to switch to writing, so it
+            # went back to read() forever and never produced the writev the
+            # loop detects. Feeding a victim faster is not the goal; letting
+            # it finish an iteration is.
+            want = int.from_bytes(raw[0:4], "little" if self._little else "big")
+            self.epoll_reg[fd] = (
+                want,
+                bytes(raw[self.epoll_data_off:self.epoll_data_off + 8]))
 
     def on_epoll_wait_enter(self, regs, proto, syscall, epfd, events,
                             maxevents, *rest):
@@ -545,27 +614,50 @@ class SnapFeed(Plugin):
         """
         if not events or not self.fds or not self.epoll_reg:
             self.n_epoll_pass += 1
+            self._epass["no_state"] = self._epass.get("no_state", 0) + 1
             return
         cap = min(int(maxevents), len(self.fds)) if maxevents else 0
         if cap <= 0:
             self.n_epoll_pass += 1
+            self._epass["no_cap"] = self._epass.get("no_cap", 0) + 1
             return
         # Only fds that are BOTH being fed and registered with this epoll.
-        ready = [fd for fd in self.fds if fd in self.epoll_reg][:cap]
+        # Only fds whose CURRENT registered interest includes EPOLLIN. One
+        # that has switched to EPOLLOUT is waiting to write, and its
+        # writability is real -- the host can answer that correctly and this
+        # plugin has nothing to add.
+        ready = [fd for fd in self.fds
+                 if fd in self.epoll_reg
+                 and (self.epoll_reg[fd][0] & self.EPOLLIN)
+                 and not (self.one_outstanding and fd in self.pending)][:cap]
         if not ready:
             self.n_epoll_pass += 1
+            both = set(self.fds) & set(self.epoll_reg)
+            if not both:
+                # The fds being waited on are not the fds being fed. On a
+                # connection-per-request victim this is the LISTENING socket:
+                # it waits for the next connection, which this plugin cannot
+                # supply -- it feeds ACCEPTED fds and cannot synthesise an
+                # accept().
+                self._epass["disjoint"] = self._epass.get("disjoint", 0) + 1
+            elif all(fd in self.pending for fd in both):
+                self._epass["outstanding"] = self._epass.get("outstanding", 0) + 1
+            else:
+                self._epass["no_epollin"] = self._epass.get("no_epollin", 0) + 1
             return
         buf = bytearray()
         for fd in ready:
             ev = bytearray(self.epoll_ev_size)
             ev[0:4] = int(self.EPOLLIN).to_bytes(
                 4, "little" if self._little else "big")
-            ev[self.epoll_data_off:self.epoll_data_off + 8] = self.epoll_reg[fd]
+            ev[self.epoll_data_off:self.epoll_data_off + 8] = \
+                self.epoll_reg[fd][1]
             buf += ev
         try:
             yield from plugins.mem.write_bytes(int(events), bytes(buf))
         except Exception:                                   # noqa: BLE001
             self.n_epoll_pass += 1
+            self._epass["write_failed"] = self._epass.get("write_failed", 0) + 1
             return
         syscall.skip_syscall = True
         syscall.retval = len(ready)
@@ -685,6 +777,9 @@ class SnapFeed(Plugin):
             "answer_epoll": self.answer_epoll,
             "n_epoll": self.n_epoll,
             "n_epoll_pass": self.n_epoll_pass,
+            "epoll_pass_why": dict(self._epass),
+            "one_outstanding": self.one_outstanding,
+            "n_withheld": self.n_withheld,
             "epoll_registered": len(self.epoll_reg),
             "census_on": self.census_on,
             "n_swallowed": self.n_swallowed,
