@@ -1106,39 +1106,56 @@ nothing counted blocking calls until now.
 Four runs, 2026-09-15, same project, same image, same target, differing only
 in which instant the arm caught and (from run 90) `arm_retries`:
 
-| run | `arm_retries` | attempts | accepted lap | exec/s | replay/forward |
-|---|---|---|---|---|---|
-| 88 | 3 | 1 | 3.30 ms | ~~303.3~~ | **0.003 -- not a rate** |
-| 89 | 3 | 3, all costly -> **accepted anyway** | 1054.58 ms | **0.9** | ~1.0 faithful |
-| 90 | 12 | 3 (2 costly, 3rd cheap) | 4.53 ms | ~~225.7~~ | not a rate |
-| 91 | 12 | **4 (3 costly, 4th cheap)** | 5.11 ms | ~~201.1~~ | **0.005 -- not a rate** |
+| run | `arm_retries` | attempts | accepted lap | exec/s | armed span fwd | lap/fwd |
+|---|---|---|---|---|---|---|
+| 88 | 3 | 1 | 3.30 ms | **303.3** | 2.39 ms | 1.377 faithful |
+| 89 | 3 | 3, all costly -> **accepted anyway** | 1054.58 ms | **0.9** | ~1052 ms | ~1.0 faithful |
+| 90 | 12 | 3 (2 costly, 3rd cheap) | 4.43 ms | **225.7** | 3.67 ms | 1.207 faithful |
+| 91 | 12 | **4 (3 costly, 4th cheap)** | 4.97 ms | ~~201.1~~ | 1052.01 ms | **0.005 -- not a rate** |
 
-> **CORRECTION, 2026-09-16.** Three of those four exec/s numbers are struck
-> through because they are not rates, and this section originally quoted them
-> as if they were. `fastloop` said so at the time, in each run's own
-> `replay_fidelity`: runs 88 and 91 replay their armed spans **319x and 209x
-> faster than those spans traverse forward** (class `faster`, ratio 0.003 and
-> 0.005), because the input arrived during the forward traversal and is still
-> queued at replay. Run 99 is the only faithful measurement this target has
-> produced -- ratio 1.006 -- and it reports **0.94 exec/s**.
+> **CORRECTION, 2026-09-16, twice.** This table was first written quoting all
+> four exec/s numbers as throughput. It was then rewritten striking three of
+> them as "not rates". The second version was wrong for two of the three, and
+> this is the third and, I believe, correct reading.
 >
-> The reason the correct finding was missed for a day is an ordering defect in
-> the verdict, now fixed: run 88's verdict opens `VALID: 20 verifications,
-> every one byte-identical...` -- a statement about the RAM oracle alone --
-> and reaches `REPLAY DIVERGES` four sentences and ~400 characters later,
-> after an aside about `CAP_SYS_ADMIN`. The `RESULTS` log line printed
+> What settles it is what `arm_forward_samples` actually contains. The five
+> samples behind a draw are five **consecutive, different spans** -- the
+> `fwd_probe` state clocks the armed instant to the next detector hit, then
+> that hit to the next, and so on. They are not five measurements of one span.
+> Only **sample 1** starts where every replayed lap starts, so only sample 1
+> is the controlled comparison: same starting state, one traversal without a
+> reset against many with one. Samples 2-5 begin from states the loop never
+> visits.
+>
+> `_replay_fidelity` scored against their **median**, and on a workload that
+> alternates between serving a pipelined request (~3 ms) and waiting out a
+> connection boundary (~1050 ms), the median is a cost the armed span never
+> takes. Run 88's sample 1 is **2.39 ms** against a 3.297 ms lap -- ratio
+> **1.377**, faithful, and 303.3 exec/s is a real rate. Its median is 1051.94,
+> which is where "319x diverged" came from.
+>
+> The corrected reference does not flatter everything, which is the reason to
+> trust it: run 91 armed on the expensive mode -- sample 1 is 1052.01 ms
+> against a 4.97 ms lap -- and is a genuine 209x divergence by either
+> reference. Its 201.1 exec/s stays struck.
+>
+> Independently corroborated: the **warmup gap** distribution, sampled with no
+> arming pause anywhere near it, is itself bimodal on runs 88, 90 and 91
+> (p10 ~2.4-3.7 ms against a median ~1050 ms). The cheap mode is the workload
+> -- pipelined requests inside one connection -- not an artifact of the vCPU
+> stop. Run 99's warmup p10 is 1051 ms: that run had no cheap mode to arm on,
+> which is why it reports 0.94 exec/s honestly.
+>
+> The ordering defect found on the way is real and is fixed regardless. Run
+> 88's verdict opens `VALID: 20 verifications, every one byte-identical...` --
+> a statement about the RAM oracle alone -- and reached `REPLAY DIVERGES` four
+> sentences and ~400 characters later; the `RESULTS` line printed
 > `exec_per_s=303.30` with no qualifier at all. `fastloop` now emits
 > `exec_per_s_valid`, leads an otherwise-`VALID` verdict with `RATE IS NOT A
-> RATE (...)`, and repeats it on the `RESULTS` line; `loopcmp.py` prints the
-> fidelity class and forward-sample spread beside every rate. A fact in the
-> fourth sentence of a paragraph headed `VALID` is a fact that has not been
-> reported.
->
-> One level further down, the same artifact explains the "cheap mode" the
-> retry ladder is chasing. Run 88's five forward samples **within a single
-> draw** were `[2.39, 1073.13, 1047.99, 1051.94, 1054.88]` -- a 448x spread.
-> A span whose cost is bimodal inside one draw does not have a cost, so the
-> ladder is not selecting a cheap instant; it is selecting a queued one.
+> RATE (...)` when it must, and repeats it on the `RESULTS` line;
+> `loopcmp.py` prints `fwd1_ms` and `fid1` beside every rate. That the fixed
+> instrument's first act was to overturn the conclusion that prompted it is
+> the point of fixing it.
 
 **Run 91 is the direct evidence, and run 89 is what it would have been.** Its
 first three draws replayed at 1067.68, 1056.73 and 1055.63 ms and were each
@@ -1149,13 +1166,18 @@ at 5.11 ms and was accepted on merit. A 207x difference on one run, from a
 default.
 
 So `LEAN-LAP.md` was right and this file was wrong to dismiss it: **the arming
-point sets what the lap contains.** The reset is a 0.5 ms constant and
-penguin's syscall hooks are ~35% of a lap, but the "300x from the draw" this
-paragraph used to claim is the queued-input artifact above, not throughput.
-What the draw actually decides is whether the replayed span contains a wait
-for input -- and if it does, whether the replay pays it. Faithful and slow, or
-fast and not a measurement: on this target, under a connection-per-request
-driver, those were the only two outcomes available.
+point sets the rate.** The reset is a 0.5 ms constant, penguin's syscall hooks
+are ~35% of a lap, and the draw is the rest.
+
+What the draw decides is which mode of a bimodal workload the replayed span
+sits in. This victim is connection-per-request: inside a connection it serves
+pipelined requests in ~3 ms, and at a connection boundary it waits ~1050 ms
+for a guest `fork`+`exec` of the driver that `snapfeed` cannot synthesise.
+Arm inside a connection and every lap is a 3 ms request/response -- runs 88
+and 90, at 303.3 and 225.7 exec/s, both faithful. Arm on a boundary and every
+lap replays the wait -- run 99, 0.94 exec/s, also faithful. Run 91 is the
+third case: armed on a boundary whose input had already arrived, so the replay
+skips the wait the span contained and its rate is not a rate for it.
 
 The mechanism is no longer mysterious either. `fastloop`'s own verdict names
 it: the armed span either does or does not contain a ~1.05 s wait for input,

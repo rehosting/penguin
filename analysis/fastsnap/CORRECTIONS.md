@@ -13,7 +13,8 @@ Entry 10 moves the blindness one layer further out again -- an instrument that
 was right, said so accurately, and put it fourth in a paragraph headed with the
 other half's verdict -- and entry 11 is the reader's version of the same thing:
 a conclusion drawn from the two files that were open, which nothing in those
-two files contradicted.
+two files contradicted. Entry 12 is the one that keeps the list honest: it
+retracts entry 10's conclusion, on evidence entry 10 never looked at.
 
 ## 1. The central integration decision was backwards
 
@@ -318,14 +319,9 @@ an otherwise-`VALID` one -- the first attempt displaced a `DEGRADED` headline,
 which is the same error inverted), the same marker on the `RESULTS` line, and
 `loopcmp.py` printing fidelity beside every rate it shows.
 
-The measurement, re-read: the only faithful rate this target has produced is
-run 99's **0.94 exec/s** at ratio 1.006. The fast laps were never throughput.
-
-One level down, the same artifact explains the "cheap mode" the arming ladder
-chases. Run 88's five forward samples **within a single draw** were
-`[2.39, 1073.13, 1047.99, 1051.94, 1054.88]` -- a 448x spread. A span whose
-cost is bimodal inside one draw does not have a cost, so the ladder is not
-selecting a cheap instant, it is selecting a queued one.
+The measurement, re-read -- and then re-read again, see entry 12, which
+overturns the paragraph this one originally ended with. The ordering defect
+above is real and the fix stands. The conclusion it was used to reach did not.
 
 ## 11. The stall blamed on dirty pages, by a reading nothing on screen contradicted
 
@@ -354,6 +350,50 @@ Both the wrong reading and the right one were available in the same results
 directory. The difference was which file was open. `loopcmp.py` exists because
 of this entry: it puts reset cost as a *fraction of the lap* next to the feed
 span, so the number that cannot explain the stall is visibly too small to.
+
+## 12. The correction was wrong: five forward samples are five different spans
+
+Entry 10 used `replay_fidelity` to retract three published rates. Two of those
+retractions were wrong, and the reason is a conflation sitting one level below
+the instrument -- in what its input means.
+
+`arm_forward_samples` holds five numbers per draw. The `fwd_probe` state
+starts a clock at the armed instant and stops it at the next detector hit;
+`fwd_probe_more` then clocks that hit to the next, and so on. They are five
+**consecutive, different spans**, not five measurements of one. Only sample 1
+begins where every replayed lap begins. Samples 2-5 begin from states the loop
+never visits.
+
+`_replay_fidelity` scored the lap against their MEDIAN. On this victim --
+connection-per-request, so ~3 ms inside a connection and ~1050 ms at a
+boundary -- the median is a cost the armed span never takes:
+
+| run | sample 1 | median | lap | vs sample 1 | vs median |
+|---|---|---|---|---|---|
+| 88 | 2.39 ms | 1051.94 ms | 3.297 ms | **1.377 faithful** | 0.003 "diverged" |
+| 90 | 3.67 ms | 4.36 ms | 4.430 ms | 1.207 faithful | 1.016 faithful |
+| 91 | 1052.01 ms | 1040.48 ms | 4.973 ms | **0.005 diverged** | 0.005 diverged |
+| 99 | 1051.59 ms | 1052.68 ms | 1058.6 ms | 1.007 faithful | 1.006 faithful |
+
+Runs 88 and 90 are real rates -- **303.3 and 225.7 exec/s on real firmware**.
+Run 91's 201.1 is not, by either reference, and stays retracted.
+
+Two things make this reading trustworthy rather than convenient. It does not
+uniformly flatter: it leaves run 91 exactly where it was. And it is
+corroborated by a measurement taken nowhere near the arm -- the **warmup gap**
+distribution, which is bimodal on runs 88, 90 and 91 (p10 ~2.4-3.7 ms against
+a median ~1050 ms) and unimodal on run 99 (p10 1051 ms). The cheap mode is the
+workload. Run 99 simply had no cheap mode to arm on.
+
+The interesting part is the near miss. Before finding the sample-1 semantics I
+wrote a different fix: score against whichever of the two forward modes the
+lap matches. It produced the same verdicts -- and it was the wrong change,
+because I had chosen it after seeing that it reclassified run 88 the way I
+half-expected. That version is in the history with its reasoning; what
+replaced it is a criterion derived from what the code measures, which happens
+to leave one of the three retractions standing. A rule that overturns
+everything you doubted is worth more suspicion than one that overturns some of
+it.
 
 ## The VPN finding, now with evidence rather than inference
 
