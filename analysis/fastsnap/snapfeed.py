@@ -121,6 +121,38 @@ class SnapFeed(Plugin):
         self.ptr_size = int(self._arg("ptr_size", 4))
         self.pin_filter = bool(int(self._arg("pin_filter", 0)))
         self.answer_select = bool(int(self._arg("answer_select", 1)))
+        # The same problem as answer_select, one syscall over. A victim that
+        # waits in epoll_wait() never reaches the read() this plugin feeds,
+        # and the lap becomes the epoll timeout instead of the guest's work.
+        # Measured on target A: every forward traversal 1048-1051 ms, laps
+        # flat to 0.02% -- a timer, not a workload -- with n_select at exactly
+        # 0 because this lighttpd uses epoll and nothing here answered it.
+        # snapfeed's own comment already recorded the select version of this
+        # at 1038 ms per lap. Same bug, different syscall.
+        self.answer_epoll = bool(int(self._arg("answer_epoll", 1)))
+        # struct epoll_event is PACKED ON x86_64 ONLY (see
+        # include/uapi/linux/eventpoll.h: EPOLL_PACKED is empty elsewhere), so
+        # it is {u32 events; u64 data;} = 12 bytes with data at 4 there, and
+        # 16 bytes with data at 8 on every 32-bit target in this lane, where
+        # the u64 takes its natural 8-byte alignment. Guessing wrong writes
+        # the payload into the wrong half of the struct and the victim
+        # dereferences garbage, so these are arguments rather than a constant.
+        self.epoll_ev_size = int(self._arg("epoll_ev_size", 16))
+        self.epoll_data_off = int(self._arg("epoll_data_off", 8))
+        # fd -> the 8 data bytes the victim registered for it. epoll_wait must
+        # hand BACK exactly what epoll_ctl was given: lighttpd stores a
+        # pointer to its connection object there and dereferences it. A
+        # synthesised event with the right fd and the wrong data is worse than
+        # no event at all.
+        self.epoll_reg = {}
+        # The events word is a u32 written into guest memory, so it has to go
+        # out in the guest's byte order. Two of this lane's targets are
+        # big-endian (mipseb, ppc), and a byte-swapped EPOLLIN is 0x01000000 --
+        # not a flag the victim recognises, so it would see an event with no
+        # readiness bits and loop, which looks exactly like this plugin doing
+        # nothing rather than like a bug.
+        self._little = getattr(getattr(self, "panda", None),
+                               "endianness", "little") != "big"
         # The syscall census. OFF by default, and the default changed once the
         # per-syscall cost was actually measured -- see the census block below.
         self.census_on = bool(int(self._arg("census", 0)))
@@ -135,6 +167,8 @@ class SnapFeed(Plugin):
         self.n_lap_resets = 0    # laps that rewound the feed counts
         self.n_eof = 0           # connections ended by returning 0
         self.n_select = 0        # selects answered without reaching the host
+        self.n_epoll = 0         # epoll_waits answered without reaching the host
+        self.n_epoll_pass = 0    # ...and those left alone
         self.n_select_pass = 0   # ...and those left alone
 
         self.n_sent = 0          # deliveries -- fastloop's arm_progress
@@ -224,6 +258,15 @@ class SnapFeed(Plugin):
             for nm in ("select", "_newselect", "pselect6"):
                 syscalls.syscall(f"on_sys_{nm}_enter", comm_filter=self.comm,
                                  pin_filter=pf)(self.on_select_enter)
+        if self.answer_epoll:
+            # epoll_ctl is watched, not answered: it is how the data payload
+            # for each fd is learned. Cheap -- a victim registers each
+            # connection once and then waits on it many times.
+            syscalls.syscall("on_sys_epoll_ctl_enter", comm_filter=self.comm,
+                             pin_filter=pf)(self.on_epoll_ctl_enter)
+            for nm in ("epoll_wait", "epoll_pwait"):
+                syscalls.syscall(f"on_sys_{nm}_enter", comm_filter=self.comm,
+                                 pin_filter=pf)(self.on_epoll_wait_enter)
         # Follow the loop's rewinds, when there is a loop. Optional on
         # purpose: snapfeed is useful without fastsnap, and a missing
         # subscription must degrade to "no per-lap reset", not to no feeder.
@@ -455,6 +498,79 @@ class SnapFeed(Plugin):
             syscall.skip_syscall = True
             self.n_swallowed += 1
 
+    # epoll_ctl ops, from include/uapi/linux/eventpoll.h.
+    EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD = 1, 2, 3
+    EPOLLIN = 0x001
+
+    def on_epoll_ctl_enter(self, regs, proto, syscall, epfd, op, fd, event,
+                           *rest):
+        """Learn (or forget) the data payload a victim registers for an fd.
+
+        Not an intervention -- the syscall runs untouched. This exists only so
+        on_epoll_wait_enter can hand back the exact payload epoll_ctl was
+        given, because lighttpd stores a pointer to its connection object
+        there and dereferences whatever comes out.
+        """
+        fd = int(fd)
+        op = int(op)
+        if op == self.EPOLL_CTL_DEL:
+            self.epoll_reg.pop(fd, None)
+            return
+        if op not in (self.EPOLL_CTL_ADD, self.EPOLL_CTL_MOD) or not event:
+            return
+        try:
+            raw = yield from plugins.mem.read_bytes(int(event),
+                                                    size=self.epoll_ev_size)
+        except Exception:                                   # noqa: BLE001
+            return
+        if raw and len(raw) >= self.epoll_data_off + 8:
+            self.epoll_reg[fd] = bytes(
+                raw[self.epoll_data_off:self.epoll_data_off + 8])
+
+    def on_epoll_wait_enter(self, regs, proto, syscall, epfd, events,
+                            maxevents, *rest):
+        """Answer epoll_wait for the fds this plugin is feeding.
+
+        The same claim the read hook already makes, moved one syscall earlier:
+        every read on a learned fd is answered from guest RAM, so those fds are
+        readable by construction and saying so is not a lie.
+
+        Left alone when nothing is known about the fds being waited on -- the
+        victim may be waiting on a timer, a pipe or a listening socket this
+        plugin knows nothing about, and claiming readiness there would corrupt
+        its logic rather than accelerate it. That is the same rule
+        on_select_enter follows, and it is why n_epoll_pass is counted
+        separately: a run where it dominates is a run where this is doing
+        nothing, which should be visible rather than inferred.
+        """
+        if not events or not self.fds or not self.epoll_reg:
+            self.n_epoll_pass += 1
+            return
+        cap = min(int(maxevents), len(self.fds)) if maxevents else 0
+        if cap <= 0:
+            self.n_epoll_pass += 1
+            return
+        # Only fds that are BOTH being fed and registered with this epoll.
+        ready = [fd for fd in self.fds if fd in self.epoll_reg][:cap]
+        if not ready:
+            self.n_epoll_pass += 1
+            return
+        buf = bytearray()
+        for fd in ready:
+            ev = bytearray(self.epoll_ev_size)
+            ev[0:4] = int(self.EPOLLIN).to_bytes(
+                4, "little" if self._little else "big")
+            ev[self.epoll_data_off:self.epoll_data_off + 8] = self.epoll_reg[fd]
+            buf += ev
+        try:
+            yield from plugins.mem.write_bytes(int(events), bytes(buf))
+        except Exception:                                   # noqa: BLE001
+            self.n_epoll_pass += 1
+            return
+        syscall.skip_syscall = True
+        syscall.retval = len(ready)
+        self.n_epoll += 1
+
     def on_select_enter(self, regs, proto, syscall, nfds, rfds, wfds, efds,
                         *rest):
         """Answer select() for the fds this plugin is feeding.
@@ -566,6 +682,10 @@ class SnapFeed(Plugin):
             "n_select": self.n_select,
             "n_select_pass": self.n_select_pass,
             "answer_select": self.answer_select,
+            "answer_epoll": self.answer_epoll,
+            "n_epoll": self.n_epoll,
+            "n_epoll_pass": self.n_epoll_pass,
+            "epoll_registered": len(self.epoll_reg),
             "census_on": self.census_on,
             "n_swallowed": self.n_swallowed,
             "swallow_writes": self.swallow_writes,

@@ -331,10 +331,16 @@ def main():
     # default was invisible precisely because nothing asserted anything.
     off, _, offreg = make(tmp)
     offnames = [n for n, _ in offreg]
-    for unwanted in ("on_sys_epoll_wait_enter", "on_sys_poll_enter",
-                     "on_sys_futex_enter", "on_sys_close_enter"):
+    # NOT epoll_wait: answer_epoll registers that one functionally, to answer
+    # it rather than to count it. These four are census-only, so their absence
+    # is what actually distinguishes census off from census on.
+    for unwanted in ("on_sys_poll_enter", "on_sys_futex_enter",
+                     "on_sys_close_enter", "on_sys_nanosleep_enter"):
         assert unwanted not in offnames, (
             f"{unwanted} registered with census off", offnames)
+    # ...and the functional epoll hooks are present regardless of the census.
+    for want in ("on_sys_epoll_wait_enter", "on_sys_epoll_ctl_enter"):
+        assert want in offnames, (want, offnames)
     assert off.census_on is False
     # Learning connection fds must survive the census going away: it hooks
     # accept RETURN, which is a different hook from the census's accept ENTER.
@@ -592,6 +598,72 @@ def main():
     assert any("NOT ONE on a learned connection fd" in w
                for w in p.logger.warnings), p.logger.warnings
     print("ok  snapfeed: it warns mid-run, not only in the post-mortem")
+
+    # ---- ANSWERING epoll ------------------------------------------------
+    # The select answer only helps a victim that calls select. Target A's
+    # lighttpd uses epoll, so n_select came back 0 while every forward
+    # traversal sat at 1048-1051 ms and the laps were flat to 0.02% -- a
+    # timer, not a workload. snapfeed's own comment had already recorded the
+    # select form of this at 1038 ms per lap. Same bug, one syscall over.
+    q, qmem, _ = make(tmp, answer_epoll=1)
+    DATA = b"\xef\xbe\xad\xde\x11\x22\x33\x44"   # the victim's payload
+    EVP, EVOUT = 0x9000, 0x9100
+    # epoll_ctl(ADD) is watched, not answered: it is how the payload is learnt.
+    qmem.contents[EVP] = bytes(4) + bytes(4) + DATA       # events, pad, data
+    sc = FakeSyscall()
+    list(q.on_epoll_ctl_enter(None, None, sc, 7, q.EPOLL_CTL_ADD, 5, EVP))
+    assert q.epoll_reg[5] == DATA, q.epoll_reg
+    assert sc.skip_syscall is False, "epoll_ctl must run; it is only observed"
+
+    # With a learned+registered fd, epoll_wait is answered without the host.
+    q.fds.add(5)
+    sc = FakeSyscall()
+    list(q.on_epoll_wait_enter(None, None, sc, 7, EVOUT, 16))
+    assert sc.skip_syscall is True and sc.retval == 1, (sc.skip_syscall, sc.retval)
+    ev = qmem.contents[EVOUT]
+    assert len(ev) == q.epoll_ev_size, len(ev)
+    assert int.from_bytes(ev[0:4], "little") == q.EPOLLIN, ev[:4].hex()
+    # THE PAYLOAD MUST COME BACK EXACTLY. lighttpd stores a pointer to its
+    # connection object here and dereferences whatever epoll_wait returns; a
+    # synthesised event with the right fd and the wrong data is worse than no
+    # event at all.
+    assert ev[q.epoll_data_off:q.epoll_data_off + 8] == DATA, ev.hex()
+    print("ok  snapfeed: epoll_wait is answered for a fed fd, returning the "
+          "exact data payload epoll_ctl registered")
+
+    # An fd this plugin is NOT feeding is left alone -- the victim may be
+    # waiting on a timer, a pipe or a listening socket, and claiming
+    # readiness there corrupts its logic rather than accelerating it.
+    q2, q2mem, _ = make(tmp, answer_epoll=1)
+    q2.epoll_reg[9] = DATA          # registered, but never fed
+    sc = FakeSyscall()
+    list(q2.on_epoll_wait_enter(None, None, sc, 7, EVOUT, 16))
+    assert sc.skip_syscall is False, "answered an epoll for an unfed fd"
+    assert q2.n_epoll_pass == 1, q2.n_epoll_pass
+    print("ok  snapfeed: an epoll_wait on fds it does not feed is left to the "
+          "host")
+
+    # EPOLL_CTL_DEL forgets, so a closed-then-reused fd cannot be answered
+    # with a stale payload pointing at a freed connection object.
+    q3, _, _ = make(tmp, answer_epoll=1)
+    q3.epoll_reg[5] = DATA
+    list(q3.on_epoll_ctl_enter(None, None, FakeSyscall(), 7,
+                               q3.EPOLL_CTL_DEL, 5, 0))
+    assert 5 not in q3.epoll_reg, q3.epoll_reg
+    print("ok  snapfeed: EPOLL_CTL_DEL forgets the payload, so a reused fd is "
+          "never answered with a pointer to a freed object")
+
+    # Big-endian targets: a byte-swapped EPOLLIN is 0x01000000, which is not a
+    # readiness bit the victim recognises -- it would see an event with no
+    # flags and loop, looking exactly like this plugin doing nothing.
+    q4, q4mem, _ = make(tmp, answer_epoll=1)
+    q4._little = False
+    q4.epoll_reg[5] = DATA
+    q4.fds.add(5)
+    list(q4.on_epoll_wait_enter(None, None, FakeSyscall(), 7, EVOUT, 16))
+    ev = q4mem.contents[EVOUT]
+    assert int.from_bytes(ev[0:4], "big") == q4.EPOLLIN, ev[:4].hex()
+    print("ok  snapfeed: the events word goes out in the guest's byte order")
 
     print("\nPASS")
 
