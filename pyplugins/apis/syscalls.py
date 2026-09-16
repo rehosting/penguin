@@ -461,6 +461,18 @@ class Syscalls(Plugin):
         Registers with portal and sets up syscall metadata.
         """
         self.outdir = self.get_arg("outdir")
+        # Hook budget. A hooked syscall costs 95.880 us against an unhooked
+        # one's 1.161 us, measured on bugbench with three controls passing
+        # (analysis/fastsnap/speedscheme.py), and the split says 98.8% of that
+        # is the portal round trip -- not the emulated kernel, which is 1.1 us,
+        # and not igloo_driver, which is 0.02. So the only lever on hook cost
+        # is HOW MANY FIRE, and until now no run could see that about itself.
+        #
+        # Counting is free relative to what it counts: one dict increment on a
+        # path that has already committed to ~96 us. It is still opt-in,
+        # because a budget nobody reads is just another thing in the path.
+        self.hook_budget = bool(int(self.get_arg("hook_budget") or 0))
+        self._fire_counts: Dict[int, int] = defaultdict(int)
 
         # Map hook pointers to callbacks
         # Maps hook pointers to (on_all, callback_func, is_method, read_only) tuples
@@ -804,6 +816,8 @@ class Syscalls(Plugin):
         # 2. Unpack Hook Data including read_only flag
         # _hooks now stores (on_all, handle, is_method, read_only, original_func)
         entry = self._hooks[hook_ptr]
+        if self.hook_budget:
+            self._fire_counts[hook_ptr] += 1
         on_all, f, is_method, read_only = entry[0], entry[1], entry[2], entry[3]
 
         # 1. ZERO-COPY UPGRADE
@@ -854,6 +868,54 @@ class Syscalls(Plugin):
                     yield from plugins.mem.write_bytes(arg, new)
 
         return result
+
+    # Measured on bugbench (mipsel) by analysis/fastsnap/speedscheme.py with an
+    # injected-delay control, a null pair and a linearity check all passing.
+    # It is a per-syscall SLOPE, not a single bracket, so fixed per-event cost
+    # is not folded into it. Architecture- and host-dependent: treat it as the
+    # right order of magnitude rather than a constant for every target.
+    US_PER_HOOK_FIRING = 95.880
+
+    def hook_budget_report(self) -> Dict[str, Any]:
+        """What this run's syscall hooks cost, ranked.
+
+        Counts are exact. The microseconds are counts x a cost measured on a
+        different target, so they are an ESTIMATE and named one -- the ranking
+        is the trustworthy part and is usually what a decision needs.
+        """
+        rows = []
+        for hook_ptr, n in self._fire_counts.items():
+            cfg = self._hook_info.get(hook_ptr) or {}
+            rows.append({
+                "syscall": cfg.get("name") or ("<all>" if cfg.get("on_all")
+                                               else "<unknown>"),
+                "comm": cfg.get("procname") or "",
+                "on_enter": bool(cfg.get("on_enter")),
+                "on_return": bool(cfg.get("on_return")),
+                "firings": n,
+                "est_ms": round(n * self.US_PER_HOOK_FIRING / 1000.0, 3),
+            })
+        rows.sort(key=lambda r: -r["firings"])
+        total = sum(r["firings"] for r in rows)
+        return {
+            "enabled": self.hook_budget,
+            "total_firings": total,
+            "est_total_ms": round(total * self.US_PER_HOOK_FIRING / 1000.0, 3),
+            "us_per_firing_assumed": self.US_PER_HOOK_FIRING,
+            "hooks": rows,
+        }
+
+    def uninit(self) -> None:
+        if not self.hook_budget or not self.outdir:
+            return
+        import json
+        import os
+        try:
+            os.makedirs(self.outdir, exist_ok=True)
+            with open(os.path.join(self.outdir, "hook_budget.json"), "w") as f:
+                json.dump(self.hook_budget_report(), f, indent=2)
+        except OSError as e:                                    # noqa: BLE001
+            self.logger.error(f"hook budget not written: {e!r}")
 
     def _register_syscall_hook(
             self, hook_config: Dict[str, Any]) -> Iterator[int]:

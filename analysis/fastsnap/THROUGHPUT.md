@@ -26,7 +26,23 @@ iteration, and the other term was never taken.
 Reproduced: the full profile measured 4.23 s and 4.19 s on two runs.
 
 **~33% of guest execution cost is penguin's own instrumentation**, recoverable
-by config alone. *Caveat:* the lean set disabled `crashes` (a fuzzer's oracle)
+by config alone.
+
+> **This figure does NOT transfer to the snapshot-loop shape, measured
+> 2026-09-15.** It was taken on a workload of 200 `fork`+`exec`, and the
+> default plugin set hooks almost nothing else. Of the eighteen plugins in
+> `defaults.py`, exactly two register a syscall hook -- `mount`
+> (`on_sys_mount_return`) and `interfaces` (`on_sys_ioctl_return`) -- plus the
+> `execs` API (`execve`/`execveat`) and `processes` (`exit`/`exit_group`) when
+> something loads them. Every one of those fires per PROCESS SPAWN. A
+> persistent request loop, which is what `fastloop` runs, spawns nothing: it
+> accepts, reads, writes and closes, and the default profile hooks none of
+> that.
+>
+> So the "lean profile" lever is real for spawn-shaped iteration and worth
+> approximately nothing for the loop. This closes it negatively, which is
+> useful -- it removes a candidate that the composition table below still
+> counts as a third of the win. *Caveat:* the lean set disabled `crashes` (a fuzzer's oracle)
 and `pseudofiles` (device-model work needs it), so 14.1 ms is optimistic as a
 fuzzing profile — realistically ~15-16 ms, since `crashes` hooks fatal signals
 which are rare and cheap while the per-syscall/per-exec hooks are not. The two
@@ -55,6 +71,20 @@ it is the one number outstanding.
 | + snapshot inside the request loop | ~2 ms | ~3.5 ms | ~180 | 58x |
 | x 32 instances (96 cores here) | | | **~5,800 aggregate** | |
 
+> **The last two rows do not compose, 2026-09-15.** They are stacked as though
+> independent, and they are not: the lean profile's win comes entirely from
+> not instrumenting process spawns, and the row below it REMOVES the spawns.
+> Apply both and the lean row contributes nothing. The right reading of the
+> table is `+ hybrid reset` and then EITHER `+ lean profile` (if iteration
+> stays spawn-shaped) OR `+ snapshot inside the request loop` (if it does
+> not) -- not both.
+>
+> This is also the row that has since been measured on real firmware rather
+> than projected: `REALFW-LOOP.md` gets 155.4 exec/s on target B and 14.4 on
+> target A with an identical 0.5 ms reset, against ~180 projected here. The
+> projection was close; what it did not anticipate is that the SPREAD between
+> two targets is 11x and is decided by which instant the arm lands on.
+
 ## What this changes
 
 1. **The port is the second-most valuable lever, not the first.** Snapshot
@@ -64,6 +94,14 @@ it is the one number outstanding.
 2. **Per-instance throughput is capped by guest emulation.** Reset optimisation
    closes the gap to that cap; it cannot raise it. Past ~62 iter/s the only
    lever is parallelism.
+
+   > **Half right, 2026-09-15.** The cap is real but it is not emulation.
+   > `speedscheme.py` prices an unhooked syscall at 1.161 us and the emulated
+   > kernel alone at 1.141 -- emulation is cheap. A pyplugin-HOOKED syscall is
+   > 95.880 us, 98.8% of it portal round trip. So the per-instance ceiling is
+   > set by guest instruction throughput plus however many hooks fire, and the
+   > second term is a config rather than a constraint. "Capped by guest
+   > emulation" reads as immovable; the larger half of it is ours.
 3. **Which reopens `fork()`** — not for crash isolation, but because aggregate
    throughput is the only way past the per-instance ceiling. Draft 45 declines
    fork on an obstacle (penguin's embedded CPython) that is penguin's
