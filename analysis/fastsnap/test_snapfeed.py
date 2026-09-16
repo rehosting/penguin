@@ -773,6 +773,57 @@ def main():
           "outstanding and no_epollin are distinguishable rather than one "
           "undifferentiated counter")
 
+    # ---- keep-alive: the feeder must not ask for a connection it cannot
+    # replace ------------------------------------------------------------
+    #
+    # snapfeed feeds ACCEPTED fds and cannot synthesise accept(). Run 103 put
+    # that beyond argument: one held-open connection, a feed that closed it,
+    # and a guest left with a single socket in CLOSE_WAIT and nothing to
+    # serve for the rest of the run.
+    mod = load_class()[1]
+
+    # The seed that does it, in isolation -- HTTP/1.0 with no Connection
+    # header is a close by default, and it is 1 of the 5 seeds.
+    assert any(b"HTTP/1.0" in seed for seed in mod.SEEDS), \
+        "this test is pinned to a seed set that contains a closing request"
+
+    q, mem, _ = make(tmp, keepalive=1, mutate=0, one_outstanding=0)
+    q.fds.add(3)
+    for _ in range(40):
+        list(q.on_read_enter(None, None, FakeSyscall(), 3, 0x1000, 4096))
+    fed = [w[1] for w in mem.writes]
+    assert fed, "nothing was fed"
+    assert not any(b"HTTP/1.0" in f for f in fed), \
+        [f for f in fed if b"HTTP/1.0" in f][:1]
+    assert not any(b": close" in f.lower() for f in fed), \
+        [f for f in fed if b": close" in f.lower()][:1]
+    assert q.n_keepalive_fixed > 0, "40 feeds from 5 seeds and none was fixed"
+    print("ok  snapfeed: keepalive rewrites the requests that would close the "
+          "connection this feeder cannot reopen")
+
+    # OFF by default, because those closing requests are real inputs and a
+    # fuzzer wants them. A silently-on normaliser would be feeding the victim
+    # a narrower input set than the seed list claims.
+    q, mem, _ = make(tmp, mutate=0, one_outstanding=0)
+    assert q.keepalive is False
+    q.fds.add(3)
+    for _ in range(40):
+        list(q.on_read_enter(None, None, FakeSyscall(), 3, 0x1000, 4096))
+    assert any(b"HTTP/1.0" in w[1] for w in mem.writes), \
+        "the closing seed must still reach the victim by default"
+    assert q.n_keepalive_fixed == 0
+    print("ok  snapfeed: keepalive is off by default -- the closing inputs "
+          "still get fed")
+
+    # It repairs the connection header, NOT the request. A truncated or
+    # mangled request is the point of mutation; a feeder that tidied those
+    # would be feeding its own seeds back.
+    q, _, _ = make(tmp, keepalive=1, mutate=0, one_outstanding=0)
+    mangled = q._keep_alive(b"GET / HTTP/1.0\r\nConnection: close\r\n\r", 4096)
+    assert mangled == b"GET / HTTP/1.1\r\nConnection: keep-alive\r\n\r", mangled
+    assert q._keep_alive(b"GET /x HT", 4096) == b"GET /x HT", "truncation kept"
+    print("ok  snapfeed: keepalive fixes the hang-up, not the mangling")
+
     print("\nPASS")
 
 
