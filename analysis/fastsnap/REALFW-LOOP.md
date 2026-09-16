@@ -1106,12 +1106,39 @@ nothing counted blocking calls until now.
 Four runs, 2026-09-15, same project, same image, same target, differing only
 in which instant the arm caught and (from run 90) `arm_retries`:
 
-| run | `arm_retries` | attempts | accepted lap | exec/s |
-|---|---|---|---|---|
-| 88 | 3 | 1 | 3.30 ms | **303.3** |
-| 89 | 3 | 3, all costly -> **accepted anyway** | 1054.58 ms | **0.9** |
-| 90 | 12 | 3 (2 costly, 3rd cheap) | 4.53 ms | **225.7** |
-| 91 | 12 | **4 (3 costly, 4th cheap)** | 5.11 ms | **201.1** |
+| run | `arm_retries` | attempts | accepted lap | exec/s | replay/forward |
+|---|---|---|---|---|---|
+| 88 | 3 | 1 | 3.30 ms | ~~303.3~~ | **0.003 -- not a rate** |
+| 89 | 3 | 3, all costly -> **accepted anyway** | 1054.58 ms | **0.9** | ~1.0 faithful |
+| 90 | 12 | 3 (2 costly, 3rd cheap) | 4.53 ms | ~~225.7~~ | not a rate |
+| 91 | 12 | **4 (3 costly, 4th cheap)** | 5.11 ms | ~~201.1~~ | **0.005 -- not a rate** |
+
+> **CORRECTION, 2026-09-16.** Three of those four exec/s numbers are struck
+> through because they are not rates, and this section originally quoted them
+> as if they were. `fastloop` said so at the time, in each run's own
+> `replay_fidelity`: runs 88 and 91 replay their armed spans **319x and 209x
+> faster than those spans traverse forward** (class `faster`, ratio 0.003 and
+> 0.005), because the input arrived during the forward traversal and is still
+> queued at replay. Run 99 is the only faithful measurement this target has
+> produced -- ratio 1.006 -- and it reports **0.94 exec/s**.
+>
+> The reason the correct finding was missed for a day is an ordering defect in
+> the verdict, now fixed: run 88's verdict opens `VALID: 20 verifications,
+> every one byte-identical...` -- a statement about the RAM oracle alone --
+> and reaches `REPLAY DIVERGES` four sentences and ~400 characters later,
+> after an aside about `CAP_SYS_ADMIN`. The `RESULTS` log line printed
+> `exec_per_s=303.30` with no qualifier at all. `fastloop` now emits
+> `exec_per_s_valid`, leads an otherwise-`VALID` verdict with `RATE IS NOT A
+> RATE (...)`, and repeats it on the `RESULTS` line; `loopcmp.py` prints the
+> fidelity class and forward-sample spread beside every rate. A fact in the
+> fourth sentence of a paragraph headed `VALID` is a fact that has not been
+> reported.
+>
+> One level further down, the same artifact explains the "cheap mode" the
+> retry ladder is chasing. Run 88's five forward samples **within a single
+> draw** were `[2.39, 1073.13, 1047.99, 1051.94, 1054.88]` -- a 448x spread.
+> A span whose cost is bimodal inside one draw does not have a cost, so the
+> ladder is not selecting a cheap instant; it is selecting a queued one.
 
 **Run 91 is the direct evidence, and run 89 is what it would have been.** Its
 first three draws replayed at 1067.68, 1056.73 and 1055.63 ms and were each
@@ -1122,8 +1149,13 @@ at 5.11 ms and was accepted on merit. A 207x difference on one run, from a
 default.
 
 So `LEAN-LAP.md` was right and this file was wrong to dismiss it: **the arming
-point sets the rate.** The reset is a 0.5 ms constant; penguin's syscall hooks
-are ~35% of a lap; the draw is 300x. Nothing else in this lane is close.
+point sets what the lap contains.** The reset is a 0.5 ms constant and
+penguin's syscall hooks are ~35% of a lap, but the "300x from the draw" this
+paragraph used to claim is the queued-input artifact above, not throughput.
+What the draw actually decides is whether the replayed span contains a wait
+for input -- and if it does, whether the replay pays it. Faithful and slow, or
+fast and not a measurement: on this target, under a connection-per-request
+driver, those were the only two outcomes available.
 
 The mechanism is no longer mysterious either. `fastloop`'s own verdict names
 it: the armed span either does or does not contain a ~1.05 s wait for input,
