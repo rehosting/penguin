@@ -9,6 +9,11 @@ edited away, because the *kind* of error is the part worth keeping: entries 5,
 below where the check was looking. Entry 9 is the harder relative of those --
 an instrument that saw correctly, reported accurately, and had every control
 pass, while the number it produced could mean either of two opposite things.
+Entry 10 moves the blindness one layer further out again -- an instrument that
+was right, said so accurately, and put it fourth in a paragraph headed with the
+other half's verdict -- and entry 11 is the reader's version of the same thing:
+a conclusion drawn from the two files that were open, which nothing in those
+two files contradicted.
 
 ## 1. The central integration decision was backwards
 
@@ -272,6 +277,83 @@ that the positive control below it is ambiguous between the two.
 The measurement it corrupted, re-read: `cpu` alone was sufficient on malta
 except for `cpu_common`, which fired on 3 laps of 160 and is still unattributed
 between the two buckets.
+
+## 10. A verdict that led with the wrong half, and the day of rates it cost
+
+`fastloop` computes `replay_fidelity`: the armed span's forward traversal
+against the same span's replayed lap. Its docstring says what it is for --
+"what it can do is refuse to let the rate be quoted as if it were real" -- and
+on runs 88 and 91 it worked exactly as designed, classing both `faster` at
+ratios of 0.003 and 0.005 and writing out, in full sentences, that the input
+arrived during the forward traversal and is still queued at replay so the wait
+never happens again.
+
+Both runs were then quoted in `REALFW-LOOP.md` at 303.3 and 201.1 exec/s,
+under a heading asserting that the arming draw sets the rate.
+
+Nothing was wrong with the instrument. What was wrong was where it put its
+answer. Run 88's `verdict` string is assembled oracle-first:
+
+```
+VALID: 20 verifications, every one byte-identical to an independently forked
+reference across 403054592 bytes, ... Pass --extra_docker_args
+"--cap-add=SYS_ADMIN". REPLAY DIVERGES: the armed span traverses forward in
+1051.94 ms and replays in 3.30 ms -- 319x FASTER. ...
+```
+
+`VALID` is a claim about the RAM oracle alone. It is also the first word, and
+the `RESULTS` log line beside it printed `exec_per_s=303.30` with no qualifier
+at all. A reader who takes the headline and the number -- which is what a
+headline and a number are for -- gets the opposite of the finding.
+
+This is the same shape as entries 5, 6 and 7 with the blindness moved one
+layer out. Those were instruments that reported nothing while appearing to
+pass. This one reported correctly, in the wrong order, next to a number that
+contradicted it. An instrument is not finished when it is right; it is
+finished when the thing it is right about is the first thing read.
+
+Fixed by making the rate carry its own verdict: `exec_per_s_valid` as a field,
+`RATE IS NOT A RATE (...)` in front of an otherwise-`VALID` verdict (and only
+an otherwise-`VALID` one -- the first attempt displaced a `DEGRADED` headline,
+which is the same error inverted), the same marker on the `RESULTS` line, and
+`loopcmp.py` printing fidelity beside every rate it shows.
+
+The measurement, re-read: the only faithful rate this target has produced is
+run 99's **0.94 exec/s** at ratio 1.006. The fast laps were never throughput.
+
+One level down, the same artifact explains the "cheap mode" the arming ladder
+chases. Run 88's five forward samples **within a single draw** were
+`[2.39, 1073.13, 1047.99, 1051.94, 1054.88]` -- a 448x spread. A span whose
+cost is bimodal inside one draw does not have a cost, so the ladder is not
+selecting a cheap instant, it is selecting a queued one.
+
+## 11. The stall blamed on dirty pages, by a reading nothing on screen contradicted
+
+A run with eight concurrent guest connectors produced one lap in twelve
+minutes. It had dirtied 949 pages against the usual 380 and its reset cost
+1364 us against 787, both genuinely up, and that is what the stall was
+attributed to.
+
+The arithmetic refutes it immediately and was never done: 1364 us against a
+348 ms lap is 0.4% of one lap. Roughly 570 s of loop time remained after the
+arm. A reset three times more expensive cannot turn 1,600 expected laps into
+one.
+
+What actually happened is in `snapfeed.json`, a file that was not opened:
+`feed_wall_s` 71.9 on a 720 s run. The guest stopped being fed a tenth of the
+way in. The cause was in the console log, also not read carefully:
+`waited=400s` on all eight connectors. The guest driver's readiness probe
+waited for `nc | grep -q HTTP` to see a response, while `swallow_writes: 1`
+skips lighttpd's reply at the syscall -- so the probe could not succeed by
+construction, and each connector burned its full 400 iterations as a
+fork-and-exec storm straight through the arming window. A readiness check that
+cannot observe readiness is not a slow check; it is a fixed cost wearing a
+check's clothes.
+
+Both the wrong reading and the right one were available in the same results
+directory. The difference was which file was open. `loopcmp.py` exists because
+of this entry: it puts reset cost as a *fraction of the lap* next to the feed
+span, so the number that cannot explain the stall is visibly too small to.
 
 ## The VPN finding, now with evidence rather than inference
 
