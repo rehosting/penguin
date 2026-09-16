@@ -41,3 +41,14 @@ CLAUDE.md
 # basic_target test-run artifacts
 tests/unit_tests/basic_target/fs/
 tests/unit_tests/basic_target/test_log.txt
+
+# Per-worktree image tag: the wrapper walks up from cwd and uses this as the
+# default for every ./penguin here. It names THIS checkout's tag, so committing
+# it would force one worktree's tag on every other.
+.penguin-image
+# Harness scratch: a rootfs, a generated project and per-boot logs, all rebuilt
+# from the image on every run.
+analysis/fastsnap/work_syscost_driver/
+# Integration-test run output, written in place beside the fixtures.
+tests/integration/basic_target/fs/
+tests/integration/basic_target/snap_*.txt
