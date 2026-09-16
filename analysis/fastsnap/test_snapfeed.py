@@ -824,6 +824,55 @@ def main():
     assert q._keep_alive(b"GET /x HT", 4096) == b"GET /x HT", "truncation kept"
     print("ok  snapfeed: keepalive fixes the hang-up, not the mangling")
 
+    # ---- complete_request: a request the victim cannot answer STOPS the
+    # loop, it does not slow it -----------------------------------------
+    #
+    # one_outstanding withholds the next feed until the victim answers,
+    # because the answer is the iteration boundary. mutate() truncates one op
+    # in five, so without this the victim waits for a request-remainder that
+    # is never coming and the loop stalls until its read-idle timeout.
+    q, _, _ = make(tmp, complete_request=1, one_outstanding=0)
+
+    # Truncated mid-headers: terminated, nothing else touched.
+    got = q._complete(b"GET /index.html HTTP/1.1\r\nHos", 4096)
+    assert got == b"GET /index.html HTTP/1.1\r\nHos\r\n\r\n", got
+
+    # A request that is already complete is returned untouched, and does not
+    # count as a repair.
+    n = q.n_completed
+    intact = b"GET / HTTP/1.1\r\nHost: x\r\n\r\n"
+    assert q._complete(intact, 4096) == intact
+    assert q.n_completed == n, "an intact request was counted as repaired"
+
+    # Content-Length longer than the body it declares: the COUNT moves, never
+    # the body. Padding would invent bytes the fuzzer did not choose.
+    got = q._complete(b"POST /x HTTP/1.1\r\nContent-Length: 400\r\n\r\nAB", 4096)
+    assert got == b"POST /x HTTP/1.1\r\nContent-Length: 2\r\n\r\nAB", got
+
+    # A Content-Length the mutator turned into non-digits is left alone: the
+    # victim answers that with a 400 rather than waiting, so it is already
+    # answerable.
+    weird = b"POST /x HTTP/1.1\r\nContent-Length: 4\x00 0\r\n\r\nAB"
+    assert q._complete(weird, 4096) == weird
+
+    # `limit` is respected even when the terminator has to be made room for.
+    got = q._complete(b"GET /" + b"A" * 100, 20)
+    assert len(got) == 20, len(got)
+    assert got.endswith(b"\r\n\r\n"), got
+
+    # Corruption that is NOT a completeness problem survives: junk headers,
+    # oversized values, duplicated separators, a mangled request line.
+    for keep in (b"GET / HTTP/1.1\r\nCookie: a,,b,,,c\r\n\r\n",
+                 b"\x01\x02 / HTTP/1.1\r\nHost: x\r\n\r\n",
+                 b"GET / HTTP/1.1\r\nRange: bytes=0-,-1,0-0\r\n\r\n"):
+        assert q._complete(keep, 4096) == keep, keep
+
+    # Off by default.
+    q2, _, _ = make(tmp, one_outstanding=0)
+    assert q2.complete_request is False
+    print("ok  snapfeed: complete_request terminates a truncated request and "
+          "corrects a lying Content-Length, and changes nothing else")
+
     print("\nPASS")
 
 

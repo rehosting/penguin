@@ -185,6 +185,27 @@ class SnapFeed(Plugin):
         # side must notice and reconnect regardless.
         self.keepalive = bool(int(self._arg("keepalive", 0)))
         self.n_keepalive_fixed = 0
+        # KEEP THE REQUEST ANSWERABLE, which is a different demand from
+        # keeping the connection open and fails a different way.
+        #
+        # `one_outstanding` withholds the next feed until the victim answers,
+        # because the answer is the loop's iteration boundary. A request the
+        # victim CANNOT answer therefore stops the loop rather than slowing
+        # it: mutate() truncates one op in five, lighttpd waits for the rest
+        # of the request, the withheld read returns EAGAIN, the epoll answer
+        # excludes the pending fd, and nothing moves until lighttpd's
+        # read-idle timeout tens of seconds later.
+        #
+        # Under a connection-per-request driver that cost one connection in
+        # 1,537 and was invisible. Against a held-open connection it is the
+        # whole run. Observed as a socket pair cycling CLOSE_WAIT/FIN_WAIT2
+        # with the guest at 1.8% CPU.
+        #
+        # This does NOT make the request valid -- a 400 is an answer and a
+        # perfectly good fuzzing outcome. It makes it COMPLETE, which is the
+        # property the alternation actually depends on.
+        self.complete_request = bool(int(self._arg("complete_request", 0)))
+        self.n_completed = 0
         self.pending = set()     # fds fed a request that is not yet answered
         # WHY an epoll_wait was left alone, not just that it was. n_epoll came
         # back 0 against 2,391 passes and one counter could not say whether
@@ -448,6 +469,55 @@ class SnapFeed(Plugin):
             self.n_keepalive_fixed += 1
         return payload[:limit]
 
+    def _complete(self, payload, limit):
+        """Make a request the victim can finish reading.
+
+        Two ways a mutated request leaves the victim waiting, and both are
+        repaired without touching what makes the request interesting:
+
+          no header terminator  -- append CRLFCRLF, trimming the front of the
+                                   payload first if `limit` has no room.
+          Content-Length lying  -- rewrite the declared length to the body
+                                   that is actually there. Padding the body
+                                   instead would invent bytes the fuzzer did
+                                   not choose; shortening the count keeps
+                                   every byte the mutator produced.
+
+        Header corruption, injected junk headers, oversized values and
+        duplicated separators all survive untouched. So does a malformed
+        request line -- lighttpd answers that with a 400, and a 400 is an
+        answer.
+        """
+        end = payload.find(b"\r\n\r\n")
+        if end < 0:
+            term = b"\r\n\r\n"
+            room = max(0, limit - len(term))
+            payload = payload[:room] + term
+            self.n_completed += 1
+            return payload
+
+        head, body = payload[:end + 4], payload[end + 4:]
+        low = head.lower()
+        at = low.find(b"content-length:")
+        if at < 0:
+            return payload
+        eol = head.find(b"\r\n", at)
+        if eol < 0:
+            return payload
+        try:
+            declared = int(head[at + len(b"content-length:"):eol].strip())
+        except ValueError:
+            # Not a number any more -- the mutator got to it. lighttpd
+            # answers that with a 400 rather than waiting, so it is already
+            # answerable and there is nothing to repair.
+            return payload
+        if declared == len(body):
+            return payload
+        fixed = (head[:at] + b"Content-Length: " + str(len(body)).encode()
+                 + head[eol:] + body)
+        self.n_completed += 1
+        return fixed[:limit]
+
     # ---- the feed ---------------------------------------------------------
 
     def on_read_enter(self, regs, proto, syscall, fd, buf, count):
@@ -509,6 +579,8 @@ class SnapFeed(Plugin):
         payload = self.mutate(self.rng.choice(SEEDS), limit)
         if self.keepalive:
             payload = self._keep_alive(payload, limit)
+        if self.complete_request:
+            payload = self._complete(payload, limit)
         if not payload:
             return
         yield from plugins.mem.write_bytes(buf, payload)
@@ -836,6 +908,8 @@ class SnapFeed(Plugin):
             "one_outstanding": self.one_outstanding,
             "keepalive": self.keepalive,
             "n_keepalive_fixed": self.n_keepalive_fixed,
+            "complete_request": self.complete_request,
+            "n_completed": self.n_completed,
             "n_withheld": self.n_withheld,
             "epoll_registered": len(self.epoll_reg),
             "census_on": self.census_on,
