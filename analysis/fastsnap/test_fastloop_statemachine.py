@@ -1467,6 +1467,19 @@ def replay_fidelity_tests(tmp):
     print("ok  replay fidelity: scored against the armed span's own "
           "traversal, not the median of five different spans")
 
+    # THE LAST ATTEMPT'S SAMPLES, not the first. One set is appended per arm
+    # attempt and only the final one is the draw the loop ran on. Run 107
+    # rejected a 10186.84 ms draw on fidelity, accepted a 2.5746 ms one, and
+    # lapped at 3.4518 ms -- and was reported NOT A RATE, scored against the
+    # draw its own fidelity axis had just thrown away.
+    p.arm_forward_samples = [[10186.8427, 2.82, 10203.1, 2.32, 10199.74],
+                             [2.5746, 3.03, 4.08, 2.56, 2.73]]
+    r = p._replay_fidelity({"iter_ms": {"median": 3.4518}})
+    assert r["forward_ms"] == 2.5746, r["forward_ms"]
+    assert r["class"] == "faithful", r
+    print("ok  replay fidelity: scored against the arm the loop ran on, not "
+          "the attempts it rejected")
+
     # And it does not simply flatter everything: run 91 armed on the
     # expensive mode and its replay really is a 200x divergence.
     p.arm_forward_samples = [[1052.0072, 3.6225, 1040.4758, 9.7671,

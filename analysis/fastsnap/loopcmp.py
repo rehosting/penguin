@@ -34,7 +34,12 @@ the raw files leave implicit:
                 sample 1 is 2.39 ms against a 3.30 ms lap (faithful, 1.38),
                 while their median is 1051.94 (an apparent 319x divergence).
   fid1          lap_ms / fwd_ms -- the fidelity ratio that matters. Near 1 the
-                loop replays what it armed on.
+                loop replays what it armed on. Taken from the LAST arm
+                attempt's samples: there is one set per attempt and only the
+                final one is the draw the loop ran on. Run 107 rejected a
+                10186.84 ms draw, accepted a 2.5746 ms one, and lapped at
+                3.4518 -- 1.341 against the draw it used, 0.0003 against the
+                draw it threw away.
   reset_us      cost of the reset itself
   pages         pages restored per lap
   reset_frac    reset_us / lap_ms -- how much of the lap the mechanism under
@@ -127,7 +132,7 @@ def cheap_mode_verdict(fl):
     Returns None (not bimodal), "workload" (the warmup gaps sit on the same
     cheap mode), or "pause" (they do not).
     """
-    samples = (fl.get("arm_forward_samples") or [[]])[0]
+    samples = (fl.get("arm_forward_samples") or [[]])[-1]
     modes = forward_modes(samples)
     if not modes:
         return None
@@ -168,7 +173,7 @@ def row(d):
     disjoint = epw.get("disjoint")
     n_epoll_pass = sf.get("n_epoll_pass")
 
-    samples = (fl.get("arm_forward_samples") or [[]])[0]
+    samples = (fl.get("arm_forward_samples") or [[]])[-1]
     modes = forward_modes(samples)
     s1 = samples[0] if samples else None
     return {

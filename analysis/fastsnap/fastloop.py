@@ -769,8 +769,12 @@ class FastLoop(Plugin):
         self._fwd1_this_arm = self._fwd_samples[0]
         self.arm_forward_ms_all.append(round(self._fwd_this_arm, 4))
         self.arm_forward_samples.append([round(x, 4) for x in self._fwd_samples])
-        if self.arm_forward_ms is None:
-            self.arm_forward_ms = self._fwd_this_arm
+        # Unconditional: this is the reported baseline and it must describe
+        # the draw the loop ended up on. Guarded with `is None` it froze on
+        # the first attempt, so a run that re-armed reported the forward cost
+        # of a span it had explicitly rejected. The cost axis is unaffected --
+        # it uses `_fwd_this_arm`, which is per-attempt by construction.
+        self.arm_forward_ms = self._fwd_this_arm
         spread = (max(self._fwd_samples) / min(self._fwd_samples)
                   if min(self._fwd_samples) > 0 else None)
         # The wording matters here and used to be wrong: this said "the armed
@@ -2407,7 +2411,23 @@ class FastLoop(Plugin):
         # robust local estimate for its ceiling, and rejecting a draw is an
         # action with a cost. Reporting is not, so reporting uses the span
         # the run actually replays.
-        samples = (self.arm_forward_samples[0]
+        # ...and it is the LAST arm's sample 1, not the first arm's.
+        #
+        # `arm_forward_samples` gets one entry per ARM ATTEMPT, and only the
+        # final attempt is the one the loop actually ran on. Indexing [0] reads
+        # the span of a draw that was measured and then thrown away. Run 107
+        # is the demonstration: attempt 1 was rejected on fidelity at 10186.84
+        # ms, attempt 2 accepted at 2.5746 ms, and the lap was 3.4518 ms.
+        # Against the accepted draw that is 1.341, faithful. Against the
+        # rejected one it is 0.0003, and the run was labelled NOT A RATE --
+        # by the very check that had correctly rejected the draw it was then
+        # scoring against.
+        #
+        # `arm_forward_ms` had the same shape and predates this: it was
+        # assigned `if self.arm_forward_ms is None`, so it froze on attempt 1
+        # for the life of the run. Every multi-attempt run has been reporting
+        # a forward baseline from a draw it did not use.
+        samples = (self.arm_forward_samples[-1]
                    if self.arm_forward_samples else None)
         fwd = samples[0] if samples else self.arm_forward_ms
         it = out.get("iter_ms") or {}
