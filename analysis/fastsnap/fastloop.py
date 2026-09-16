@@ -199,6 +199,20 @@ class FastLoop(Plugin):
         # Applied to the multiplier, NOT the percentile -- see
         # _cost_threshold() for why the percentile version is a trap.
         self.arm_cost_relax = float(self._num("arm_cost_relax", 1.5))
+        # Ceiling on the compounded slack, and it exists because raising
+        # arm_retries from 3 to 12 broke the axis without it. The ladder is
+        # meant to forgive a draw that is MERELY CLOSE; at 1.5 per attempt it
+        # compounds to 86x by attempt 12, and the test suite caught exactly
+        # that -- a 455 ms lap sailing through a 1427 ms ceiling and being
+        # recorded as "accepted" rather than "accepted anyway". A ceiling that
+        # grows faster than the thing it is bounding is not a ceiling.
+        #
+        # 4x is chosen to sit above the ladder's useful range (three attempts
+        # reach 2.25x) and far below the gap between the modes seen on real
+        # firmware, which is ~300x. With it, more retries buy more DRAWS --
+        # the intended effect -- and not a progressively more forgiving
+        # standard for judging them.
+        self.arm_cost_relax_cap = float(self._num("arm_cost_relax_cap", 4.0))
         # Probe laps the cost axis needs before it may fire EARLY. A
         # median over this few is noisy, but the axis only ever spends a
         # re-arm on it, and the alternative is waiting out `arm_probe`
@@ -231,7 +245,34 @@ class FastLoop(Plugin):
         # axis's own bound is arm_cost_fwd_mult. See _replay_fidelity().
         self.fidelity_bound = float(self._num("fidelity_bound", 3.0))
         self.arm_bad_frac = float(self._num("arm_bad_frac", 0.5))
-        self.arm_retries = int(self._num("arm_retries", 3))
+        # Raised from 3 to 12 on measured evidence. Three runs, same config,
+        # same image, same target, differing only in which instant the arm
+        # caught:
+        #
+        #   run 88  accepted attempt 1 at    3.30 ms  ->  303.3 exec/s
+        #   run 89  3 draws all costly, OUT OF RETRIES,
+        #           accepted 1054.58 ms anyway        ->    0.9 exec/s
+        #   run 90  2 costly then 4.53 ms accepted    ->  225.7 exec/s
+        #
+        # A 337x spread, and run 89 is the whole reason for this change: the
+        # cost axis identified all three of its draws correctly and then ran
+        # out of counter and took the last one regardless. It was not choosing
+        # badly, it was being made to stop looking -- on a target whose cheap
+        # mode plainly exists, since run 89's own forward samples were
+        # [4.19, 1051.93, 4.14], two of three cheap.
+        #
+        # 3 is the right default for a unimodal target, where a rejected draw
+        # means the whole workload is expensive and more looking will not help.
+        # It is the wrong default for a bimodal one, where each retry is an
+        # independent chance at the cheap mode. At roughly even odds, 3 retries
+        # fail outright about 6% of the time and 12 about 0.02%; the observed
+        # odds here are worse than even, which makes the gap wider still.
+        #
+        # A retry is not free -- it costs an arm (~0.6 s) and a probe -- but
+        # against a 337x error in the reported rate that is not the trade
+        # worth optimising. Runs that arm early still stop early: the count is
+        # a bound, not a target, and run 90 used 3 of its 12.
+        self.arm_retries = int(self._num("arm_retries", 12))
         self.arm_backoff_s = float(self._num("arm_backoff_s", 3.0))
         # THE PROBE LOOKS ONCE. This looks for the whole run.
         #
@@ -1166,6 +1207,19 @@ class FastLoop(Plugin):
                 self.logger.info(
                     f"fastloop: armed in {self.arm_us} us, "
                     f"{self.snapshot_bytes} bytes of RAM snapshotted")
+                # Split the hook budget at the armed instant. Boot swamps a
+                # whole-run total -- the first real budget was 5,791 ioctl
+                # firings, nearly all of them bringing the system up -- while
+                # the question a loop asks is what a LAP costs. Marking here
+                # (and again on each re-arm, which moves the boundary to the
+                # draw actually kept) makes the per-lap figure readable
+                # instead of inferred. No-op unless hook_budget is on.
+                try:
+                    plugins.syscalls.hook_budget_mark("armed")
+                except Exception:                            # noqa: BLE001
+                    # An older penguin has no such method. The budget is
+                    # diagnostics; never let it break an arm.
+                    pass
                 if self.mode == "armed" or self.mode in self.MEASUREMENT_MODES:
                     # The split-order control validates the ORACLE, and these
                     # modes make no soundness claim for it to validate. Running
@@ -1617,7 +1671,8 @@ class FastLoop(Plugin):
                 max(0, min(98, int(self.arm_cost_pctl) - 1))]
         except Exception:                                   # noqa: BLE001
             return None
-        slack = self.arm_cost_relax ** max(0, attempt - 1)
+        slack = min(self.arm_cost_relax ** max(0, attempt - 1),
+                    self.arm_cost_relax_cap)
         return base * self.arm_cost_mult * slack
 
     def _costly(self, lap_med, thresh, attempt):
@@ -1661,7 +1716,8 @@ class FastLoop(Plugin):
                  and self._fwd_this_arm is not None
                  and self._fwd_this_arm > 0
                  and lap_med > self._fwd_this_arm * self.arm_cost_fwd_mult
-                 * (self.arm_cost_relax ** max(0, attempt - 1)))
+                 * min(self.arm_cost_relax ** max(0, attempt - 1),
+                       self.arm_cost_relax_cap))
         why = ("both" if absolute and ratio
                else "absolute" if absolute
                else "ratio" if ratio else None)

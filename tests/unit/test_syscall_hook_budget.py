@@ -109,3 +109,57 @@ def test_wildcard_hook_is_named_not_blank(igloo_ko_isf, tmp_path):
     p._fire_counts[0x3000] = 90000
     rep = p.hook_budget_report()
     assert rep["hooks"][0]["syscall"] == "<all>:return"
+
+
+def test_mark_splits_boot_from_the_measured_phase(igloo_ko_isf, tmp_path):
+    """A whole-run total cannot answer what a LAP costs.
+
+    Boot dominates the count -- the first real budget from firmware had 5,791
+    ioctl firings, nearly all of them bringing the system up -- while the
+    decision a fuzzing loop makes is about the laps. fastloop marks the budget
+    at the instant it arms, and everything after that mark is lap cost.
+    """
+    p = _plugin(igloo_ko_isf, tmp_path, hook_budget=1).plugin
+    p._hook_info[0x1000] = {"name": "ioctl", "on_return": True}
+    p._hook_info[0x2000] = {"name": "read", "on_enter": True}
+
+    p._fire_counts[0x1000] = 5791          # boot
+    p._fire_counts[0x2000] = 12
+    p.hook_budget_mark("armed")
+
+    p._fire_counts[0x1000] += 4            # during laps
+    p._fire_counts[0x2000] += 6000
+
+    rep = p.hook_budget_report()
+    assert rep["total_firings"] == 5791 + 12 + 4 + 6000
+    assert rep["marks"]["armed"]["firings"] == 6004
+    by = {r["syscall"]: r["firings_since"]["armed"] for r in rep["hooks"]}
+    # ioctl dominates the RUN and is nearly absent from the laps; read is the
+    # other way round. A report without the split inverts the ranking that
+    # matters.
+    assert by["ioctl:return"] == 4
+    assert by["read:enter"] == 6000
+
+
+def test_remark_moves_the_boundary_to_the_kept_draw(igloo_ko_isf, tmp_path):
+    """Re-arming must re-mark: the laps belong to the draw actually kept.
+
+    A rejected draw's probe laps are not the measured phase, and leaving the
+    first mark in place would bill them to the accepted one.
+    """
+    p = _plugin(igloo_ko_isf, tmp_path, hook_budget=1).plugin
+    p._hook_info[0x1000] = {"name": "writev", "on_enter": True}
+    p._fire_counts[0x1000] = 100
+    p.hook_budget_mark("armed")            # draw 1, later rejected
+    p._fire_counts[0x1000] += 50           # its probe laps
+    p.hook_budget_mark("armed")            # draw 2, kept
+    p._fire_counts[0x1000] += 7
+
+    rep = p.hook_budget_report()
+    assert rep["marks"]["armed"]["firings"] == 7
+
+
+def test_mark_is_a_noop_when_the_budget_is_off(igloo_ko_isf, tmp_path):
+    p = _plugin(igloo_ko_isf, tmp_path).plugin
+    p.hook_budget_mark("armed")
+    assert p.hook_budget_report()["marks"] == {}

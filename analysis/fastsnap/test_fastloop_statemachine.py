@@ -929,6 +929,27 @@ def arm_cost_tests(tmp):
     assert any("broken victim" in e for e in p.errors), p.errors
     print("ok  arm cost: a BROKEN draw out of retries still refuses the run")
 
+    # THE RELAX LADDER IS CAPPED, and this test exists because raising
+    # arm_retries 3 -> 12 silently broke the axis without it. arm_cost_relax
+    # widens the ceiling per rejected attempt to forgive a draw that is merely
+    # close; at 1.5 each it compounds to 86x by attempt 12, and a 455 ms lap
+    # then passed a 1427 ms ceiling and was recorded "accepted" -- the axis
+    # still running, still reporting a threshold, and no longer rejecting
+    # anything. A ceiling that grows faster than what it bounds is not one.
+    p, _ = armed()
+    p.arm_cost_relax = 1.5
+    p.arm_cost_relax_cap = 4.0
+    p.warm_gaps_ms = [4.0] * 200
+    early = p._cost_threshold(1)
+    late = p._cost_threshold(12)
+    assert late <= early * 4.0 + 1e-9, (early, late)
+    # And the cap must bind well before the gap between the modes on real
+    # firmware, which is ~300x (3 ms against 1054 ms).
+    assert late < early * 300, (early, late)
+    print(f"ok  arm cost: the relax ladder is capped at {p.arm_cost_relax_cap}x "
+          f"({early:.2f} -> {late:.2f} ms), so more retries buy more DRAWS "
+          f"rather than a more forgiving standard")
+
     # Not enough warmup data: the axis must not fire. None means "cannot say",
     # never "passed".
     p, _ = armed()

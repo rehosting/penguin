@@ -473,6 +473,12 @@ class Syscalls(Plugin):
         # because a budget nobody reads is just another thing in the path.
         self.hook_budget = bool(int(self.get_arg("hook_budget") or 0))
         self._fire_counts: Dict[int, int] = defaultdict(int)
+        # A whole-run total cannot answer the question a fuzzing loop asks.
+        # Boot dominates the count -- the first real budget had 5,791 ioctl
+        # firings, nearly all of them from bringing the system up -- while the
+        # decision is about what a LAP costs. A mark taken when the loop arms
+        # splits the two, and the report carries both.
+        self._fire_marks: Dict[str, Dict[int, int]] = {}
 
         # Map hook pointers to callbacks
         # Maps hook pointers to (on_all, callback_func, is_method, read_only) tuples
@@ -876,6 +882,18 @@ class Syscalls(Plugin):
     # right order of magnitude rather than a constant for every target.
     US_PER_HOOK_FIRING = 95.880
 
+    def hook_budget_mark(self, label: str) -> None:
+        """Snapshot the firing counts under `label`.
+
+        A caller that knows when the measured phase begins -- fastloop at the
+        instant it arms -- calls this, and the report then attributes firings
+        to before and after it. Cheap and idempotent; re-marking the same
+        label moves the boundary, which is what a re-arm should do.
+        """
+        if not self.hook_budget:
+            return
+        self._fire_marks[label] = dict(self._fire_counts)
+
     def hook_budget_report(self) -> Dict[str, Any]:
         """What this run's syscall hooks cost, ranked.
 
@@ -896,9 +914,12 @@ class Syscalls(Plugin):
                                      else "<unknown>")
             where = ("enter" if cfg.get("on_enter")
                      else "return" if cfg.get("on_return") else "?")
+            since = {lbl: n - snap.get(hook_ptr, 0)
+                     for lbl, snap in self._fire_marks.items()}
             rows.append({
                 "syscall": f"{nm}:{where}",
                 "syscall_name": nm,
+                "firings_since": since,
                 "comm": cfg.get("procname") or "",
                 "on_enter": bool(cfg.get("on_enter")),
                 "on_return": bool(cfg.get("on_return")),
@@ -907,8 +928,15 @@ class Syscalls(Plugin):
             })
         rows.sort(key=lambda r: -r["firings"])
         total = sum(r["firings"] for r in rows)
+        marks = {}
+        for lbl, snap in self._fire_marks.items():
+            n = sum(r["firings_since"].get(lbl, 0) for r in rows)
+            marks[lbl] = {"firings": n,
+                          "est_ms": round(n * self.US_PER_HOOK_FIRING / 1000.0,
+                                          3)}
         return {
             "enabled": self.hook_budget,
+            "marks": marks,
             "total_firings": total,
             "est_total_ms": round(total * self.US_PER_HOOK_FIRING / 1000.0, 3),
             "us_per_firing_assumed": self.US_PER_HOOK_FIRING,
