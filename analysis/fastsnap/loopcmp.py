@@ -60,6 +60,16 @@ the raw files leave implicit:
   hook_ms_lap   estimated syscall-hook cost per lap, at the measured
                 95.880 us/firing. Compare against lap_ms, not against zero.
 
+                Counted from the ARMED MARK onwards where the run has one:
+                hook_budget's total covers the whole run, and boot fires tens
+                of thousands of hooks that no lap is responsible for. Charging
+                those to laps overstated this column by about 3x -- run 106
+                reads 1.608 ms/lap from the raw total and 0.498 ms/lap from
+                the mark, against a 3.346 ms lap, which is the difference
+                between "hooks are half the lap" and "hooks are a seventh of
+                it". A trailing `?` marks a run with no armed mark, whose
+                number is the inflated one and is not comparable.
+
 Usage:  python3 loopcmp.py <results_dir> [<results_dir> ...]
         python3 loopcmp.py work/stride/proj/results/{88,99,102}
 """
@@ -145,6 +155,11 @@ def row(d):
     feed = sf.get("feed_wall_s")
 
     firings = hb.get("total_firings")
+    at_arm = ((hb.get("marks") or {}).get("armed") or {}).get("firings")
+    if firings is not None and at_arm is not None:
+        firings, marked = max(0, firings - at_arm), True
+    else:
+        marked = False
     hook_ms = (firings * US_PER_HOOK_FIRING / 1000.0 / iters
                if firings and iters else None)
 
@@ -186,6 +201,7 @@ def row(d):
         "disjoint": (disjoint / n_epoll_pass
                      if disjoint and n_epoll_pass else None),
         "hook_ms_lap": hook_ms,
+        "hook_marked": marked,
         "verdict": (fl.get("verdict") or "")[:40],
     }
 
@@ -216,6 +232,10 @@ def main(dirs):
         print(line)
     print()
     for r in rows:
+        if r.get("hook_ms_lap") is not None and not r.get("hook_marked"):
+            print(f"  run {r['run']}: hook_ms_lap {r['hook_ms_lap']:.3f} "
+                  f"includes BOOT firings -- no armed mark in this run, so it "
+                  f"is an upper bound, not a per-lap cost")
         if r["lap_src"] != "plain":
             print(f"  run {r['run']}: no plain laps -- lap_ms is from the "
                   f"verify sample ({r['iters']} iteration(s) total)")
