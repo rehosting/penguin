@@ -22,6 +22,7 @@ not merely about not crashing.
 """
 import ast
 import json
+import statistics
 import os
 import pathlib
 import time
@@ -411,6 +412,25 @@ def to_loop(p, q, ident=None):
     assert p.state == "loop", p.state
 
 
+def oracle_headline(out):
+    """The verdict's ORACLE half, with any rate prefix stripped.
+
+    `verdict` carries two independent judgements in one string: whether the
+    reset returned the right bytes (VALID / INVALID / FAILED / DEGRADED) and
+    whether the measured rate is a rate at all. The second one is prefixed in
+    front of an otherwise-VALID verdict on purpose -- run 88 opened with
+    "VALID:" on a span that replays 319x faster than it traverses forward, and
+    was quoted at 303 exec/s because of it.
+
+    Tests that are about the oracle should say the oracle, rather than
+    depending on it happening to be first.
+    """
+    v = out["verdict"]
+    if v.startswith("RATE IS NOT A RATE ("):
+        v = v.split(" -- ", 1)[1]
+    return v
+
+
 def arm_tests(tmp):
     # ---- ARM ON EVIDENCE, NOT ON A CLOCK -----------------------------
     # Rejecting a bad draw and waiting a fixed interval draws again from the
@@ -748,7 +768,7 @@ def tcg_work_tests(tmp):
     p.uninit()
     out = json.load(open(pathlib.Path(tmp) / "fastloop.json"))
     assert out["tcg_work"] is None, out["tcg_work"]
-    assert out["verdict"].startswith("VALID"), out["verdict"]
+    assert oracle_headline(out).startswith("VALID"), out["verdict"]
     print("ok  an image with no TCG counters reports None, not zeros, and "
           "still produces a VALID run")
 
@@ -821,7 +841,7 @@ def forward_baseline_tests(tmp):
     out = json.load(open(pathlib.Path(tmp) / "fastloop.json"))
     assert out["arm_forward_ms"] is not None, "no forward baseline recorded"
     assert out["arm_forward_ms"] > 0, out["arm_forward_ms"]
-    assert out["verdict"].startswith("VALID"), out["verdict"]
+    assert oracle_headline(out).startswith("VALID"), out["verdict"]
     print(f"ok  forward baseline taken before any reset "
           f"({out['arm_forward_ms']:.3f} ms) and the run still completes")
 
@@ -843,7 +863,7 @@ def forward_baseline_tests(tmp):
     p.uninit()
     out = json.load(open(pathlib.Path(tmp) / "fastloop.json"))
     assert out["arm_forward_ms"] is None, out["arm_forward_ms"]
-    assert out["verdict"].startswith("VALID"), out["verdict"]
+    assert oracle_headline(out).startswith("VALID"), out["verdict"]
     print("ok  arm_forward_probe=0 reports None, not a zero, and still runs")
 
 
@@ -1157,7 +1177,7 @@ def detector_process_tests(tmp):
     out = json.load(open(os.path.join(tmp, "fastloop.json")))
     assert out["detector_procs"] is None, out["detector_procs"]
     assert "CROSSED PROCESSES" not in out["verdict"], out["verdict"]
-    assert out["verdict"].startswith("VALID"), out["verdict"]
+    assert oracle_headline(out).startswith("VALID"), out["verdict"]
     print("ok  detector process: no pid from the driver reports None, not a "
           "false all-clear")
 
@@ -1233,7 +1253,7 @@ def pin_tests(tmp):
         hit_from(p, 4242, 99)
     p.uninit()
     out = json.load(open(os.path.join(tmp, "fastloop.json")))
-    assert out["verdict"].startswith("VALID"), out["verdict"]
+    assert oracle_headline(out).startswith("VALID"), out["verdict"]
     notes = " ".join(out["degraded_notes"])
     assert "UNPINNED" in notes, out["degraded_notes"]
     assert "may close in a process the arm did not land in" in notes, notes
@@ -1370,6 +1390,65 @@ def replay_fidelity_tests(tmp):
     print("ok  replay fidelity: the warning lands in the verdict sentence, "
           "not beside it")
 
+    # ...and it lands FIRST. Landing somewhere was not enough. Run 88's
+    # verdict carried this note correctly and still opened with "VALID: 20
+    # verifications, every one byte-identical" -- a statement about the RAM
+    # oracle -- with REPLAY DIVERGES 400 characters downstream. The run was
+    # then quoted at 303 exec/s in this lane's own notes, for a span that
+    # replays 319x faster than it traverses forward. Order is the finding.
+    assert out["exec_per_s_valid"] is False, out.get("exec_per_s_valid")
+    assert out["verdict"].startswith("RATE IS NOT A RATE ("), out["verdict"][:120]
+    assert out["verdict"].index("RATE IS NOT A RATE") < out["verdict"].index(
+        "VALID:"), "the rate verdict must precede the oracle verdict"
+    print("ok  replay fidelity: a diverged replay is the FIRST thing the "
+          "verdict says, not the fourth")
+
+    # But it does NOT displace a headline that is already bad news. The first
+    # version of this prefix pushed a DEGRADED verdict -- a loop that came
+    # apart at iteration 6 -- into second place behind a rate caveat, which is
+    # the same mistake wearing the other hat. Only "VALID" invites the rate to
+    # be trusted, so only "VALID" gets prefixed; everything else still carries
+    # the machine-readable flag.
+    p, q = make("loop", tmp)
+    to_loop(p, q)
+    for _ in range(12):
+        q.run_bottom_half()
+        hit(p)
+    p.arm_forward_ms = 100000.0
+    p.verdict_override = "DEGRADED: the loop came apart"
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    if out["verdict"].startswith("DEGRADED"):
+        assert out["exec_per_s_valid"] is False
+        assert not out["verdict"].startswith("RATE IS NOT A RATE"), \
+            out["verdict"][:120]
+        print("ok  replay fidelity: a DEGRADED headline keeps first place "
+              "and the rate flag rides along in the field")
+
+    # The converse, so the prefix cannot simply always be there: a faithful
+    # replay is not labelled, and its rate is marked usable.
+    p, q = make("loop", tmp)
+    to_loop(p, q)
+    for _ in range(12):
+        q.run_bottom_half()
+        hit(p)
+    # Pin the forward baseline TO the laps this harness actually produced.
+    # Leaving it to the fake clock does not give a faithful run: the harness's
+    # laps are tens of microseconds and its forward samples single-digit
+    # microseconds, so the ratio is dominated by fixed overhead and lands on
+    # "slower" -- an artifact of synthetic timings, not a property under test.
+    p.arm_forward_ms = statistics.median(p.iter_ms)
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    assert out["replay_fidelity"]["class"] == "faithful", \
+        out["replay_fidelity"]
+    assert out["exec_per_s_valid"] is True, out.get("exec_per_s_valid")
+    assert not out["verdict"].startswith("RATE IS NOT A RATE"), \
+        out["verdict"][:120]
+    assert "exec_per_s=" not in out.get("verdict", "")
+    print("ok  replay fidelity: a faithful replay carries no rate "
+          "warning and is marked usable")
+
 
 def oracle_method_tests(tmp):
     # ---- HOW THE ORACLE GOT ITS ANSWER --------------------------------
@@ -1431,7 +1510,7 @@ def oracle_method_tests(tmp):
         out = json.load(open(os.path.join(tmp, "fastloop.json")))
         assert p.state in ("loop", "done"), p.state
         assert not any("stale image" in e for e in out["errors"]), out["errors"]
-        assert out["verdict"].startswith("VALID"), out["verdict"]
+        assert oracle_headline(out).startswith("VALID"), out["verdict"]
         assert out.get("oracle_method") is None, out["oracle_method"]
     finally:
         for n, fn in _OPTIONAL_SAVED.items():
@@ -1690,7 +1769,7 @@ def wall_tests(tmp):
     # Every input to the conclusion was already in fastloop.json for weeks.
     out = _valid_loop(tmp, [0.5] * 990, [70.0] * 10, [], 1000, 1.2)
 
-    assert out["verdict"].startswith("VALID"), out["verdict"]
+    assert oracle_headline(out).startswith("VALID"), out["verdict"]
     crash = out["wall_share"]["crash"]
     assert crash["laps"] == 10 and abs(crash["lap_share"] - 0.01) < 1e-9
     assert abs(crash["wall_share"] - 0.7 / 1.2) < 1e-9, crash
@@ -1711,7 +1790,7 @@ def wall_tests(tmp):
     # ignored on a sick one, which is precisely how the disagreement this
     # exists to surface survived an entire session of being printed.
     out = _valid_loop(tmp, [1.0] * 990, [1.0] * 10, [], 1000, 1.0)
-    assert out["verdict"].startswith("VALID"), out["verdict"]
+    assert oracle_headline(out).startswith("VALID"), out["verdict"]
     assert "wall_notes" not in out, out.get("wall_notes")
     assert abs(out["exec_per_s_median_over_wall"] - 1000.0 / 999) < 1e-6
     print("ok  a run whose median agrees with its wall clock gets no note")
@@ -1876,7 +1955,7 @@ def main():
     p.uninit()
     import json
     out = json.load(open(pathlib.Path(tmp) / "fastloop.json"))
-    assert out["verdict"].startswith("VALID"), out["verdict"]
+    assert oracle_headline(out).startswith("VALID"), out["verdict"]
     assert out["exec_per_s_median"], out["exec_per_s_median"]
     print(f"ok  verdict: {out['verdict']}")
 
@@ -2022,7 +2101,7 @@ def main():
         out["device_scope"]
     assert out["allowed"] == ["cpu", "timer", "cpu_common"], out["allowed"]
     assert out["allow_implied"] == ["cpu_common"], out["allow_implied"]
-    assert out["verdict"].startswith("VALID"), out["verdict"]
+    assert oracle_headline(out).startswith("VALID"), out["verdict"]
     print("ok  an allowlist reaches the C side and a clean device oracle "
           "keeps the run VALID")
 
@@ -2132,7 +2211,7 @@ def main():
         hit(pp)
     pp.uninit()
     out = json.load(open(pathlib.Path(tmp) / "fastloop.json"))
-    assert out["verdict"].startswith("VALID"), out["verdict"]
+    assert oracle_headline(out).startswith("VALID"), out["verdict"]
     assert out["dev_unrestorable"] == ["*mc146818rtc#13"], out["dev_unrestorable"]
     assert "mc146818rtc" in out["verdict"], out["verdict"]
     print("ok  device control: a section that cannot round-trip is named, not "

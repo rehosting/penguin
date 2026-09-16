@@ -2761,7 +2761,38 @@ class FastLoop(Plugin):
             fid = self._replay_fidelity(out)
             if fid:
                 out["replay_fidelity"] = fid
+                # WHETHER THE RATE IS A RATE, as a field rather than as prose
+                # buried in a paragraph. The note below has always been
+                # correct and has always been in the wrong place: run 88's
+                # verdict opens "VALID: 20 verifications, every one
+                # byte-identical..." and says REPLAY DIVERGES four sentences
+                # and 400 characters later, after an aside about
+                # CAP_SYS_ADMIN. "VALID" there is a statement about the RAM
+                # oracle and nothing else, but it is the first word, and the
+                # run it introduced was quoted at 303 exec/s -- by me, in this
+                # lane's own notes -- for a span that replays 319x faster than
+                # it traverses. A reader who stops at the first word gets the
+                # opposite of the finding.
+                #
+                # So: lead with it, and give tooling something to branch on
+                # that is not a substring search.
+                out["exec_per_s_valid"] = (fid.get("class") == "faithful")
                 if fid["note"]:
+                    # ONLY in front of a verdict that currently opens with
+                    # good news. A verdict already leading with DEGRADED,
+                    # INVALID, REFUSED or FAILED is not lulling anybody, and
+                    # displacing one of those with a rate caveat would repeat
+                    # the mistake in the other direction -- the first assert
+                    # this change broke was a run that came apart at iteration
+                    # 6 and had its DEGRADED headline pushed to second place.
+                    # "VALID" is the only opener that invites the rate to be
+                    # read as sound, so it is the only one that gets a prefix.
+                    if (not out["exec_per_s_valid"]
+                            and out["verdict"].startswith("VALID")):
+                        out["verdict"] = (
+                            f"RATE IS NOT A RATE ({fid['class']}, replay/"
+                            f"forward {fid['ratio']:.4f}) -- "
+                            + out["verdict"])
                     out["verdict"] += " " + fid["note"]
             notes = self._wall_notes(out)
             if notes:
@@ -2775,7 +2806,8 @@ class FastLoop(Plugin):
         self.logger.info(
             f"fastloop: RESULTS mode={self.mode} iters={self.n_iters} "
             f"iter_median_ms={it['median'] if it else None} "
-            f"exec_per_s={out['exec_per_s_median']} "
+            f"exec_per_s={out['exec_per_s_median']}"
+            f"{'' if out.get('exec_per_s_valid', True) else ' (NOT A RATE: replay diverged from forward traversal -- see replay_fidelity)'} "
             f"exec_per_s_wall={out.get('exec_per_s_wall_incl_oracle')} "
             f"reset_us_median="
             f"{out['reset_us']['median'] if out['reset_us'] else None} "
