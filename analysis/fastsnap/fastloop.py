@@ -224,6 +224,32 @@ class FastLoop(Plugin):
         # loose enough that an ordinary span survives and tight enough
         # to catch the measured 3,945x case. See _costly().
         self.arm_cost_fwd_mult = float(self._num("arm_cost_fwd_mult", 10))
+        # REJECT A DRAW WHOSE REPLAY IS MUCH FASTER THAN ITS OWN FORWARD
+        # TRAVERSAL, which is the one failure neither cost axis can see.
+        #
+        # Both cost axes reject draws that are too EXPENSIVE. Nothing rejected
+        # the opposite, and the opposite is the more dangerous of the two
+        # because it produces a large, quotable number:
+        #
+        #   run 106  armed span traverses forward in 10,189.66 ms and replays
+        #            in 3.35 ms. Accepted on attempt 1 -- the absolute axis saw
+        #            3.35 against a 7.04 ms ceiling and passed it, and the
+        #            ratio axis only fires at lap > forward x 10. Reported
+        #            298.9 exec/s for a span that contains a ten-second wait.
+        #   run 91   the same shape at 209x.
+        #
+        # The span still contains the wait; the replay just never pays it,
+        # because whatever the forward pass was waiting FOR arrived during the
+        # wait and is already there at replay. `replay_fidelity` says so after
+        # the fact. This says it while there are still retries left to spend
+        # on a draw that does not have the problem -- and on a workload with a
+        # cheap mode, such a draw exists: run 106's own warmup gaps have a p10
+        # of a few ms.
+        #
+        # 0 disables it. The ladder and cap are shared with the cost axis, so
+        # a run that cannot find a faithful draw still arms rather than
+        # spending every retry and refusing.
+        self.arm_fidelity_mult = float(self._num("arm_fidelity_mult", 3.0))
         # One extra lap, and it is the only baseline the run can compare
         # its own laps against. On by default for that reason.
         self.arm_forward_probe = bool(self._num("arm_forward_probe", 1))
@@ -324,6 +350,7 @@ class FastLoop(Plugin):
         self.arm_forward_samples = []   # ...and the raw samples behind each
         self._fwd_samples = []
         self._fwd_this_arm = None       # this arm's, the cost reference
+        self._fwd1_this_arm = None      # sample 1, the fidelity reference
         self._rearm_at = None
         self.arm_gave_up = False
         if (self.get_arg("mode") or "loop").lower() != "loop":
@@ -735,6 +762,11 @@ class FastLoop(Plugin):
         execution and nothing else.
         """
         self._fwd_this_arm = statistics.median(self._fwd_samples)
+        # Sample 1 alone: the armed span's own traversal, and the only one
+        # that starts where the replayed laps start. Kept separately because
+        # the two axes want different things -- the cost axis wants a robust
+        # local estimate, the fidelity axis wants THIS span.
+        self._fwd1_this_arm = self._fwd_samples[0]
         self.arm_forward_ms_all.append(round(self._fwd_this_arm, 4))
         self.arm_forward_samples.append([round(x, 4) for x in self._fwd_samples])
         if self.arm_forward_ms is None:
@@ -1734,6 +1766,28 @@ class FastLoop(Plugin):
                else "ratio" if ratio else None)
         return (absolute or ratio), why
 
+    def _unfaithful(self, lap_med, attempt):
+        """Does this draw replay far FASTER than the span it armed on?
+
+        The mirror of the cost axis's ratio test, against sample 1 rather than
+        the median -- sample 1 is the armed span's own traversal and the only
+        one that starts where the replayed laps start.
+
+        A replay that beats its forward pass by more than `arm_fidelity_mult`
+        is not a fast span; it is a span whose wait has already been waited.
+        Rejecting it costs one draw. Keeping it costs a headline number that
+        means nothing, which is the more expensive of the two and the harder
+        to notice later.
+
+        Relaxes on the same ladder as the cost axis so the search terminates.
+        """
+        if (self.arm_fidelity_mult <= 0 or lap_med is None or lap_med <= 0
+                or self._fwd1_this_arm is None or self._fwd1_this_arm <= 0):
+            return False
+        slack = min(self.arm_cost_relax ** max(0, attempt - 1),
+                    self.arm_cost_relax_cap)
+        return lap_med * self.arm_fidelity_mult * slack < self._fwd1_this_arm
+
     def _cost_rearm(self, lap_med, thresh, n_laps, early):
         """Drop this draw and go back for another, on the cost axis.
 
@@ -1860,6 +1914,7 @@ class FastLoop(Plugin):
                    if self._probe_laps_ms else None)
         thresh = self._cost_threshold(self.arm_attempt)
         costly, why = self._costly(lap_med, thresh, self.arm_attempt)
+        unfaithful = self._unfaithful(lap_med, self.arm_attempt)
         row["cost_reason"] = why
         row["probe_lap_median_ms"] = (round(lap_med, 4)
                                       if lap_med is not None else None)
@@ -1896,6 +1951,35 @@ class FastLoop(Plugin):
             self.arm_history.append(row)
             self._reset_measurements()
             self.state = "done"
+            return
+        if frac <= self.arm_bad_frac and not idle and not costly and unfaithful:
+            row["verdict"] = ("unfaithful, out of retries -- accepted anyway"
+                              if self.arm_attempt >= self.arm_retries
+                              else "unfaithful, re-arming")
+            row["fwd1_ms"] = round(self._fwd1_this_arm, 4)
+            self.arm_history.append(row)
+            if self.arm_attempt >= self.arm_retries:
+                self.logger.warning(
+                    f"fastloop: arm {self.arm_attempt} replays in "
+                    f"{lap_med:.2f} ms a span that traverses FORWARD in "
+                    f"{self._fwd1_this_arm:.2f} ms -- "
+                    f"{self._fwd1_this_arm / lap_med:.0f}x faster -- and there "
+                    f"are no retries left. Accepting it, because refusing "
+                    f"would throw away a working reset over a badly chosen "
+                    f"instant, but the rate below is NOT a rate for this span: "
+                    f"whatever the forward pass waited for had already arrived "
+                    f"by the time it was replayed. See replay_fidelity.")
+                return
+            self.logger.warning(
+                f"fastloop: arm {self.arm_attempt} REJECTED on FIDELITY -- the "
+                f"draw replays in {lap_med:.2f} ms a span that traverses "
+                f"forward in {self._fwd1_this_arm:.2f} ms, "
+                f"{self._fwd1_this_arm / lap_med:.0f}x faster. The span "
+                f"contains a wait the replay never pays, so its rate would be "
+                f"a number for a span nobody ran. Drawing again.")
+            self._reset_measurements()
+            self._rearm_at = time.perf_counter() + self.arm_backoff_s
+            self.state = "rearm_wait"
             return
         if frac <= self.arm_bad_frac and not idle and not costly:
             row["verdict"] = "accepted"

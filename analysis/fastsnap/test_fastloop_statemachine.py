@@ -995,6 +995,66 @@ def arm_cost_tests(tmp):
           "a silent pass")
 
     # Disabled explicitly.
+    # ---- THE FIDELITY AXIS: reject a draw that is too FAST -------------
+    #
+    # Both cost axes reject expensive draws. Nothing rejected the opposite,
+    # and the opposite is the more dangerous of the two because it produces a
+    # large, quotable number. Run 106 armed on a span that traverses forward
+    # in 10,189.66 ms and replays in 3.35 ms, was accepted on attempt 1 -- the
+    # absolute axis saw 3.35 against a 7.04 ms ceiling and passed it -- and
+    # reported 298.9 exec/s for a span containing a ten-second wait.
+    def fid(fwd1, lap, **kw):
+        pp, _ = armed(**kw)
+        pp._fwd1_this_arm = fwd1
+        pp._probe_laps_ms = [lap] * 40
+        pp._probe(False, lap)
+        return pp
+
+    p = fid(10189.66, 5.6)
+    assert p.arm_history[-1]["verdict"] == "unfaithful, re-arming", \
+        p.arm_history[-1]
+    assert p.state == "rearm_wait", p.state
+    assert not p.errors, p.errors
+    assert p.arm_history[-1]["fwd1_ms"] == 10189.66
+    print("ok  arm fidelity: a draw that replays 1,800x faster than the span "
+          "it armed on is rejected and re-armed")
+
+    # Out of retries accepts rather than refusing -- the reset works, the
+    # instant was badly chosen, and refusing would throw away the former over
+    # the latter. replay_fidelity still says what the rate is worth.
+    p = fid(10189.66, 5.6, arm_retries=1)
+    assert p.arm_history[-1]["verdict"] == (
+        "unfaithful, out of retries -- accepted anyway"), p.arm_history[-1]
+    assert p.state == "loop", p.state
+    print("ok  arm fidelity: out of retries accepts, and says the rate is "
+          "not a rate for the span")
+
+    # A draw that replays what it armed on is untouched by this axis.
+    p = fid(5.4, 5.6)
+    assert p.arm_history[-1]["verdict"] == "accepted", p.arm_history[-1]
+    print("ok  arm fidelity: a faithful draw is accepted")
+
+    # It measures against SAMPLE 1, not the median. On a bimodal draw those
+    # disagree by three orders of magnitude, and the median is the reference
+    # that let run 106 through.
+    # Run 88's draw, where the two references disagree by 440x. (Run 106's
+    # own samples happen to have sample 1 AS their median, so they could not
+    # tell these two rules apart -- which is why the guard below is here.)
+    p, _ = armed()
+    p._fwd_samples = [2.3942, 1073.1322, 1047.9932, 1051.9367, 1054.8789]
+    p._fwd_finish(0.0)
+    assert p._fwd1_this_arm == 2.3942, p._fwd1_this_arm
+    assert abs(p._fwd_this_arm - p._fwd1_this_arm) > 1.0, (
+        "median and sample 1 must be distinguishable for this test to mean "
+        "anything")
+    print("ok  arm fidelity: the reference is sample 1, the armed span's own "
+          "traversal, not the median of five different spans")
+
+    # Off by request.
+    p = fid(10189.66, 5.6, arm_fidelity_mult=0)
+    assert p.arm_history[-1]["verdict"] == "accepted", p.arm_history[-1]
+    print("ok  arm fidelity: arm_fidelity_mult=0 turns the axis off")
+
     p, _ = armed(arm_cost_mult=0)
     assert p._cost_threshold() is None
     print("ok  arm cost: arm_cost_mult=0 turns the axis off")
