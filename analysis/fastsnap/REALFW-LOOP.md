@@ -1044,3 +1044,59 @@ A and B have honest rates. C has five fixed misconfigurations and a sixth
 question that wants a different kind of investigation than "queue another
 run" -- which is what the previous five each cost. Handing it over as a named
 open question is worth more than a sixth guess at 5am.
+
+# The replay penalty looks like a TIMEOUT, not a cost
+
+Measured 2026-09-15 from `results/86`, a later run than everything above, on
+the same target A project. It is the sharpest evidence this lane has produced
+about the 60 ms, and it points somewhere none of the three killed hypotheses
+did.
+
+| attempt | forward traversal | replayed probe lap | ratio |
+|---|---|---|---|
+| 1 | **2.59 ms** | 1054.99 ms | **407x** |
+| 2 | 1050.17 ms | 1054.78 ms | 1.0 |
+| 3 | 1051.98 ms | 1054.80 ms | 1.0 |
+
+Two facts here, and the second is the one nothing above anticipated.
+
+**The replayed laps are flat to 0.02%.** 1054.99, 1054.78, 1054.80 across three
+independent arms at three different instants (152.2 s, 167.3 s, 183.4 s), and
+the accepted arm then ran 215 laps with a median of 1053.68 ms. A workload does
+not do that. A timer does. This file already used exactly that reasoning to
+classify target A's 14,949 ms case -- "flat to 0.3% across sixteen laps, which
+is a timeout firing and not a workload" -- and the same test applied here gives
+the same answer with a tighter tolerance. ~1.05 s is a plausible round number
+for a poll or connect timeout.
+
+**The slowdown PERSISTS past the reset.** Attempt 1 measures the forward span
+at 2.59 ms. After that arm is taken and rejected, attempts 2 and 3 measure the
+FORWARD span -- no replay involved -- at 1050 and 1052 ms. The first
+arm/restore left the guest in a state where ordinary forward traversal is 400x
+slower, and it stayed there. That is not a property of replaying; it is damage
+that outlives the restore.
+
+This matters for the arm-cost axis, which is built on the assumption that
+draws are independent samples of a fixed forward distribution. They are not:
+the act of arming changes the distribution the next attempt samples. The
+ladder widened 11.9 -> 17.8 -> 26.8 ms chasing a population that had already
+moved to 1050 ms, rejected all three, and accepted the last one anyway -- which
+is the documented and correct behaviour for a costly draw, but it means the
+axis cannot help on this target. It is not choosing badly among good draws; by
+attempt 2 there are no good draws left to choose from.
+
+**What this predicts, and how to falsify it.** If it is a timeout, the lap
+length is set by a constant in the victim or the driver script and not by any
+amount of emulation, so: (a) it will not move when the reset is made cheaper,
+(b) it will not scale with pages restored -- which is already observed, 194
+pages costing MORE than 227 -- and (c) it should be visible as a single
+blocking syscall consuming ~1.05 s of every lap. (c) is the discriminating
+test and it is now cheap to run: `hook_budget: 1` on the syscalls API counts
+hook firings per syscall, and `snapfeed`'s census names blocking calls. A lap
+that spends 1.05 s in one `poll`/`select`/`connect` is a timeout; a lap that
+spreads it across thousands of ordinary syscalls is emulation.
+
+Worth stating plainly: **the 69.54 ms figure this document is built on and the
+1053 ms here are probably the same phenomenon at different timeout values**,
+not two different regimes. Neither was ever traced to a blocking call, because
+nothing counted blocking calls until now.

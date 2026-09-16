@@ -886,9 +886,19 @@ class Syscalls(Plugin):
         rows = []
         for hook_ptr, n in self._fire_counts.items():
             cfg = self._hook_info.get(hook_ptr) or {}
+            # enter and return are SEPARATE hooks on the same syscall, and so
+            # are two plugins hooking the same one. Without the direction in
+            # the label the ranking shows what look like duplicate rows with
+            # identical counts (accept/accept4/writev all did), which reads as
+            # a bug in the report rather than as two real hooks worth two real
+            # dispatches.
+            nm = cfg.get("name") or ("<all>" if cfg.get("on_all")
+                                     else "<unknown>")
+            where = ("enter" if cfg.get("on_enter")
+                     else "return" if cfg.get("on_return") else "?")
             rows.append({
-                "syscall": cfg.get("name") or ("<all>" if cfg.get("on_all")
-                                               else "<unknown>"),
+                "syscall": f"{nm}:{where}",
+                "syscall_name": nm,
                 "comm": cfg.get("procname") or "",
                 "on_enter": bool(cfg.get("on_enter")),
                 "on_return": bool(cfg.get("on_return")),

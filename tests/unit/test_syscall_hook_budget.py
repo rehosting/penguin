@@ -54,7 +54,11 @@ def test_budget_ranks_by_firings_and_names_the_syscall(igloo_ko_isf, tmp_path):
     assert rep["total_firings"] == 5012
     # Ranked most-expensive first: the point of the report is to name the
     # hook worth deleting, which is the one that fires most.
-    assert [h["syscall"] for h in rep["hooks"]] == ["poll", "writev"]
+    # Direction is part of the label: enter and return are different hooks,
+    # and so are two plugins on the same syscall. Identical-looking rows in
+    # the ranking were the first thing that read as a report bug.
+    assert [h["syscall"] for h in rep["hooks"]] == ["poll:enter", "writev:enter"]
+    assert rep["hooks"][0]["syscall_name"] == "poll"
     assert rep["hooks"][0]["comm"] == "lighttpd"
     assert rep["hooks"][0]["firings"] == 5000
 
@@ -85,7 +89,7 @@ def test_budget_written_at_uninit_only_when_enabled(igloo_ko_isf, tmp_path):
     import json
     out = json.loads((tmp_path / "hook_budget.json").read_text())
     assert out["total_firings"] == 7
-    assert out["hooks"][0]["syscall"] == "read"
+    assert out["hooks"][0]["syscall"] == "read:enter"
 
 
 def test_no_file_when_budget_is_off(igloo_ko_isf, tmp_path):
@@ -104,4 +108,4 @@ def test_wildcard_hook_is_named_not_blank(igloo_ko_isf, tmp_path):
     p._hook_info[0x3000] = {"on_all": True, "on_return": True}
     p._fire_counts[0x3000] = 90000
     rep = p.hook_budget_report()
-    assert rep["hooks"][0]["syscall"] == "<all>"
+    assert rep["hooks"][0]["syscall"] == "<all>:return"
