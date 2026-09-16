@@ -117,11 +117,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1789435339,
-        "narHash": "sha256-hLIlycY7uwwbztBbkxqBowYbz+XicWxmp9a93Z+1DLM=",
+        "lastModified": 1789590705,
+        "narHash": "sha256-0e0hPtnC/tsLA1v0VCxAuo4U6c2jdh3GasMORl6VmsE=",
         "owner": "rehosting",
         "repo": "guesthopper",
-        "rev": "4fd41da5cae53b5dfb20918d9e135e029f53b9d2",
+        "rev": "945d4b472d510d5227ea06f2443241fd041da171",
         "type": "github"
       },
       "original": {
@@ -440,11 +440,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1785263959,
-        "narHash": "sha256-gn2GBz6GO4Yu6njFs0PwSD6Pj/hzO1GrHJfG31yQ850=",
+        "lastModified": 1789590692,
+        "narHash": "sha256-Xl8YkjvfeoIEz3yEXnWhOvJyo8EF9s4a1EW3UQZE9hs=",
         "owner": "rehosting",
         "repo": "vpnguin",
-        "rev": "4503dec72cf68082becb136e2830b46e179b5104",
+        "rev": "e6e7a60bd2ed81c5660c578dbb5ab284d5967724",
         "type": "github"
       },
       "original": {
