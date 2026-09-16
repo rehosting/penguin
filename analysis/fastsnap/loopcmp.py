@@ -13,7 +13,16 @@ open. The dirty-page reading was not contradicted by anything on screen.
 So this prints the columns that discriminate, together, with the derived ratios
 the raw files leave implicit:
 
-  exec/s        the outcome
+  exec_s        exec/s from the MEDIAN lap -- the per-lap rate.
+  wall_s        exec/s over the loop's wall clock, oracle laps included.
+                THIS is the number a fuzzer gets. The two differ by whatever
+                the loop spends not looping: run 106 reports 298.9 from the
+                median and 33.5 over the wall, because the guest driver's
+                connection dies and takes about two seconds to come back, and
+                a median over laps cannot see time when there were no laps.
+                A tail that big is worth more attention than the headline.
+  med/wall      their ratio, and a direct read on how much of the run was
+                spent outside a lap.
   lap_ms        median plain lap
   fwd_ms        THE ARMED SPAN's own forward traversal -- sample 1 of the
                 draw's five, the only one that starts where every replayed
@@ -154,6 +163,8 @@ def row(d):
         "fwd_lo": modes[0] if modes else None,
         "cheap": cheap_mode_verdict(fl),
         "exec_s": fl.get("exec_per_s_median"),
+        "wall_s": fl.get("exec_per_s_wall_incl_oracle"),
+        "med/wall": fl.get("exec_per_s_median_over_wall"),
         "iters": iters,
         "lap_ms": lap,
         "lap_src": lap_src,
@@ -180,7 +191,8 @@ def row(d):
 
 
 COLS = [
-    ("run", "{}", 6), ("exec_s", "{:.2f}", 8), ("iters", "{}", 6),
+    ("run", "{}", 6), ("exec_s", "{:.2f}", 8), ("wall_s", "{:.2f}", 8),
+    ("med/wall", "{:.1f}x", 9), ("iters", "{}", 6),
     ("lap_ms", "{:.3f}", 10), ("fwd_ms", "{:.2f}", 9),
     ("reset_us", "{:.0f}", 9), ("pages", "{:.0f}", 6),
     ("reset_frac", "{:.4%}", 11), ("attempts", "{}", 5),
