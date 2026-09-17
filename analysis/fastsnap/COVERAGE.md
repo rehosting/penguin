@@ -285,10 +285,36 @@ one variable changed — a 16x map.
 | estimated collision loss | 27% | **2.0%** | ~2% |
 | `cov_scan_us` | 163 | **268** | "higher, roughly linearly" |
 
-**The estimator was right.** Predicted 43,752 true edges from a half-full map;
-the 16x map measured 42,249 directly, which corrected for its own 2.0% residual
-loss is 43,124 — **1.5% from the prediction**. `tbs_instrumented` came back
-within 0.6% across the two runs, so it really was the same workload.
+**First, the comparison that does *not* work, because it would have been the
+headline.** Predicted 43,752 cumulative true edges; the 16x map measured
+42,249, which corrected for its own 2.0% residual loss is 43,124 — 1.5% from
+the prediction. That looks decisive and **it is confounded.** Run 112 had ~1.1
+laps in the expensive 10.2 s mode and run 114 had ~4.1, and an expensive lap is
+a *connection boundary*: it replays a guest fork+exec and sees up to 29,285
+edges against a 5,011 median. Three extra of those contribute real distinct
+edges to the cumulative virgin map, so `total_edges` 31,920 → 42,249 cannot be
+attributed to map size alone. The agreement is probably mostly real and it is
+not evidence.
+
+**The comparison that does work** is the per-lap edge count, which is immune to
+this: it is a per-lap quantity *and* a median, so a handful of boundary laps
+cannot move it. Three points, all unconfounded:
+
+| | 64 KiB observed | → predicts | 1 MiB observed | → corrected | apart |
+|---|---|---|---|---|---|
+| median edges/lap | 4,849 (7.40% full) | 5,038 | 5,011 (0.48%) | 5,023 | **0.29%** |
+| p90 edges/lap | 5,166 (7.88%) | 5,381 | 5,342 (0.51%) | 5,356 | **0.47%** |
+| max edges/lap | 23,188 (35.38%) | 28,618 | 29,285 (2.79%) | 29,702 | **3.65%** |
+
+The max row is one boundary lap, and it is the one that matters most: at 35%
+occupancy it exercises the estimator where the correction is large (23,188
+observed against 28,618 predicted — a 19% shortfall) and it still lands within
+3.65%. `tbs_instrumented` came back within 0.6% across the two runs, so it was
+the same workload.
+
+So the **estimator is validated as a function**, at three occupancies from 0.5%
+to 35%. The 27% cumulative loss at 48.7% then follows from applying a validated
+function, rather than from the confounded direct comparison.
 
 **The linearity half of the prediction was wrong.** A 16x map cost **1.64x**
 the scan, not 16x. The zero-word skip is why: a sparse map is skimmed eight
@@ -297,16 +323,18 @@ byte (~5 ns per set byte), so cost tracks **edges set per lap** far more than
 map size. The thing that fills up is the *cumulative virgin* map, and that is
 not what the scan is dominated by. Per-lap occupancy at 64 KiB was only 7.4%.
 
-So the trade is **+105 µs per lap for 32% more visible edges**, which on these
-numbers is worth taking: the 1 MiB map's total coverage cost is ~366 µs against
-~261 µs, still under 11% of a lap.
+So the trade is **+105 µs per lap** against an estimated **27% of cumulative
+edges recovered** — the 32% raw increase in `total_edges` is an overstatement
+for the reason above. On these numbers it is worth taking: the 1 MiB map's
+total coverage cost is ~366 µs against ~261 µs, still under 11% of a lap.
 
 **157 new edges in 2,200 laps was the expected reading, not a disappointment.**
 Those runs had `mutate: 0` — the inputs barely vary, so there is little reason
 for coverage to grow, and the number establishes that the mechanism responds
 and then settles, which is what a saturated corpus looks like. Run 114 saw 517
-new edges over the same 2,200 laps with the bigger map, which is the same story
-with the collisions removed. What mutation does to that is measured separately
+new edges over the same 2,200 laps with the bigger map — but it also drew three
+more boundary laps, so that figure carries the same confound and is not a clean
+"collisions removed" number either. What mutation does to that is measured separately
 (run 115), because it is a different question.
 
 ## What this still does not close
