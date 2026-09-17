@@ -1740,6 +1740,48 @@ class FastLoop(Plugin):
         self.ab_blocks.append(row)
 
     @staticmethod
+    def _cov_exposure(per_lap):
+        """How uneven the per-lap coverage was, because total_edges depends on
+        it and nothing else in the report says so.
+
+        THE MISTAKE THIS PREVENTS, which was made rather than anticipated.
+        Two runs of this target were compared on cumulative `total_edges` --
+        31,920 at 64 KiB against 42,249 at 1 MiB -- and the jump was
+        attributed to map size. It could not be. This workload's laps are
+        BIMODAL: most replay a pipelined request in ~3.5 ms, and a few replay
+        a CONNECTION BOUNDARY, which is a guest fork+exec and sees up to
+        29,285 edges against a 5,011 median. One run drew one of those and the
+        other drew four, so they had different EXPOSURE, and a cumulative
+        count over different exposure is not a comparison.
+
+        Per-lap medians are immune (a median cannot be moved by four laps in
+        two thousand) and that is where the real comparison ended up. But
+        nothing in the result made the exposure difference visible, so the
+        confounded number was the one to hand. This counts the outlier laps so
+        it is not.
+        """
+        if not per_lap:
+            return None
+        v = sorted(per_lap)
+        med = v[len(v) // 2]
+        if med <= 0:
+            return {"laps": len(v), "median_edges": med, "outlier_laps": 0}
+        hi = [x for x in v if x > 2 * med]
+        out = {"laps": len(v), "median_edges": med,
+               "outlier_laps": len(hi),
+               "outlier_threshold": 2 * med,
+               "max_edges": v[-1]}
+        if hi:
+            out["outlier_edge_share"] = round(sum(hi) / float(sum(v)), 4)
+            out["errors"] = (
+                f"{len(hi)} of {len(v)} laps saw more than twice the median "
+                f"edge count (up to {v[-1]}), so this run's exposure is "
+                f"uneven. total_edges is CUMULATIVE over that exposure and is "
+                f"not comparable to another run's unless the outlier count "
+                f"matches -- compare the per-lap median instead.")
+        return out
+
+    @staticmethod
     def _cov_occupancy(total_edges, map_size):
         """How much of the map is used, and how much coverage it is hiding.
 
@@ -3512,6 +3554,7 @@ class FastLoop(Plugin):
                 cov["ab"] = self._ab_report()
             cov["occupancy"] = self._cov_occupancy(
                 cov["total_edges"], cov["map_size"])
+            cov["exposure"] = self._cov_exposure(self.cov_edges)
             # THE ZERO THAT MEANS TWO THINGS. An empty map is produced both by
             # a guest that reached nothing and by a filter naming a range that
             # holds no code, and nothing in the map separates them. The tbs

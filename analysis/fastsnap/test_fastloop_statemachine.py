@@ -1737,6 +1737,55 @@ def oracle_method_tests(tmp):
           "complete, VALID run")
 
 
+def cov_exposure_tests(tmp):
+    """Whether total_edges is comparable across runs, said out loud.
+
+    THE MISTAKE THIS PREVENTS was made, not anticipated. Two runs were
+    compared on cumulative total_edges and the difference attributed to map
+    size. It could not be: this workload's laps are bimodal, and the expensive
+    mode is a CONNECTION BOUNDARY replaying a guest fork+exec that sees ~6x
+    the median edge count. One run drew one of those, the other four, so their
+    exposure differed -- and nothing in the result said so.
+    """
+    cls, _mod = load_class()
+    exp = cls._cov_exposure
+
+    # ---- THE REAL SHAPE: 2,178 laps near 5,011 edges, four boundary laps --
+    per_lap = [5011] * 2174 + [23000, 25000, 27000, 29285]
+    r = exp(per_lap)
+    assert r["laps"] == 2178, r
+    assert r["median_edges"] == 5011, r
+    assert r["outlier_laps"] == 4, r
+    assert r["max_edges"] == 29285, r
+    assert "not comparable" in r["errors"], r["errors"]
+    assert "per-lap median" in r["errors"], r["errors"]
+    print(f"ok  {r['outlier_laps']} boundary laps of {r['laps']} are named, "
+          f"and total_edges is called not-comparable")
+
+    # ---- THE NEGATIVE CONTROL: an even run says nothing ------------------
+    # A warning on every run is not a warning. The per-lap spread here is
+    # wider than any real one (+/-10%) and must still be silent, or the
+    # message would fire on the runs it is meant to exonerate.
+    even = [5011 + (i % 21 - 10) * 50 for i in range(2178)]
+    r2 = exp(even)
+    assert r2["outlier_laps"] == 0, r2
+    assert "errors" not in r2, r2
+    print(f"ok  an even run ({min(even)}..{max(even)} edges/lap) raises "
+          f"nothing")
+
+    # ---- AND THE MEDIAN IS WHAT SURVIVES ---------------------------------
+    # The claim the redirection rests on, asserted rather than described:
+    # adding four enormous laps must not move the median it points at.
+    assert exp(per_lap)["median_edges"] == exp([5011] * 2174)["median_edges"]
+    print("ok  four boundary laps do not move the median the message "
+          "redirects to")
+
+    # ---- DEGENERATE ------------------------------------------------------
+    assert exp([]) is None
+    assert exp([0, 0, 0])["median_edges"] == 0
+    print("ok  an empty or all-zero run does not divide by zero")
+
+
 def cov_occupancy_tests(tmp):
     """What the map is HIDING, not just how full it is.
 
@@ -2614,6 +2663,7 @@ def main():
     coverage_tests(tmp)
     cov_ab_tests(tmp)
     cov_occupancy_tests(tmp)
+    cov_exposure_tests(tmp)
     oracle_method_tests(tmp)
     tcg_work_tests(tmp)
     arm_cost_tests(tmp)
