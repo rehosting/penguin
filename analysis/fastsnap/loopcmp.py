@@ -221,6 +221,36 @@ def row(d):
         "hook_ms_lap": hook_ms,
         "hook_marked": marked,
         "verdict": (fl.get("verdict") or "")[:40],
+        **_cov(fl),
+    }
+
+
+def _cov(fl):
+    """The coverage columns, and a `cov` flag that is never blank.
+
+    Coverage arrived after most of these runs were recorded, and a run taken
+    without it is not comparable to one taken with it -- the instrumentation
+    is real work inside the lap. So `cov` reads "off" rather than empty: a
+    blank column invites the reader to assume the two rows differ only in the
+    numbers they do show.
+
+    `cov_edges` is the median distinct edges per lap and `cov_new` the total
+    edges never seen before across the run. new == 0 over thousands of laps
+    is the interesting reading: the inputs are not reaching anywhere the
+    corpus has not already been.
+    """
+    if not fl.get("coverage_on"):
+        return {"cov": "off", "cov_edges": None, "cov_new": None}
+    c = fl.get("coverage") or {}
+    if c.get("blind"):
+        # Instrumented nothing, or instrumented and logged nothing. Either
+        # way the numbers below are the absence of a measurement, and a row
+        # that printed them as zeros would read as a result.
+        return {"cov": "BLIND", "cov_edges": None, "cov_new": None}
+    return {
+        "cov": "on",
+        "cov_edges": (c.get("edges") or {}).get("median"),
+        "cov_new": c.get("new_edges_total"),
     }
 
 
@@ -234,6 +264,8 @@ COLS = [
     ("disjoint", "{:.0%}", 9), ("hook_ms_lap", "{:.3f}", 12),
     ("spread", "{:.1f}x", 8), ("fwd1_ms", "{:.2f}", 10),
     ("fid1", "{:.3f}", 8), ("cheap", "{}", 10),
+    ("cov", "{}", 6), ("cov_edges", "{:.0f}", 10),
+    ("cov_new", "{:.0f}", 9),
 ]
 
 

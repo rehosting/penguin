@@ -1371,6 +1371,26 @@ class QemuCompat:
     # asks.
     FASTSNAP_LOOP_RESET_VERIFY = 17
 
+    # Edge coverage, filled by ops emitted into every translated block. This
+    # is what makes an exec/s figure a fuzzing rate rather than a loop rate:
+    # the published numbers it gets compared against are coverage-guided, and
+    # a loop with no feedback is not measuring the same thing.
+    #
+    # ARM allocates the map on first use, clears it, and queues a tb_flush --
+    # necessary, because instrumentation is emitted at TRANSLATION time and a
+    # block already in the cache would never acquire any. CLEAR empties the
+    # per-lap map. READ summarises without clearing. DISARM stops
+    # instrumenting new blocks.
+    #
+    # None of these run per lap. With clear_on_reset on (the default),
+    # LOOP_RESET and LOOP_RESET_VERIFY summarise and clear the map as part of
+    # the reset, so a lap costs one 64 KiB scan and no extra scheduled op --
+    # and on this lane an op is by far the more expensive of the two.
+    FASTSNAP_COV_ARM = 18
+    FASTSNAP_COV_CLEAR = 19
+    FASTSNAP_COV_READ = 20
+    FASTSNAP_COV_DISARM = 21
+
     # The C symbols these bindings call. A PYTHON-level preflight -- checking
     # that a QemuCompat method exists -- cannot see a missing one of these, and
     # that distinction is not academic: the methods below were added here and
@@ -1406,6 +1426,33 @@ class QemuCompat:
         "penguin_fastsnap_dev_diff_sections",
         "penguin_fastsnap_dev_unrestorable_sections",
         "penguin_fastsnap_dev_diff_report",
+    )
+
+    # DELIBERATELY NOT IN FASTSNAP_SYMBOLS, which fastloop treats as a
+    # precondition and refuses the run over. Coverage is opt-in, and an image
+    # whose QEMU predates it is a perfectly good image for every measurement
+    # that does not ask for coverage -- folding these into the required set
+    # would turn an unrelated QEMU rebuild into a hard dependency of every run.
+    #
+    # The discipline that list exists for still applies, just one level in: if
+    # a caller ASKS for coverage and these are absent, that has to stop the
+    # run rather than produce a run that reports zero edges forever. See
+    # fastsnap_cov_available().
+    FASTSNAP_COV_SYMBOLS = (
+        "penguin_fastsnap_cov_set_filter",
+        "penguin_fastsnap_cov_set_map_size",
+        "penguin_fastsnap_cov_set_clear_on_reset",
+        "penguin_fastsnap_cov_map_addr",
+        "penguin_fastsnap_cov_map_size",
+        "penguin_fastsnap_cov_armed",
+        "penguin_fastsnap_cov_edges",
+        "penguin_fastsnap_cov_hits",
+        "penguin_fastsnap_cov_new_edges",
+        "penguin_fastsnap_cov_new_buckets",
+        "penguin_fastsnap_cov_total_edges",
+        "penguin_fastsnap_cov_tbs_instrumented",
+        "penguin_fastsnap_cov_tbs_filtered",
+        "penguin_fastsnap_cov_scan_us",
     )
 
     def fastsnap_missing_symbols(self) -> list:
@@ -1767,6 +1814,149 @@ class QemuCompat:
         """Device sections a block would cover on this machine."""
         fn = self._lib_symbol("penguin_fastsnap_section_count")
         return int(fn()) if fn is not None else 0
+
+    # ---- fastsnap: edge coverage ----------------------------------------
+
+    def fastsnap_cov_missing_symbols(self) -> list:
+        """Which of FASTSNAP_COV_SYMBOLS this build does not expose."""
+        return [n for n in self.FASTSNAP_COV_SYMBOLS
+                if self._lib_symbol(n) is None]
+
+    def fastsnap_cov_available(self) -> bool:
+        """True if this QEMU build exports the whole coverage ABI.
+
+        All or nothing on purpose. A partial ABI is the worse failure: the
+        accessors that exist keep answering, the ones that do not silently
+        stop being consulted, and the result is a coverage report that is
+        internally consistent and wrong. A caller that needs coverage should
+        check this and refuse, the way fastloop refuses over
+        fastsnap_missing_symbols().
+        """
+        return not self.fastsnap_cov_missing_symbols()
+
+    def _fastsnap_cov_fn(self, name):
+        fn = self._lib_symbol(name)
+        if fn is None:
+            raise RuntimeError(
+                f"{name} is not callable in this build. The QEMU library "
+                f"predates fastsnap edge coverage (or the generated cffi "
+                f"header does not declare it). Check "
+                f"fastsnap_cov_available() before asking for coverage; "
+                f"returning zero here would report 'the guest found nothing' "
+                f"for a mechanism that was never present.")
+        return fn
+
+    def fastsnap_cov_set_filter(self, lo: int, hi: int) -> bool:
+        """Instrument only blocks whose PC is in [lo, hi). hi == 0 means all.
+
+        A VIRTUAL address range, in a full-system emulator, so it cannot tell
+        two processes apart that share the range. Under the fastsnap loop the
+        guest is one pinned workload and that is tolerable -- but the way to
+        find out whether the range is the one you meant is
+        :meth:`fastsnap_cov_tbs_instrumented`, not the map, because a range
+        that names no code and a guest that found nothing produce the same
+        empty map.
+
+        Read at translation time, so it takes full effect at the next
+        COV_ARM, whose tb_flush is what re-translates everything already
+        cached.
+        """
+        fn = self._lib_symbol("penguin_fastsnap_cov_set_filter")
+        if fn is None:
+            return False
+        fn(int(lo), int(hi))
+        return True
+
+    def fastsnap_cov_set_map_size(self, size: int) -> bool:
+        """Size the map. Power of two in [256, 16M], BEFORE the first arm.
+
+        Returns False if rejected -- including "too late", which is the
+        likely one: after the first arm the map's address and mask are
+        compiled into translated blocks and cannot move.
+        """
+        fn = self._lib_symbol("penguin_fastsnap_cov_set_map_size")
+        return bool(fn(int(size))) if fn is not None else False
+
+    def fastsnap_cov_set_clear_on_reset(self, on: bool) -> bool:
+        """Whether LOOP_RESET summarises and clears the map. Default on.
+
+        Leave it on. The alternative is a scheduled op per lap to do what the
+        reset can do for free, and a scheduled op costs more here than the
+        scan it would be asking for.
+        """
+        fn = self._lib_symbol("penguin_fastsnap_cov_set_clear_on_reset")
+        if fn is None:
+            return False
+        fn(bool(on))
+        return True
+
+    def fastsnap_cov_armed(self) -> bool:
+        return bool(self._fastsnap_cov_fn("penguin_fastsnap_cov_armed")())
+
+    def fastsnap_cov_map_size(self) -> int:
+        return int(self._fastsnap_cov_fn("penguin_fastsnap_cov_map_size")())
+
+    def fastsnap_cov_edges(self) -> int:
+        """Distinct edges touched in the last summarised lap."""
+        return int(self._fastsnap_cov_fn("penguin_fastsnap_cov_edges")())
+
+    def fastsnap_cov_hits(self) -> int:
+        """Block executions logged in that lap. Byte counters, so an edge
+        saturates at 255; a proxy for how much code ran, not an exact count."""
+        return int(self._fastsnap_cov_fn("penguin_fastsnap_cov_hits")())
+
+    def fastsnap_cov_new_edges(self) -> int:
+        """Edges seen for the first time ever in that lap."""
+        return int(self._fastsnap_cov_fn("penguin_fastsnap_cov_new_edges")())
+
+    def fastsnap_cov_new_buckets(self) -> int:
+        """Edges that reached a hit-count bucket never seen before.
+
+        This, not new_edges, is the "was this input interesting" signal. It is
+        strictly weaker and that is the point: an edge that ran three times
+        instead of once is how a loop bound gets found, and an edge-presence
+        count cannot see it.
+        """
+        return int(self._fastsnap_cov_fn("penguin_fastsnap_cov_new_buckets")())
+
+    def fastsnap_cov_total_edges(self) -> int:
+        """Distinct edges seen across every lap since the first arm."""
+        return int(self._fastsnap_cov_fn("penguin_fastsnap_cov_total_edges")())
+
+    def fastsnap_cov_tbs_instrumented(self) -> int:
+        """Blocks instrumented since the last arm.
+
+        READ THIS BEFORE BELIEVING A ZERO EDGE COUNT. Zero instrumented with
+        a nonzero filtered count means the address range names no code the
+        guest executes, which is the first thing anyone gets wrong when
+        configuring one -- and from the map alone it is indistinguishable
+        from a guest that genuinely reached nothing.
+        """
+        return int(self._fastsnap_cov_fn(
+            "penguin_fastsnap_cov_tbs_instrumented")())
+
+    def fastsnap_cov_tbs_filtered(self) -> int:
+        """Blocks the address filter excluded since the last arm."""
+        return int(self._fastsnap_cov_fn(
+            "penguin_fastsnap_cov_tbs_filtered")())
+
+    def fastsnap_cov_scan_us(self) -> int:
+        """Cost of the last summarising pass. Part of the reset path when
+        clear_on_reset is on, so it belongs in the lap budget."""
+        return int(self._fastsnap_cov_fn("penguin_fastsnap_cov_scan_us")())
+
+    def fastsnap_cov_map_bytes(self) -> bytes:
+        """A copy of the raw map, AFL layout, for handing to another tool.
+
+        Copies the whole map, so this is for export at the end of a run, not
+        for reading once a lap -- the per-lap numbers are already summarised
+        in C precisely so nothing has to cross this boundary that often.
+        """
+        addr = int(self._fastsnap_cov_fn("penguin_fastsnap_cov_map_addr")())
+        size = self.fastsnap_cov_map_size()
+        if not addr or not size:
+            return b""
+        return bytes(self.ffi.buffer(self.ffi.cast("char *", addr), size))
 
     def end_analysis(self):
         if hasattr(self.lib, "qemu_system_shutdown_request"):

@@ -48,6 +48,7 @@ class FakeQemu:
     FASTSNAP_LOOP_RESET_VERIFY = 17
     FASTSNAP_FORK_DIFF = 7
     FASTSNAP_FORK_DROP = 8
+    FASTSNAP_COV_ARM = 18
 
     def __init__(self, ram_bytes=268836864):
         self.seq = 0
@@ -89,6 +90,19 @@ class FakeQemu:
         self.pages_invalidated = 0
         self.pages_skipped_nocode = 0
         self.tcg_absent = False     # model an image predating the counters
+        # Coverage. Distinct constants again, so a number attributed to the
+        # wrong accessor is identifiable rather than merely wrong.
+        self.cov_missing = []       # the C-symbol half, settable like `missing`
+        self.cov_map_sz = 65536
+        self.cov_filter = None
+        self.cov_clear_on_reset = None
+        self.cov_tbs_i = 940
+        self.cov_tbs_f = 0
+        self.cov_total = 1301
+        self._cov_edges = 502
+        self._cov_new = 12
+        self._cov_new_b = 3
+        self._cov_scan_us = 27
 
     # -- the API the plugin uses --
     def fastsnap_available(self):
@@ -121,12 +135,62 @@ class FakeQemu:
     def fastsnap_dev_diff_report(self):
         return self.dev_diff_report
 
+    # Op NUMBERS, not the class attributes above, and not for brevity. The
+    # optional-API test deletes FASTSNAP_COV_ARM from this class to prove the
+    # exemption is real; a fake that then raised AttributeError from its own
+    # dispatch would report its own missing attribute as a plugin failure,
+    # which is exactly the class of false result this file exists to prevent.
+    _FIRE_AND_FORGET = frozenset({8, 18})       # FORK_DROP, COV_ARM
+
     def fastsnap_schedule(self, op):
         self.ops.append(op)
-        if op == self.FASTSNAP_FORK_DROP:
-            self.seq += 1             # fire-and-forget, nothing polls it
+        if op in self._FIRE_AND_FORGET:
+            self.seq += 1             # nothing polls it
             return
         self.pending = op
+
+    # -- coverage --
+    def fastsnap_cov_missing_symbols(self):
+        return list(self.cov_missing)
+
+    def fastsnap_cov_available(self):
+        return not self.cov_missing
+
+    def fastsnap_cov_set_filter(self, lo, hi):
+        self.cov_filter = (lo, hi)
+        return True
+
+    def fastsnap_cov_set_map_size(self, size):
+        self.cov_map_sz = size
+        return True
+
+    def fastsnap_cov_set_clear_on_reset(self, on):
+        self.cov_clear_on_reset = on
+        return True
+
+    def fastsnap_cov_map_size(self):
+        return self.cov_map_sz
+
+    def fastsnap_cov_edges(self):
+        return self._cov_edges
+
+    def fastsnap_cov_new_edges(self):
+        return self._cov_new
+
+    def fastsnap_cov_new_buckets(self):
+        return self._cov_new_b
+
+    def fastsnap_cov_total_edges(self):
+        return self.cov_total
+
+    def fastsnap_cov_tbs_instrumented(self):
+        return self.cov_tbs_i
+
+    def fastsnap_cov_tbs_filtered(self):
+        return self.cov_tbs_f
+
+    def fastsnap_cov_scan_us(self):
+        return self._cov_scan_us
 
     def fastsnap_seq(self):
         return self.seq
@@ -284,13 +348,15 @@ def load_class():
     return mod.__dict__[cls.name], mod
 
 
-def make(mode, tmpdir, missing=(), **args):
+def make(mode, tmpdir, missing=(), cov_missing=(), **args):
     cls, mod = load_class()
     qemu = FakeQemu()
     # Set BEFORE construction: the preflight runs in __init__, which is the
     # whole point -- an absent symbol has to stop the run before a boot and a
-    # warmup have been spent on it.
+    # warmup have been spent on it. Same for the coverage half, which is a
+    # separate group because it is only required when coverage is asked for.
     qemu.missing = list(missing)
+    qemu.cov_missing = list(cov_missing)
 
     class Harnessed(cls):
         def __init__(self):
@@ -1639,6 +1705,151 @@ def oracle_method_tests(tmp):
           "complete, VALID run")
 
 
+def coverage_tests(tmp):
+    """Edge coverage: that it is off unless asked for, refused when asked for
+    and absent, and that an empty map is never quietly reported as a result."""
+
+    # ---- OFF BY DEFAULT, AND VISIBLY SO -------------------------------
+    # Every rate this lane recorded before coverage existed was measured
+    # without it. A run that turned it on silently would be incomparable to
+    # all of them with nothing in the output saying so, which is why
+    # `coverage_on` is present either way rather than only when it is true.
+    p, q = make("loop", tmp)
+    to_loop(p, q)
+    for _ in range(4):
+        q.run_bottom_half()
+        hit(p)
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    assert q.FASTSNAP_COV_ARM not in q.ops, q.ops
+    assert out["coverage_on"] is False, out["coverage_on"]
+    assert "coverage" not in out, out.get("coverage")
+    assert q.cov_filter is None and q.cov_clear_on_reset is None
+    print("ok  coverage is off unless asked for, and the result says which")
+
+    # ---- ARMED BEFORE ANYTHING IS MEASURED ----------------------------
+    # Instrumentation is emitted at translation time and arming flushes the
+    # TB cache, so arming after the forward probe would leave the replayed
+    # laps instrumented and the traversal they are scored against not.
+    # _replay_fidelity divides one by the other. Ordering is the assertion.
+    p, q = make("loop", tmp, coverage=1)
+    to_loop(p, q)
+    assert q.ops.index(q.FASTSNAP_COV_ARM) < q.ops.index(q.FASTSNAP_LOOP_ARM), \
+        q.ops
+    assert q.ops.count(q.FASTSNAP_COV_ARM) == 1, q.ops
+    assert q.cov_clear_on_reset is True, q.cov_clear_on_reset
+    print("ok  coverage arms exactly once, before the snapshot arm")
+
+    # ---- PER-LAP NUMBERS COME FROM THE RESET, NOT FROM AN EXTRA OP ----
+    for _ in range(4):
+        q.run_bottom_half()
+        hit(p)
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    cov = out["coverage"]
+    assert out["coverage_on"] is True
+    assert cov["laps"] > 0, cov
+    assert cov["edges"]["median"] == 502, cov["edges"]
+    assert cov["edges"]["n"] == cov["laps"], cov
+    assert cov["new_edges_total"] == 12 * cov["laps"], cov
+    assert cov["new_buckets_total"] == 3 * cov["laps"], cov
+    assert cov["laps_with_new_buckets"] == cov["laps"], cov
+    assert cov["scan_us"]["median"] == 27, cov["scan_us"]
+    assert cov["total_edges"] == 1301, cov
+    assert cov["map_size"] == 65536, cov
+    assert "blind" not in cov, cov
+    # THE COST CLAIM, checked. Coverage costs one op for the whole run and
+    # nothing per lap: the reset already summarised and cleared the map, which
+    # is the only reason per-lap coverage is affordable at 3 ms a lap. If a
+    # COV_READ or COV_CLEAR ever appears in the per-lap path this fails, which
+    # is the point -- an op costs more here than the scan it would ask for.
+    assert q.ops.count(q.FASTSNAP_COV_ARM) == 1, q.ops
+    assert not any(op in (19, 20, 21) for op in q.ops), q.ops
+    print("ok  per-lap coverage is read from the reset, with no op of its own")
+
+    # ---- ASKED FOR AND ABSENT STOPS THE RUN ---------------------------
+    # The failure this prevents is not a crash. It is thousands of laps of
+    # zero edges, which is exactly what a guest that reached nothing looks
+    # like, on a build where the mechanism was never present.
+    p, q = make("loop", tmp, coverage=1,
+                cov_missing=["penguin_fastsnap_cov_edges"])
+    assert p.state == "done", p.state
+    assert any("coverage ABI absent" in e for e in p.errors), p.errors
+    assert q.FASTSNAP_COV_ARM not in q.ops, q.ops
+
+    # And the same refusal when the PYTHON binding is the missing half -- a
+    # different failure with the same consequence, which is why the preflight
+    # asks both questions rather than trusting one to imply the other.
+    saved = FakeQemu.fastsnap_cov_new_buckets
+    del FakeQemu.fastsnap_cov_new_buckets
+    try:
+        p, q = make("loop", tmp, coverage=1)
+        assert p.state == "done", p.state
+        assert any("fastsnap_cov_new_buckets" in e for e in p.errors), p.errors
+    finally:
+        FakeQemu.fastsnap_cov_new_buckets = saved
+
+    # ...and with coverage OFF the same image is perfectly usable, which is
+    # why these names are exempt from the general stale-image refusal.
+    del FakeQemu.fastsnap_cov_new_buckets
+    try:
+        p, q = make("loop", tmp)
+        assert p.state == "warmup", p.state
+        assert not any("stale image" in e for e in p.errors), p.errors
+    finally:
+        FakeQemu.fastsnap_cov_new_buckets = saved
+    print("ok  coverage asked for and absent refuses the run; absent and "
+          "unasked-for does not")
+
+    # ---- AN EMPTY MAP IS ATTRIBUTED, NOT REPORTED ---------------------
+    # A filter naming a range that holds no code and a guest that reached
+    # nothing produce the same empty map. The tbs counters are the only thing
+    # that separates them, so a run where nothing was instrumented has to say
+    # so rather than publish a plausible zero.
+    p, q = make("loop", tmp, coverage=1,
+                cov_filter_lo=0xdead0000, cov_filter_hi=0xdead1000)
+    q.cov_tbs_i = 0
+    q.cov_tbs_f = 973
+    q.cov_total = 0
+    q._cov_edges = 0
+    q._cov_new = 0
+    q._cov_new_b = 0
+    to_loop(p, q)
+    assert q.cov_filter == (0xdead0000, 0xdead1000), q.cov_filter
+    for _ in range(4):
+        q.run_bottom_half()
+        hit(p)
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    cov = out["coverage"]
+    assert cov["tbs_instrumented"] == 0 and cov["tbs_filtered"] == 973, cov
+    assert "blind" in cov and "not a measurement of absence" in cov["blind"], cov
+    assert any("names no code" in e for e in out["errors"]), out["errors"]
+    print("ok  a filter that instruments nothing is named, not left as a zero")
+
+    # ---- INSTRUMENTED BUT SILENT IS ITS OWN FAILURE -------------------
+    # Blocks instrumented and no edge ever logged means the emitted ops are
+    # not reaching the map -- a different fault from a wrong filter, and one
+    # that a filter-shaped message would send someone looking in the wrong
+    # place.
+    p, q = make("loop", tmp, coverage=1)
+    q.cov_tbs_i = 940
+    q.cov_tbs_f = 0
+    q.cov_total = 0
+    q._cov_edges = 0
+    q._cov_new = 0
+    q._cov_new_b = 0
+    to_loop(p, q)
+    for _ in range(4):
+        q.run_bottom_half()
+        hit(p)
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    assert "not reaching the map" in out["coverage"]["blind"], out["coverage"]
+    assert any("logged no edges" in e for e in out["errors"]), out["errors"]
+    print("ok  instrumented-but-silent is reported as its own fault")
+
+
 def health_tests(tmp):
     # ---- THE PROBE LOOKS ONCE ------------------------------------------
     # arm_probe scores the first 200 laps and never asks again. Two runs
@@ -1948,6 +2159,7 @@ def main():
     wall_tests(tmp)
     lap_tests(tmp)
     health_tests(tmp)
+    coverage_tests(tmp)
     oracle_method_tests(tmp)
     tcg_work_tests(tmp)
     arm_cost_tests(tmp)

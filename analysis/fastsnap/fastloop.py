@@ -315,6 +315,35 @@ class FastLoop(Plugin):
         # answer. Reported once and the run continues: it is a cost problem,
         # not a correctness one, and stopping a valid measurement over it
         # would be worse than the cost.
+        # EDGE COVERAGE, off by default.
+        #
+        # This lane's exec/s was a loop rate: reset, feed an input, detect the
+        # next boundary. What it could not do was notice that an input reached
+        # somewhere new, and every published figure it gets compared to (Nyx,
+        # FIRM-AFL) is coverage-GUIDED throughput. Those are different
+        # quantities. With this on, they are the same one.
+        #
+        # Off by default because it is not free and because the numbers
+        # already recorded were taken without it -- turning it on silently
+        # would make this run incomparable to every earlier one without
+        # anything in the result saying so. `coverage_on` goes into the
+        # output for exactly that reason.
+        self.cov = bool(self._num("coverage", 0))
+        # Instrument only blocks in [lo, hi). 0/0 means everything, kernel
+        # included. A VIRTUAL range in a full-system emulator, so it cannot
+        # separate two processes sharing it; check cov_tbs_instrumented in the
+        # result before believing a zero edge count, because "the range names
+        # no code" and "the guest reached nothing" produce the same empty map.
+        self.cov_lo = int(self._num("cov_filter_lo", 0))
+        self.cov_hi = int(self._num("cov_filter_hi", 0))
+        # Power of two, before the first arm only. 0 leaves QEMU's default of
+        # 65536, which is AFL's MAP_SIZE and what anything downstream assumes.
+        self.cov_map_size = int(self._num("cov_map_size", 0))
+        self._cov_armed = False
+        self.cov_edges = []         # distinct edges, per lap
+        self.cov_new = []           # edges never seen before, per lap
+        self.cov_new_buckets = []   # new hit-count buckets -- the AFL signal
+        self.cov_scan_us = []       # what summarising cost, per lap
         self.health_time_frac = float(self._num("health_time_frac", 0.5))
         self.hot_class = None
         self._hw_n = self._hw_sig = 0
@@ -553,6 +582,43 @@ class FastLoop(Plugin):
         self.pending_reset = False
         self._pending_verify = None
 
+        # ASKED FOR AND ABSENT HAS TO STOP THE RUN.
+        #
+        # The coverage symbols are deliberately not in FASTSNAP_SYMBOLS, so an
+        # image whose QEMU predates them still runs every measurement that
+        # does not want coverage. But a run that asked for it and cannot have
+        # it must not proceed: every accessor would answer zero, which reads
+        # exactly like a guest that reached nothing, for thousands of laps.
+        if self.cov:
+            # Python attributes first, C symbols second -- the same two
+            # questions the general preflight asks below, and for the same
+            # reason: a binding can be present and still uncallable because
+            # the generated cffi header never declared the symbol.
+            absent_py = sorted(
+                (self._api_names_used() & self.API_COVERAGE)
+                - set(dir(self.panda)))
+            missing = absent_py or (
+                self.panda.fastsnap_cov_missing_symbols()
+                if hasattr(self.panda, "fastsnap_cov_missing_symbols")
+                else ["<no fastsnap_cov_* API at all>"])
+            if missing:
+                self.logger.error(
+                    f"fastloop: coverage was requested and this QEMU build "
+                    f"does not expose {missing}. Every coverage number would "
+                    f"be a zero indistinguishable from a real one, so the run "
+                    f"is refused. Rebuild penguin-qemu from this tree.")
+                self.errors.append(f"coverage ABI absent: {missing}")
+                self.state = "done"
+            else:
+                if self.cov_map_size and not self.panda.fastsnap_cov_set_map_size(
+                        self.cov_map_size):
+                    self.errors.append(
+                        f"cov_map_size {self.cov_map_size} rejected")
+                self.panda.fastsnap_cov_set_filter(self.cov_lo, self.cov_hi)
+                # The reset summarises and clears; see the ABI comment. An
+                # extra scheduled op per lap would cost more than the scan.
+                self.panda.fastsnap_cov_set_clear_on_reset(True)
+
         self.have_api = bool(getattr(self.panda, "fastsnap_available", None)
                              and self.panda.fastsnap_available())
         if not self.have_api:
@@ -705,11 +771,39 @@ class FastLoop(Plugin):
     # `test_optional_api_names_really_are_optional` drives the plugin with a
     # QEMU that has none of them and asserts a complete run, so the claim above
     # is checked rather than asserted.
+    # Names the general preflight must NOT require, because the class reaches
+    # for them only under a condition the preflight cannot evaluate.
+    #
+    # The coverage group is exempt CONDITIONALLY, not permanently, and the
+    # distinction matters: an image without them is a fine image for every run
+    # that does not ask for coverage, and a bad one for every run that does.
+    # The general check therefore skips them and the `if self.cov:` block in
+    # __init__ requires the whole group -- Python attributes and C symbols
+    # both -- when coverage is actually on. Exempting them outright would put
+    # back exactly the failure this preflight exists to catch, just narrowed
+    # to the runs that care.
+    API_COVERAGE = frozenset({
+        "FASTSNAP_COV_ARM",
+        "fastsnap_cov_available",
+        "fastsnap_cov_missing_symbols",
+        "fastsnap_cov_set_filter",
+        "fastsnap_cov_set_map_size",
+        "fastsnap_cov_set_clear_on_reset",
+        "fastsnap_cov_edges",
+        "fastsnap_cov_new_edges",
+        "fastsnap_cov_new_buckets",
+        "fastsnap_cov_total_edges",
+        "fastsnap_cov_tbs_instrumented",
+        "fastsnap_cov_tbs_filtered",
+        "fastsnap_cov_scan_us",
+        "fastsnap_cov_map_size",
+    })
+
     API_OPTIONAL = frozenset({
         "fastsnap_diff_pages_proved",
         "fastsnap_diff_pages_read",
         "fastsnap_diff_pagemap_status",
-    })
+    }) | API_COVERAGE
 
     def _num(self, name, default):
         """get_arg with a default that survives a legitimate zero."""
@@ -1201,6 +1295,28 @@ class FastLoop(Plugin):
     def _step(self, now):
         try:
             if self.state == "warmup":
+                # COVERAGE IS ARMED HERE, AT THE TOP OF WARMUP, and the
+                # placement is load-bearing rather than tidy.
+                #
+                # Instrumentation is emitted at TRANSLATION time, and arming
+                # queues a tb_flush so everything already cached is
+                # re-translated with it. Do that later -- after the forward
+                # probe, say -- and the replayed laps would carry
+                # instrumentation while the forward traversal they are scored
+                # against did not. `_replay_fidelity` divides one by the
+                # other, so the ratio would move for a reason that has nothing
+                # to do with the reset, and the verdict it drives would move
+                # with it. Arming before anything is measured keeps both sides
+                # of every ratio on the same footing.
+                #
+                # Scheduled directly rather than through _sched(): that helper
+                # records seq_at_sched/t_sched for the reset accounting, and
+                # this op is not a reset. Nothing awaits it -- warmup is
+                # thousands of hits long and the bottom half runs immediately.
+                if self.cov and not self._cov_armed:
+                    self._cov_armed = True
+                    self.panda.fastsnap_schedule(self.panda.FASTSNAP_COV_ARM)
+
                 # The FORWARD distribution, recorded before anything is armed.
                 # This is the baseline the cost axis scores a draw against, and
                 # nothing was capturing it: warmup counted hits and discarded
@@ -1397,6 +1513,20 @@ class FastLoop(Plugin):
                     self.reset_us.append(self.panda.fastsnap_last_us())
                     pages = self.panda.fastsnap_ram_restored_pages()
                     self.restored.append(pages)
+                    # The lap the reset just closed, summarised inside the
+                    # same bottom half. Four accessor reads, no scheduled op:
+                    # clear_on_reset means the scan already happened as part
+                    # of the reset, which is the only reason coverage can be
+                    # per-lap here at all -- an op per lap would cost more
+                    # than the scan it asked for.
+                    if self.cov:
+                        self.cov_edges.append(self.panda.fastsnap_cov_edges())
+                        self.cov_new.append(
+                            self.panda.fastsnap_cov_new_edges())
+                        self.cov_new_buckets.append(
+                            self.panda.fastsnap_cov_new_buckets())
+                        self.cov_scan_us.append(
+                            self.panda.fastsnap_cov_scan_us())
                     self.pending_reset = False
                     self._mark(now)
                     if self.state != "loop":
@@ -2907,6 +3037,54 @@ class FastLoop(Plugin):
                     "pagemap prefilter unavailable (PFNs read as zero without "
                     "CAP_SYS_ADMIN); the oracle read all of RAM and paid for "
                     "the pagemap on top")
+        # ---- coverage ----
+        #
+        # `coverage_on` is present whether or not coverage ran, because its
+        # absence is the thing a reader needs to know. Every rate this lane
+        # has recorded so far was measured WITHOUT coverage, and comparing one
+        # of those to a coverage-guided figure from the literature is
+        # comparing two different quantities. A result that does not say which
+        # one it is invites exactly that.
+        out["coverage_on"] = bool(self.cov)
+        if self.cov and self._cov_armed:
+            tbi = self.panda.fastsnap_cov_tbs_instrumented()
+            tbf = self.panda.fastsnap_cov_tbs_filtered()
+            cov = {
+                "map_size": self.panda.fastsnap_cov_map_size(),
+                "filter": [self.cov_lo, self.cov_hi],
+                "tbs_instrumented": tbi,
+                "tbs_filtered": tbf,
+                "total_edges": self.panda.fastsnap_cov_total_edges(),
+                "laps": len(self.cov_edges),
+                "edges": _stats(self.cov_edges),
+                "new_edges_total": sum(self.cov_new),
+                "new_buckets_total": sum(self.cov_new_buckets),
+                "laps_with_new_buckets": sum(1 for n in self.cov_new_buckets
+                                             if n),
+                "scan_us": _stats(self.cov_scan_us),
+            }
+            # THE ZERO THAT MEANS TWO THINGS. An empty map is produced both by
+            # a guest that reached nothing and by a filter naming a range that
+            # holds no code, and nothing in the map separates them. The tbs
+            # counters do, so the verdict says which rather than leaving a
+            # plausible zero in the report.
+            if tbi == 0:
+                cov["blind"] = (
+                    f"no block was instrumented ({tbf} filtered out), so "
+                    f"every coverage number here is the absence of a "
+                    f"measurement, not a measurement of absence")
+                self.errors.append(
+                    f"coverage instrumented 0 blocks (filter "
+                    f"{hex(self.cov_lo)}..{hex(self.cov_hi)}); the range names "
+                    f"no code this guest executes")
+            elif not cov["total_edges"]:
+                cov["blind"] = (
+                    f"{tbi} blocks were instrumented and no edge was ever "
+                    f"logged, so the emitted ops are not reaching the map")
+                self.errors.append(
+                    "coverage instrumented blocks but logged no edges")
+            out["coverage"] = cov
+
         dev_blind = [v for v in self.verifies
                      if v.get("dev_diff_sections", 0) < 0]
         out["device_scope"] = ("allow", self.allowed) if self.allowed else (
