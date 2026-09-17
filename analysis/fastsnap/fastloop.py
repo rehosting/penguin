@@ -343,6 +343,12 @@ class FastLoop(Plugin):
         self.cov_edges = []         # distinct edges, per lap
         self.cov_new = []           # edges never seen before, per lap
         self.cov_new_buckets = []   # new hit-count buckets -- the AFL signal
+        # Block executions per lap. Recorded because it is the DENOMINATOR the
+        # emission cost needs: the per-block cost is eight TCG ops, and
+        # "coverage costs X us a lap" is uninterpretable without knowing how
+        # many blocks a lap runs. Saturates at 255 per edge, so on a lap with
+        # a hot loop this is a floor, not an exact count.
+        self.cov_hits = []
         self.cov_scan_us = []       # what summarising cost, per lap
         self.health_time_frac = float(self._num("health_time_frac", 0.5))
         self.hot_class = None
@@ -1525,6 +1531,7 @@ class FastLoop(Plugin):
                             self.panda.fastsnap_cov_new_edges())
                         self.cov_new_buckets.append(
                             self.panda.fastsnap_cov_new_buckets())
+                        self.cov_hits.append(self.panda.fastsnap_cov_hits())
                         self.cov_scan_us.append(
                             self.panda.fastsnap_cov_scan_us())
                     self.pending_reset = False
@@ -3059,6 +3066,7 @@ class FastLoop(Plugin):
                 "edges": _stats(self.cov_edges),
                 "new_edges_total": sum(self.cov_new),
                 "new_buckets_total": sum(self.cov_new_buckets),
+                "hits": _stats(self.cov_hits),
                 "laps_with_new_buckets": sum(1 for n in self.cov_new_buckets
                                              if n),
                 "scan_us": _stats(self.cov_scan_us),

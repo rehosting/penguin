@@ -104,23 +104,102 @@ cannot separate two processes sharing a range, and an empty map means *either*
 distinction in `coverage.blind` and in `errors`, and loopcmp prints `BLIND`
 rather than a zero.
 
-## Cost
+## Cost, measured on real firmware (runs 109–112)
 
-Nothing per lap beyond the scan. `clear_on_reset` (default on) folds the
-summarise-and-clear into `LOOP_RESET`, in the same bottom half, *after* the
-reset's own clock stops so the lap budget stays honest. Measured on the
-selftest guest, the scan is **25–31 µs** over 64 KiB with a zero-word skip.
+Four runs on the armel target, same driver and same arming axis: two controls
+(109, 111) and two with coverage on (110, 112).
 
-Asking for it as its own op instead would cost a scheduled op per lap, and on
-this lane an op is far the more expensive of the two — a hooked syscall is
-95.880 µs against 1.161 µs unhooked, and 98.8% of that is portal round trip.
+### The reset side is resolvable and it is the bigger half
 
-The per-block emission cost is **not yet measured on real firmware.** That is
-the honest state of it: eight inline ops is small, and small is not zero, and
-the lap it lands in is 3.4 ms of which ~2.06 ms is guest emulation. Arming
-coverage before the forward probe (which fastloop does, at the top of warmup)
-at least keeps both sides of the fidelity ratio on the same footing, so the
-verdict does not move for instrumentation-shaped reasons.
+`clear_on_reset` folds the summarise-and-clear into `LOOP_RESET`, in the same
+bottom half, after the reset's own clock stops. `sched_to_bh_ms` — schedule to
+bottom-half completion, measured from Python — isolates it:
+
+| | control 109 | control 111 | coverage 110 | coverage 112 |
+|---|---|---|---|---|
+| `sched_to_bh_ms` | 0.3543 | 0.3696 | **0.5229** | **0.5295** |
+| `cov_scan_us` (C side) | — | — | **160** | **163** |
+
+**+164 µs per lap**, and two independent instruments agree: the Python-side
+delta (+164 µs) and QEMU's own clock around the scan (160–163 µs). On a 3.4 ms
+lap that is **~4.8%**.
+
+**This is five times what the selftest guest suggested, and the earlier
+estimate of 25–31 µs in this document was wrong to extrapolate.** The scan is
+O(map size) with a zero-word skip, and the skip is what collapses: the toy
+guest sets 151 bytes so almost every 64-bit word is zero, while real firmware
+sets 4,849 per lap spread across the map, leaving about half the words
+non-zero. Scan cost is a function of map OCCUPANCY, not of the guest.
+
+### The guest side is below the noise floor
+
+| | control 109 | control 111 | coverage 110 | coverage 112 |
+|---|---|---|---|---|
+| guest half `bh_to_observed_ms` | 2.9837 | 3.6832 | 2.8411 | 2.8661 |
+
+The two controls differ by **23%** — run 111 drew an expensive span — so
+anything under roughly 150 µs is invisible here, and both coverage runs land
+*below* both controls, which is the wrong sign for an overhead. The honest
+statement is that per-block emission is **not resolved**, not that it is zero.
+
+A first-principles bound from the same runs: a lap executes **13,366 blocks**
+(median `hits`, itself a floor because byte counters saturate at 255 per edge),
+and eight TCG ops optimise to a handful of host instructions, which puts
+emission in the tens of microseconds — consistent with being invisible against
+a ±0.5 ms guest half.
+
+**Resolving it needs an in-run A/B**, not more runs: arm coverage, run N laps,
+disarm (which flushes the TB cache, so blocks re-translate uninstrumented), run
+N laps. Same draw, same snapshot, so draw variance cancels. That instrument
+does not exist yet.
+
+### Net effect on the rate
+
+| run | coverage | exec/s median | lap ms |
+|---|---|---|---|
+| 109 | off | 293.51 | 3.4070 |
+| 111 | off | 242.57 | 4.1226 |
+| 110 | **on** | 291.05 | 3.4358 |
+| 112 | **on** | 287.59 | 3.4772 |
+
+The coverage runs sit inside the controls' range. That is not a claim that
+coverage is free — the +164 µs is real and directly measured — it is a
+statement that with this workload's draw variance, four runs cannot see a 5%
+effect in exec/s. The reset-side number is the one to quote.
+
+Asking for the scan as its own op instead would cost a scheduled op per lap,
+and on this lane an op is far the more expensive of the two — a hooked syscall
+is 95.880 µs against 1.161 µs unhooked, and 98.8% of that is portal round trip.
+
+## What the coverage itself looks like on real firmware
+
+From run 112, 2,200 laps, no address filter (kernel included):
+
+| | |
+|---|---|
+| blocks instrumented | 49,694 |
+| edges per lap | **4,849** median (p10 4,145, p90 5,166, max 23,188) |
+| block executions per lap | 13,366 median — 2.76 per edge |
+| distinct edges, whole run | **31,920** |
+| **map occupancy** | **48.7% of 65,536** |
+| new edges over 2,200 laps | 157 |
+| laps that found a new bucket | 25 of 2,200 |
+
+Two things follow.
+
+**The 64 KiB map is marginal for this target.** At 48.7% occupancy an
+AFL-shaped map is well into the range where distinct edges start sharing slots,
+which silently costs sensitivity — a new edge that collides with a known one is
+simply not new. Either raise `cov_map_size` (the scan cost rises with it,
+linearly) or narrow `cov_filter_lo/hi` to the victim's text and stop
+instrumenting the kernel, which is where most of those 49,694 blocks are.
+
+**157 new edges in 2,200 laps is the expected reading, not a disappointment.**
+These runs had `mutate: 0` — the inputs barely vary, so there is little reason
+for coverage to grow. What the number establishes is that the mechanism
+responds at all and then settles, which is what a saturated corpus looks like.
+The interesting measurement is the same four runs with mutation on, and that
+has not been done.
 
 ## What this still does not close
 
