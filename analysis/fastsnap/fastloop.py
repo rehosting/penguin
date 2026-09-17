@@ -3599,6 +3599,53 @@ class FastLoop(Plugin):
                     f"logged, so the emitted ops are not reaching the map")
                 self.errors.append(
                     "coverage instrumented blocks but logged no edges")
+            # THE FIGURE OF MERIT, which was missing and cost a wrong
+            # recommendation.
+            #
+            # Nothing in this report said what coverage is FOR, so every
+            # comparison between configurations got made on the numbers that
+            # were here: overhead per lap and exec/s. Both are costs. On
+            # those, a 256 KiB map beat a 1 MiB one outright -- 163 us a lap
+            # against 255, and 309.6 exec/s against 296.5 -- and it was the
+            # worse configuration, because its 4.3% collision loss cost 34%
+            # of the novelty rate.
+            #
+            # Novelty is a MARGINAL quantity and that is why it reacts so
+            # much harder than the edge count. An edge that collides with a
+            # known one is never new; the slot stays blinded for the rest of
+            # the run; so a small static loss compounds. A fuzzer's output is
+            # novel executions per second, and nothing else here is.
+            #
+            # Stated so the next comparison is made on it rather than on
+            # whichever cost happened to be printed.
+            if cov["laps"]:
+                nov = cov["laps_with_new_buckets"] / float(cov["laps"])
+                rate = out.get("exec_per_s_median")
+                cov["throughput"] = {
+                    "novelty_rate": round(nov, 5),
+                    "exec_per_s_median": rate,
+                    "novel_laps_per_s": (round(rate * nov, 3)
+                                         if rate is not None else None),
+                    "note": ("novel_laps_per_s = exec_per_s_median x "
+                             "novelty_rate. THIS is what a coverage-guided "
+                             "loop produces; overhead and exec/s are costs, "
+                             "and a configuration can win on both and still "
+                             "be worse. Compare configurations on this."),
+                }
+                # The trap, named where the number is. Collision loss is
+                # reported by `occupancy` as a percentage of EDGES, which
+                # reads as small; its effect on novelty is several times
+                # larger and is what actually matters.
+                occ = cov.get("occupancy") or {}
+                if occ.get("est_loss_frac", 0) >= 0.02:
+                    cov["throughput"]["warning"] = (
+                        f"the map is losing an estimated "
+                        f"{occ['est_loss_frac'] * 100:.1f}% of edges to "
+                        f"collisions, and novelty loss runs several times "
+                        f"that -- measured 4.3% edge loss costing 34% of the "
+                        f"novelty rate. A cheaper, faster configuration with "
+                        f"a smaller map is likely to be a WORSE one; check "
+                        f"novel_laps_per_s before choosing it")
             out["coverage"] = cov
 
         dev_blind = [v for v in self.verifies

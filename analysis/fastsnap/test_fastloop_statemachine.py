@@ -1737,6 +1737,71 @@ def oracle_method_tests(tmp):
           "complete, VALID run")
 
 
+def cov_throughput_tests(tmp):
+    """The figure of merit, which was absent and cost a wrong recommendation.
+
+    Nothing in the result said what coverage is FOR, so configurations got
+    compared on the numbers that were present -- overhead per lap and exec/s,
+    both of which are COSTS. On those a 256 KiB map beat a 1 MiB one outright
+    (163 us a lap against 255, 309.6 exec/s against 296.5) and was the worse
+    configuration: its 4.3% collision loss cost 34% of the novelty rate.
+    """
+    p, q = make("loop", tmp, coverage=1)
+    to_loop(p, q)
+    for _ in range(8):
+        q.run_bottom_half()
+        hit(p)
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    t = out["coverage"]["throughput"]
+
+    # The fake reports a new bucket every lap, so the rate is 1.0 and the
+    # product must be exactly the lap rate. An identity, but it is the
+    # identity that was missing.
+    assert t["novelty_rate"] == 1.0, t
+    assert t["exec_per_s_median"] == out["exec_per_s_median"], t
+    assert abs(t["novel_laps_per_s"] - out["exec_per_s_median"]) < 1e-3, t
+    assert "novel_laps_per_s" in t["note"], t["note"]
+    print(f"ok  novel_laps_per_s is reported ({t['novel_laps_per_s']:.1f}/s) "
+          f"as the figure of merit, not just the costs")
+
+    # ---- A CHEAP, FAST, WORSE CONFIGURATION IS FLAGGED -----------------
+    # The specific trap: `occupancy` reports collision loss as a percentage
+    # of EDGES, which reads as small. Its effect on novelty is several times
+    # larger. The warning fires where the throughput number is, not buried
+    # in the occupancy block a reader has already skimmed past.
+    q.cov_total = 31920          # 48.7% of a 64 KiB map -> 27% edge loss
+    p2, q2 = make("loop", tmp, coverage=1)
+    q2.cov_total = 31920
+    to_loop(p2, q2)
+    for _ in range(8):
+        q2.run_bottom_half()
+        hit(p2)
+    p2.uninit()
+    c2 = json.load(open(os.path.join(tmp, "fastloop.json")))["coverage"]
+    assert c2["occupancy"]["est_loss_frac"] > 0.2, c2["occupancy"]
+    assert "warning" in c2["throughput"], c2["throughput"]
+    assert "WORSE" in c2["throughput"]["warning"], c2["throughput"]["warning"]
+    print(f"ok  a lossy map warns AT the throughput number that a cheaper "
+          f"faster config may be worse")
+
+    # ---- AND A ROOMY MAP DOES NOT WARN ---------------------------------
+    # The negative control. The warning has to distinguish the case it is
+    # about, or it is noise on every coverage run.
+    p3, q3 = make("loop", tmp, coverage=1)
+    q3.cov_total = 400           # 0.6% of 64 KiB
+    to_loop(p3, q3)
+    for _ in range(8):
+        q3.run_bottom_half()
+        hit(p3)
+    p3.uninit()
+    c3 = json.load(open(os.path.join(tmp, "fastloop.json")))["coverage"]
+    assert c3["occupancy"]["est_loss_frac"] < 0.02, c3["occupancy"]
+    assert "warning" not in c3["throughput"], c3["throughput"]
+    print(f"ok  a roomy map ({c3['occupancy']['est_loss_frac']*100:.2f}% loss) "
+          f"raises no throughput warning")
+
+
 def cov_exposure_tests(tmp):
     """Whether total_edges is comparable across runs, said out loud.
 
@@ -2698,6 +2763,7 @@ def main():
     cov_ab_tests(tmp)
     cov_occupancy_tests(tmp)
     cov_exposure_tests(tmp)
+    cov_throughput_tests(tmp)
     oracle_method_tests(tmp)
     tcg_work_tests(tmp)
     arm_cost_tests(tmp)
