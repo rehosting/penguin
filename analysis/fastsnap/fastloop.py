@@ -1777,20 +1777,29 @@ class FastLoop(Plugin):
         out["est_true_edges"] = int(round(est))
         out["est_edges_lost"] = int(round(est - total_edges))
         out["est_loss_frac"] = round(1.0 - total_edges / est, 4)
-        # A THRESHOLD, because the number alone gets read as "fine". 5% loss
-        # is the point where raising cov_map_size buys more than the linear
-        # increase in scan cost it charges -- the scan is O(map), so doubling
-        # the map doubles the per-lap scan whether or not the extra room is
-        # used.
+        # A THRESHOLD, because the number alone gets read as "fine".
+        #
+        # 5% is where raising cov_map_size is clearly worth what it charges,
+        # and what it charges turned out to be much less than expected. This
+        # comment previously said the scan is O(map) so doubling the map
+        # doubles the scan. MEASURED, THAT IS WRONG: 64 KiB -> 1 MiB, a 16x
+        # map, moved the scan from 163 us to 268 us -- 1.64x, not 16x. The
+        # zero-word skip is why. A sparse map is skimmed 8 bytes at a time
+        # (~0.5 ns per word) and only the non-zero words are examined byte by
+        # byte (~5 ns per set byte), so cost tracks the number of EDGES SET
+        # PER LAP far more than the map's size. Per-lap occupancy at 64 KiB
+        # was only 7.4% -- it is the cumulative virgin map that fills up, and
+        # the virgin map is not what the scan is dominated by.
         if out["est_loss_frac"] >= 0.05:
             out["verdict"] = (
                 f"{out['est_loss_frac'] * 100:.1f}% of distinct edges are "
                 f"being lost to hash collisions ({out['est_edges_lost']} of "
                 f"an estimated {out['est_true_edges']}). This UNDERSTATES "
                 f"coverage and is indistinguishable from a target that "
-                f"reaches less code. Raise cov_map_size (the scan cost rises "
-                f"linearly with it) or narrow cov_filter_lo/hi to the "
-                f"victim's text.")
+                f"reaches less code. Raise cov_map_size -- measured, a 16x "
+                f"map cost 1.64x the scan, not 16x, because the zero-word "
+                f"skip makes cost track edges-per-lap rather than map size "
+                f"-- or narrow cov_filter_lo/hi to the victim's text.")
         else:
             out["verdict"] = (
                 f"map is {f * 100:.1f}% full; estimated collision loss "

@@ -131,10 +131,11 @@ The paired number is the one to quote.
 
 **This is five times what the selftest guest suggested, and the earlier
 estimate of 25–31 µs in this document was wrong to extrapolate.** The scan is
-O(map size) with a zero-word skip, and the skip is what collapses: the toy
-guest sets 151 bytes so almost every 64-bit word is zero, while real firmware
-sets 4,849 per lap spread across the map, leaving about half the words
-non-zero. Scan cost is a function of map OCCUPANCY, not of the guest.
+a skim with a zero-word skip, and the skip is what collapses: the toy guest
+sets 151 bytes so almost every 64-bit word is zero, while real firmware sets
+4,849 per lap spread across the map, leaving about half the words non-zero.
+Scan cost is a function of EDGES SET PER LAP, not of the guest and — as run
+114 later showed — not of the map size either.
 
 ### The guest side, resolved by an in-run A/B (run 113)
 
@@ -255,21 +256,58 @@ From run 112, 2,200 laps, no address filter (kernel included):
 | new edges over 2,200 laps | 157 |
 | laps that found a new bucket | 25 of 2,200 |
 
-Two things follow.
+## The map size, and a prediction that was tested (run 114)
 
-**The 64 KiB map is marginal for this target.** At 48.7% occupancy an
-AFL-shaped map is well into the range where distinct edges start sharing slots,
-which silently costs sensitivity — a new edge that collides with a known one is
-simply not new. Either raise `cov_map_size` (the scan cost rises with it,
-linearly) or narrow `cov_filter_lo/hi` to the victim's text and stop
-instrumenting the kernel, which is where most of those 49,694 blocks are.
+"48.7% full" reads as comfortable. It is not, and the reason is that an AFL
+map is a hash table **with no collision handling**: two distinct edges landing
+in the same byte are one edge forever. A filling map does not report "filling",
+it reports *fewer edges than the guest produced* — and under-reported coverage
+is indistinguishable from a target that reaches less code.
 
-**157 new edges in 2,200 laps is the expected reading, not a disappointment.**
-These runs had `mutate: 0` — the inputs barely vary, so there is little reason
-for coverage to grow. What the number establishes is that the mechanism
-responds at all and then settles, which is what a saturated corpus looks like.
-The interesting measurement is the same four runs with mutation on, and that
-has not been done.
+Under a uniform hash, *n* distinct edges fill an expected `m(1 − e^(−n/m))`
+buckets, which inverts to `n ≈ −m·ln(1 − f)`. At *f* = 0.487 that put the true
+count near **43,750**, i.e. **27% of distinct edges being swallowed** — not
+"marginal". (The block index is a splitmix64 finalizer, so uniformity is fair
+here. It would not be for a plain `pc & mask`, which is why the selftest checks
+the spread of 4,096 page-aligned PCs against the birthday bound rather than
+assuming it.)
+
+That is a falsifiable claim, so it was written into the run config *before* the
+run and then tested: same driver, same arm axis, same 2,200 laps, `cov_ab: 0`,
+one variable changed — a 16x map.
+
+| | run 112 (64 KiB) | run 114 (1 MiB) | predicted |
+|---|---|---|---|
+| blocks instrumented | 49,694 | 49,995 | (control — same workload) |
+| edges per lap | 4,849 | **5,011** | ~5,040 |
+| distinct edges, whole run | 31,920 | **42,249** | ~43,700 |
+| map occupancy | 48.7% | **4.0%** | ~4.2% |
+| estimated collision loss | 27% | **2.0%** | ~2% |
+| `cov_scan_us` | 163 | **268** | "higher, roughly linearly" |
+
+**The estimator was right.** Predicted 43,752 true edges from a half-full map;
+the 16x map measured 42,249 directly, which corrected for its own 2.0% residual
+loss is 43,124 — **1.5% from the prediction**. `tbs_instrumented` came back
+within 0.6% across the two runs, so it really was the same workload.
+
+**The linearity half of the prediction was wrong.** A 16x map cost **1.64x**
+the scan, not 16x. The zero-word skip is why: a sparse map is skimmed eight
+bytes at a time (~0.5 ns per word) and only non-zero words are examined byte by
+byte (~5 ns per set byte), so cost tracks **edges set per lap** far more than
+map size. The thing that fills up is the *cumulative virgin* map, and that is
+not what the scan is dominated by. Per-lap occupancy at 64 KiB was only 7.4%.
+
+So the trade is **+105 µs per lap for 32% more visible edges**, which on these
+numbers is worth taking: the 1 MiB map's total coverage cost is ~366 µs against
+~261 µs, still under 11% of a lap.
+
+**157 new edges in 2,200 laps was the expected reading, not a disappointment.**
+Those runs had `mutate: 0` — the inputs barely vary, so there is little reason
+for coverage to grow, and the number establishes that the mechanism responds
+and then settles, which is what a saturated corpus looks like. Run 114 saw 517
+new edges over the same 2,200 laps with the bigger map, which is the same story
+with the collisions removed. What mutation does to that is measured separately
+(run 115), because it is a different question.
 
 ## What this still does not close
 
@@ -291,17 +329,18 @@ has not been done.
 - **Nothing consumes the map yet.** `fastsnap_cov_map_bytes()` hands out an
   AFL-layout buffer; no scheduler, corpus or mutation feedback loop reads it.
   Coverage is now *measured*, not yet *guiding*.
-- **A 64 KiB map is losing about a quarter of the edges.** At 31,920 distinct
-  edges the map is 48.7% full, which reads as comfortable and is not: an AFL
-  map has no collision handling, so inverting `m(1 − e^(−n/m))` puts the true
-  count near 43,750 and the loss near **27%**. Under-reported coverage is
-  indistinguishable from a target that reaches less code. Raise `cov_map_size`
-  (the scan cost rises with it) or narrow `cov_filter_lo/hi` to the victim's
-  text — most of the 49,694 instrumented blocks are kernel.
-- **Coverage growth under mutation is unmeasured.** Every figure here was taken
-  with `mutate: 0`, so 1,408 new edges over 12,000 laps is the right reading
-  for a fixed input set and says nothing about what a mutating fuzzer would
-  reach.
+- ~~A 64 KiB map is losing about a quarter of the edges.~~ **Measured and
+  closed by run 114**: the estimate of 27% loss was confirmed to 1.5% by a
+  16x map, which costs +105 µs a lap. `cov_map_size: 1048576` is the right
+  default for this target. Narrowing `cov_filter_lo/hi` to the victim's text
+  would be cheaper still — most of the 49,995 instrumented blocks are kernel
+  — but needs the range read off the guest, and a hard-coded address range is
+  not target-agnostic in the way the rest of this pipeline is.
+- **Coverage growth under mutation is being measured** (run 115: run 114's
+  config with `mutate: 1` and `complete_request: 1`, so mutation is the only
+  variable). Every figure above was taken with `mutate: 0`, which makes 517
+  new edges over 2,200 laps the right reading for a *fixed* input set and no
+  evidence at all about what a mutating fuzzer reaches.
 
 So the honest claim after this change is narrower than "we fuzz at 248 exec/s":
 it is that an exec/s from this loop can now be quoted with a coverage number
