@@ -1298,3 +1298,30 @@ state-machine suite, where a 455 ms lap passed a 1427 ms ceiling and recorded
 "accepted". Capped at 4x. Run 91's ladder ran 14.4 -> 21.5 -> 32.3 -> 48.5 ms,
 so the cap does not bind until attempt 5, which is the intended shape: forgive
 a draw that is merely close, never forgive one that is 300x.
+
+---
+
+# The rate was never a fuzzing rate, until now — see `COVERAGE.md`
+
+Everything above measures a **loop**: reset, feed an input, detect the next
+boundary, reset. It does not measure a fuzzer, because nothing in it could tell
+whether an input reached anywhere new. That distinction is invisible in a
+number like "248.10 exec/s" and it is load-bearing the moment the number is
+placed next to a published one, because every published peer this lane cites —
+Nyx at ~17,000/s, FIRM-AFL's ratios, Muench et al.'s ~15 test cases/s — is
+reporting **coverage-guided** throughput. Comparing them was comparing two
+different quantities.
+
+`coverage: 1` closes that. The mechanism is in QEMU (`coverage.c` in
+qemu_builder plus series patch 0018): an AFL-shaped edge map filled by seven
+inline TCG ops emitted into every translated block, summarised and cleared
+inside the same bottom half that rewinds guest RAM so it costs no extra
+scheduled op per lap. `COVERAGE.md` has the design, the three ways it can read
+as a healthy zero, and what it still does not close — chiefly that the
+per-block cost has **not** been measured on real firmware, and that nothing yet
+*consumes* the map, so coverage here is measured rather than guiding.
+
+**Every run in the tables above was recorded without it.** `coverage_on` is in
+every result from now on and `loopcmp` prints `off` rather than a blank for
+exactly that reason: a lap carrying instrumentation is not comparable to one
+that is not, and a blank column invites the assumption that it is.
