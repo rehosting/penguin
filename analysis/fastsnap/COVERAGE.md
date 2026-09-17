@@ -337,6 +337,72 @@ more boundary laps, so that figure carries the same confound and is not a clean
 "collisions removed" number either. What mutation does to that is measured separately
 (run 115), because it is a different question.
 
+## What the scan actually costs, as a model (runs 112, 114, 115)
+
+The map-size comparison forced a correction — cost is not linear in map size —
+and the replacement is specific enough to be testable. The scan skims the map
+eight bytes at a time and only drops into byte-wise work on words that are not
+all zero, so a single set byte drags its whole 8-byte word in with it:
+
+> cost ≈ 0.5 ns × (map/8 words skimmed) + 5.1 ns × (bytes in non-zero words)
+
+Fitted on runs 112 and 114. **Run 115 was not used to fit it** — same 1 MiB map
+as 114, different edges per lap — so it is a test:
+
+| run | map | edges/lap | words | bytes examined | scan µs | ⇒ ns/byte |
+|---|---|---|---|---|---|---|
+| 112 | 64 KiB | 4,849 | 8,192 | 30,103 | 163 | 5.28 |
+| 114 | 1 MiB | 5,011 | 131,072 | 39,424 | 268 | 5.14 |
+| 115 | 1 MiB | 4,586 | 131,072 | 36,127 | 247 | **5.02** |
+
+The per-byte constant lands in 5.02–5.28 ns — **5.1% spread across two map
+sizes**. The practical consequence is the one the earlier "O(map size)" claim
+got backwards: **scan cost tracks edges set per lap**, and the map's size only
+buys the cheap skim. Run 115 is the cleanest demonstration — it *lowered* the
+scan cost (268 → 247 µs) by finding *fewer* edges per lap on the same map.
+
+## Coverage growth under mutation (run 115)
+
+Run 114's config with `mutate: 1` and `complete_request: 1`, so mutation is the
+only variable: same 1 MiB map, same 2,200 laps, same driver, same arm axis.
+`tbs_instrumented` came back within 0.4%, so it was the same workload.
+
+| | mutate: 0 | mutate: 1 | |
+|---|---|---|---|
+| **laps that found a new bucket** | 30 / 2,405 = **1.25%** | 239 / 2,610 = **9.16%** | **7.3×** |
+| new edges, whole run | 517 | 1,548 | 3.0× |
+| new buckets, whole run | 40,613 | 73,146 | 1.8× |
+| distinct edges, cumulative | 42,249 | 49,151 | +16% |
+| edges per lap (median) | 5,011 | 4,586 | **−8%** |
+| block executions per lap | 13,605 | 11,560 | **−15%** |
+| exec/s median | 272.2 | 272.6 | — |
+
+**The headline is the novelty rate**, and it is the one figure here immune to
+the exposure confound described above: it is a per-lap fraction, so a handful of
+boundary laps cannot move it. With mutation on, **one lap in eleven finds
+something new** against one in eighty. That is the number that makes this a
+coverage-*guided* rate rather than a loop rate.
+
+**Each lap covers less, and the union covers more.** Edges per lap fall 8% and
+block executions 15% — mutated requests get rejected earlier, so an individual
+lap runs a shorter path. Meanwhile the cumulative set grows 16%. Narrower laps,
+wider union, is exactly the shape a working fuzzer should have.
+
+**The +16% cumulative figure is a floor, not an estimate.** Run 115 drew
+*fewer* boundary laps than run 114 (~3.0 against ~4.1), and boundary laps are
+the richest single source of distinct edges. The confound therefore works
+*against* the mutation effect here, which is the one direction in which a
+confounded number is still usable.
+
+**Mutation is free in rate terms** (272.2 → 272.6 exec/s) and the pathology
+that destroyed run 105 did not recur: the verdict is VALID with 22 of 22
+verifications byte-identical, device sections included. `complete_request: 1`
+is what makes that true — a truncated request is one lighttpd cannot answer, so
+`one_outstanding` withholds the next feed and the held-open connection sits
+until the read-idle timeout. Completing the payload without making it valid (a
+400 is a perfectly good fuzzing outcome) is the property the alternation
+depends on.
+
 ## What this still does not close
 
 - ~~Per-block cost on real firmware is unmeasured.~~ **Closed by run 113**:
@@ -358,21 +424,42 @@ more boundary laps, so that figure carries the same confound and is not a clean
   AFL-layout buffer; no scheduler, corpus or mutation feedback loop reads it.
   Coverage is now *measured*, not yet *guiding*.
 - ~~A 64 KiB map is losing about a quarter of the edges.~~ **Measured and
-  closed by run 114**: the estimate of 27% loss was confirmed to 1.5% by a
-  16x map, which costs +105 µs a lap. `cov_map_size: 1048576` is the right
-  default for this target. Narrowing `cov_filter_lo/hi` to the victim's text
-  would be cheaper still — most of the 49,995 instrumented blocks are kernel
-  — but needs the range read off the guest, and a hard-coded address range is
-  not target-agnostic in the way the rest of this pipeline is.
-- **Coverage growth under mutation is being measured** (run 115: run 114's
-  config with `mutate: 1` and `complete_request: 1`, so mutation is the only
-  variable). Every figure above was taken with `mutate: 0`, which makes 517
-  new edges over 2,200 laps the right reading for a *fixed* input set and no
-  evidence at all about what a mutating fuzzer reaches.
+  closed by run 114**: the estimator is validated on unconfounded per-lap
+  quantities at occupancies from 0.5% to 35% (0.29%, 0.47% and 3.65% from
+  prediction), so the 27% cumulative loss at 48.7% follows. A 16x map costs
+  +105 µs a lap. `cov_map_size: 1048576` is the right default here.
+- ~~Coverage growth under mutation is unmeasured.~~ **Closed by run 115**:
+  the novelty rate goes from 1.25% to 9.16% of laps, 7.3x, at no cost in
+  exec/s.
+- **The remaining lever is the address filter.** Most of the ~50,000
+  instrumented blocks are kernel, and `cov_filter_lo/hi` would cut both the
+  emission cost and the scan. It needs the victim's text range read off the
+  guest, and a hard-coded range is not target-agnostic in the way the rest of
+  this pipeline is — so the open question is how to *derive* the range rather
+  than whether filtering would help.
 
-So the honest claim after this change is narrower than "we fuzz at 248 exec/s":
-it is that an exec/s from this loop can now be quoted with a coverage number
-beside it, which is what makes it comparable at all.
+## What can now be claimed
+
+Before this work the lane had a **loop rate**: reset, feed, detect the next
+boundary. Every published figure it gets compared to — Nyx, FIRM-AFL — is a
+**coverage-guided** rate, and those are different quantities. The gap was not
+an accuracy problem, it was a category problem.
+
+What can be said now, with the cost of saying it measured rather than assumed:
+
+> **~289 exec/s coverage-guided** on real armel firmware, full-system, with no
+> in-guest instrumentation. Edge coverage costs **261 µs per lap, 7.5% of the
+> rate** — 178.5 µs on the reset side and 81.7 µs of TCG emission, measured
+> inside a single run by a paired A/B and closing to 1 µs. With mutation on,
+> **one lap in eleven finds a new coverage bucket**, at no cost in rate.
+
+Three honest limits on that sentence. The map should be 1 MiB, not AFL's
+default 64 KiB, or roughly a quarter of the cumulative edges go unreported.
+Nothing *consumes* the map yet — there is no corpus, scheduler or mutation
+feedback reading it, so coverage is measured and not yet guiding. And the rate
+itself is a median over a bimodal workload: a few laps per thousand replay a
+connection boundary at ~10 s, so `exec_per_s_median` runs 5-6x the wall-clock
+rate and `wall_share` is the field to read before quoting either.
 
 ## Reading a result
 
