@@ -1951,6 +1951,40 @@ def cov_ab_tests(tmp):
           f"arms ({cv['tbs_instrumented']}), not left as the last arm's "
           f"{cv['tbs_instrumented_last_arm']}")
 
+    # ---- AND SO IS tbs_FILTERED, BECAUSE ONLY THE RATIO MEANS ANYTHING ---
+    # Carrying one and not the other is WORSE than carrying neither. The two
+    # fields exist to answer "what fraction of blocks did the filter reject",
+    # and a sum over eighteen arms divided by a single arm's sample is a
+    # number that looks like a fraction and is not one. That shipped, and it
+    # reported 1.6% where the answer was 58.7% -- the difference between "the
+    # filter does nothing" and "the filter removes most of the working set".
+    p2, q2 = make("loop", tmp, coverage=1, iters=40, cov_ab=4,
+                  cov_ab_settle=1, verify_every=0,
+                  cov_filter_lo=0, cov_filter_hi=3221225472)
+    q2.cov_tbs_f = 1300            # a filtered count of the same order
+    to_loop(p2, q2)
+    for _ in range(200):
+        if p2.state == "done":
+            break
+        q2.run_bottom_half()
+        hit(p2)
+    p2.uninit()
+    c2 = json.load(open(os.path.join(tmp, "fastloop.json")))["coverage"]
+    arms = c2["tbs_instrumented"] // q2.cov_tbs_i
+    assert arms >= 2, arms
+    # BOTH scaled by the same number of arms, so the ratio is unchanged...
+    assert c2["tbs_filtered"] == q2.cov_tbs_f * arms, (c2, arms)
+    expect = q2.cov_tbs_f / float(q2.cov_tbs_i + q2.cov_tbs_f)
+    assert abs(c2["filtered_frac_all_arms"] - expect) < 1e-4, c2
+    assert abs(c2["filtered_frac_last_arm"] - expect) < 1e-4, c2
+    # ...which is the invariant the bug broke: with only one side carried,
+    # the summed fraction would have been off by a factor of `arms`.
+    wrong = q2.cov_tbs_f / float(q2.cov_tbs_i * arms + q2.cov_tbs_f)
+    assert abs(expect - wrong) > 0.05, (expect, wrong, arms)
+    print(f"ok  tbs_filtered is summed too: filtered_frac "
+          f"{c2['filtered_frac_all_arms']:.4f} both ways (carrying only one "
+          f"side would have reported {wrong:.4f})")
+
     # ---- THE TOGGLE IS AWAITED, AND THAT GUARD IS LOAD-BEARING --------
     # Every fastsnap op bumps the one global fastsnap_seq and _bh_done() is
     # `seq() > seq_at_sched`. Schedule a reset while a toggle's bottom half is

@@ -408,6 +408,14 @@ class FastLoop(Plugin):
         self._ab_switches = 0
         self._ab_wait_seq = None    # see _ab_toggle on why this is awaited
         self._ab_tbi = 0            # tbs_instrumented, summed over arms
+        # tbs_FILTERED, summed the same way. Carrying one and not the other
+        # is worse than carrying neither: the two are only meaningful as a
+        # RATIO -- "what fraction of blocks did the filter reject" -- and a
+        # sum divided by a single sample is a number that looks like a
+        # fraction and is not one. That produced a reported 1.6% where the
+        # answer was 58.7%, which is the difference between "the filter does
+        # nothing" and "the filter removes most of the working set".
+        self._ab_tbf = 0
         # Three buckets per quantity, and the same split the run already makes
         # between the reset half and the guest half. The whole point is to see
         # WHERE the cost lands, so a single lap-time table would waste the
@@ -1707,6 +1715,7 @@ class FastLoop(Plugin):
         if self._ab_phase == "on":
             try:
                 self._ab_tbi += self.panda.fastsnap_cov_tbs_instrumented()
+                self._ab_tbf += self.panda.fastsnap_cov_tbs_filtered()
             except Exception:                               # noqa: BLE001
                 pass
         self._ab_flush_block()
@@ -3529,6 +3538,7 @@ class FastLoop(Plugin):
             # name rather than silently replacing it.
             if self.cov_ab and self._ab_tbi:
                 tbi_arm, tbi = tbi, self._ab_tbi + tbi
+                tbf_arm, tbf = tbf, self._ab_tbf + tbf
             cov = {
                 "map_size": self.panda.fastsnap_cov_map_size(),
                 "filter": [self.cov_lo, self.cov_hi],
@@ -3546,6 +3556,20 @@ class FastLoop(Plugin):
             }
             if self.cov_ab and self._ab_tbi:
                 cov["tbs_instrumented_last_arm"] = tbi_arm
+                cov["tbs_filtered_last_arm"] = tbf_arm
+                # The ratio, computed here rather than left to a reader to
+                # form out of two fields whose scopes differ. THE FIRST ARM
+                # DISTORTS THE SUM: it translates the whole boot plus the
+                # workload (~200,000 blocks) while every later arm
+                # re-translates only the replayed span's working set (a few
+                # thousand). So the steady-state ratio is the LAST arm's, and
+                # the summed ratio is reported beside it rather than instead.
+                if tbi_arm + tbf_arm:
+                    cov["filtered_frac_last_arm"] = round(
+                        tbf_arm / float(tbi_arm + tbf_arm), 4)
+                if tbi + tbf:
+                    cov["filtered_frac_all_arms"] = round(
+                        tbf / float(tbi + tbf), 4)
                 cov["tbs_instrumented_note"] = (
                     "tbs_instrumented is summed over every arm; each toggle "
                     "flushes the TB cache and re-translates, so it counts "
