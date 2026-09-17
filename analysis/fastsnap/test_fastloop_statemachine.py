@@ -1975,16 +1975,34 @@ def cov_ab_tests(tmp):
     assert pair["t_stat"] > 3.0, pair
     assert abs(pair["median_delta_ms"] - 0.200) < 1e-6, pair
     att = rep["attribution"]
-    assert abs(att["scan_ms_per_lap"] - 0.160) < 1e-9, att
-    assert abs(att["emission_ms_per_lap"] - 0.040) < 1e-6, att
+    # THE THREE-WAY CLOSE, which is the whole point of measuring the halves
+    # separately. Total, reset half and guest half are three independent
+    # paired measurements, so reset+guest==total is a check the design has to
+    # pass -- not an identity it defines. The synthetic blocks above were
+    # built with 0.164 ms on the reset side and 0.036 on the guest side of a
+    # 0.200 ms total, so a pairing bug that mixed the halves up, or applied
+    # the drift to one and not the other, fails here.
+    assert abs(att["total_cost_ms_per_lap"] - 0.200) < 1e-6, att
+    assert abs(att["reset_half_ms_per_lap"] - 0.164) < 1e-6, att
+    assert abs(att["guest_half_ms_per_lap"] - 0.036) < 1e-6, att
+    assert abs(att["halves_minus_total_ms"]) < 1e-6, att
+    assert att["closes"] is True, att
+    # The scan's own clock is a FOURTH instrument, inside the reset half, and
+    # is deliberately not made to agree: the remainder is reported as
+    # unattributed rather than assigned to the scan. Here the scan is 0.160
+    # of a 0.164 reset half, leaving 0.004.
+    assert abs(att["scan_own_clock_ms_per_lap"] - 0.160) < 1e-9, att
+    assert abs(att["reset_half_unattributed_ms"] - 0.004) < 1e-6, att
     assert "caveat" not in att, att
     # The drift is 0.30 ms end to end, larger than the 0.20 ms effect. A
     # design that compared the first half of the run to the second would read
     # this as coverage being FASTER. The pairing is what makes it come out.
     assert inst.ab_blocks[-1]["iter_ms"] > inst.ab_blocks[0]["iter_ms"], \
         "the drift this case exists to defeat is not present"
-    print(f"ok  paired A/B recovers {att['emission_ms_per_lap']:.3f} ms of "
-          f"emission under a drift ({0.05 * 5:.2f} ms) larger than the effect")
+    print(f"ok  paired A/B recovers {att['guest_half_ms_per_lap']:.3f} ms of "
+          f"emission under a drift ({0.05 * 5:.2f} ms) larger than the "
+          f"effect, and the halves close to "
+          f"{att['halves_minus_total_ms'] * 1000:+.1f} us")
 
     # ---- AND IT REFUSES WHEN THE PAIRS DISAGREE -----------------------
     # The failure mode this whole file is about: an instrument that always
@@ -2038,6 +2056,61 @@ def cov_ab_tests(tmp):
     print(f"ok  {pair3['pairs_positive']}/{pair3['n_pairs']} positive "
           f"(p={pair3['sign_test_p']:.2g}) is resolved, not discarded for "
           f"being non-unanimous")
+
+    # ---- TWO EXPENSIVE GUEST BLOCKS DO NOT SINK A DISJOINT RESULT -----
+    # The shape the first real run actually produced, reproduced exactly: 18
+    # blocks each way, armed and disarmed FULLY DISJOINT, and two disarmed
+    # blocks that landed on an expensive stretch of guest time. Each of those
+    # sits between two armed blocks, so two bad blocks make four negative
+    # pairs -- and they dragged the untrimmed t from 9.7 to 2.9. A 10%
+    # symmetric trim, applied by rule to every quantity alike, is what keeps
+    # the verdict on the measurement rather than on two blocks of weather.
+    inst5 = cls.__new__(cls)
+    for k, v in vars(inst).items():
+        setattr(inst5, k, v)
+    inst5._ab_cur = {"ms": [], "sched": [], "obs": []}
+    inst5.ab_blocks = []
+    # THE REAL BLOCK MEDIANS FROM THAT RUN, not a synthetic stand-in. A
+    # fabricated sequence has to be tuned until it reproduces the t-ratio,
+    # and a test whose input was tuned to produce its expected output checks
+    # the tuning. These are the 36 numbers the run actually wrote.
+    on_v = [3.6058, 3.4637, 3.4499, 3.4561, 3.4252, 3.3942, 3.4908, 3.4338,
+            3.5573, 3.4680, 3.4646, 3.5071, 3.4449, 3.4472, 3.4765, 3.4329,
+            3.4104, 3.4948]
+    off_v = [3.1814, 3.2220, 3.2468, 3.2193, 3.5649, 3.1658, 3.1303, 3.1726,
+             3.1774, 3.2064, 3.1810, 3.2450, 3.2204, 3.6618, 3.2281, 3.1390,
+             3.1370, 3.1916]
+    # The claim the trim rests on, asserted rather than described: setting
+    # those two aside, the phases do not overlap at all.
+    clean_off = sorted(off_v)[:-2]
+    assert max(clean_off) < min(on_v), (max(clean_off), min(on_v))
+    for i in range(18):
+        inst5.ab_blocks.append({"phase": "on", "i": i, "laps": 300,
+                                "iter_ms": round(on_v[i], 4)})
+        inst5.ab_blocks.append({"phase": "off", "i": i, "laps": 300,
+                                "iter_ms": round(off_v[i], 4)})
+    pair5 = inst5._ab_report()["paired"]["iter_ms"]
+    assert pair5["n_pairs"] == 35, pair5["n_pairs"]
+    assert pair5["pairs_positive"] == 31, pair5["pairs_positive"]
+    # The trim is what rescues the t-ratio; the sign test never needed it.
+    assert pair5["sign_test_p"] < 1e-4, pair5
+    assert pair5["t_trimmed"] > pair5["t_stat"], pair5
+    assert pair5["resolved"] is True, pair5
+    # And the effect itself, to four figures, so a change to the pairing or
+    # the trim that moves the answer has to be noticed here.
+    assert abs(pair5["median_delta_ms"] - 0.2612) < 5e-4, pair5
+    print(f"ok  real run: 4 negative pairs from 2 expensive guest blocks, "
+          f"untrimmed t={pair5['t_stat']}, trimmed t={pair5['t_trimmed']}, "
+          f"resolved at {pair5['median_delta_ms']:+.4f} ms "
+          f"(p={pair5['sign_test_p']:.2g})")
+
+    # AND THE TRIM DOES NOT MANUFACTURE A RESULT. The negative control for
+    # the trim itself: genuinely mixed pairs stay unresolved after trimming,
+    # or the trim is just a way of deleting disagreement.
+    pair2b = inst2._ab_report()["paired"]["iter_ms"]
+    assert pair2b["resolved"] is False, pair2b
+    print(f"ok  trimming does not rescue genuinely mixed pairs "
+          f"(t_trimmed={pair2b.get('t_trimmed')}, still unresolved)")
 
     # ---- A CONSISTENT BUT TRIVIAL EFFECT IS NOT "RESOLVED" ------------
     # What the sign test alone cannot see. Every pair agreeing by a

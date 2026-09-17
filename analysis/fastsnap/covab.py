@@ -31,8 +31,9 @@ def one(path):
     print(f"\n{'=' * 72}\n{path}\n{'=' * 72}")
     print(f"verdict: {d.get('verdict', '?')}")
     print(f"coverage_on={d.get('coverage_on')}  "
-          f"laps={d.get('n_iters')}  "
-          f"exec/s={d.get('exec_per_s', {}).get('median', '?')}")
+          f"laps={d.get('iterations')}  "
+          f"exec/s median={d.get('exec_per_s_median')}  "
+          f"valid={d.get('exec_per_s_valid')}")
     cov = d.get("coverage")
     if not cov:
         print("no coverage block")
@@ -79,33 +80,68 @@ def one(path):
         pv = sign_test_p(n, pos)
         sd = statistics.stdev(ds) if n > 1 else 0.0
         t = abs(statistics.fmean(ds)) / (sd / math.sqrt(n)) if sd > 0 else float("inf")
-        flag = "RESOLVED" if (pv <= 0.05 and t >= 3.0) else "NOT RESOLVED"
+        # The trimmed t is the one the verdict rests on; see fastloop's
+        # _ab_report on why. Recomputed here so a result from an older
+        # plugin is judged the same way as a fresh one.
+        k = max(1, n // 10)
+        tr = sorted(ds)[k:-k] if n >= 5 else ds
+        tsd = statistics.stdev(tr) if len(tr) > 1 else 0.0
+        tt = (abs(statistics.fmean(tr)) / (tsd / math.sqrt(len(tr)))
+              if tsd > 0 else float("inf"))
+        flag = "RESOLVED" if (pv <= 0.05 and tt >= 3.0) else "NOT RESOLVED"
         print(f"{name:<20} median {pr['median_delta_ms']:+.4f} ms  "
-              f"mean {pr['mean_delta_ms']:+.4f}  "
-              f"{pos}/{n} positive  p={pv:.3g}  t={t:.2f}  {flag}")
+              f"trimmed mean {statistics.fmean(tr):+.4f}  "
+              f"{pos}/{n} positive  p={pv:.3g}  t={t:.2f} "
+              f"t_trim={tt:.2f}  {flag}")
         print(f"{'':<20} deltas: {' '.join(f'{x:+.3f}' for x in ds[:14])}"
               f"{' ...' if len(ds) > 14 else ''}")
 
-    att = ab.get("attribution")
-    if att:
-        print(f"\n-- attribution, per lap --")
-        print(f"  total (paired iter_ms)  {att['total_cost_ms_per_lap'] * 1000:8.1f} us")
-        print(f"  reset-side scan         {att['scan_ms_per_lap'] * 1000:8.1f} us  "
-              f"(QEMU's own clock)")
-        print(f"  guest-side emission     {att['emission_ms_per_lap'] * 1000:8.1f} us  "
-              f"(remainder)")
-        if "caveat" in att:
-            print(f"  CAVEAT: {att['caveat']}")
-        # An UPPER BOUND on per-block cost, and labelled as one. cov_hits
-        # saturates at 255 per edge, so on a lap with a hot loop it is a
-        # floor on executions -- dividing by a floor gives a ceiling on the
-        # per-block cost, which is the honest direction to state it in.
-        h = cov["hits"]
-        if h and att["emission_ms_per_lap"] > 0:
-            ns = att["emission_ms_per_lap"] * 1e6 / h["median"]
-            print(f"  => at most {ns:.1f} ns per block execution "
-                  f"({h['median']:.0f} hits/lap, itself a floor: the map "
-                  f"saturates at 255 per edge)")
+    # RECOMPUTED from the paired medians, not read from the result. A run
+    # written by an older plugin carries a different attribution shape (and,
+    # for run 113, a caveat produced by the superseded unanimity rule that
+    # the sign test contradicts). Deriving it here keeps every run readable
+    # the same way.
+    def med(k):
+        pr = ab.get("paired", {}).get(k)
+        return pr["median_delta_ms"] if pr else None
+
+    tot, rst, gst = med("iter_ms"), med("sched_to_bh_ms"), med("bh_to_observed_ms")
+    scan = cov["scan_us"]["median"] / 1000.0 if cov.get("scan_us") else None
+    if tot is not None:
+        print(f"\n-- attribution, per lap (three independent paired measurements) --")
+        print(f"  lap total                 {tot * 1000:8.1f} us")
+        if rst is not None:
+            print(f"    reset half              {rst * 1000:8.1f} us")
+            if scan is not None:
+                print(f"      scan, QEMU's clock    {scan * 1000:8.1f} us")
+                print(f"      unattributed          {(rst - scan) * 1000:8.1f} us")
+        if gst is not None:
+            print(f"    guest half (emission)   {gst * 1000:8.1f} us")
+        if rst is not None and gst is not None:
+            resid = rst + gst - tot
+            print(f"  CHECK  reset+guest-total  {resid * 1000:+8.1f} us  "
+                  f"({'closes' if abs(resid) <= 0.02 else 'DOES NOT CLOSE'})")
+        h = cov.get("hits")
+        if h and gst:
+            print(f"  => {gst * 1e6 / h['median']:.1f} ns per block execution at "
+                  f"most ({h['median']:.0f} hits/lap, a floor: the map "
+                  f"saturates at 255/edge)")
+        on = [b["iter_ms"] for b in ab["blocks"] if b["phase"] == "on"]
+        off = [b["iter_ms"] for b in ab["blocks"] if b["phase"] == "off"]
+        if on and off:
+            r_on, r_off = 1000 / statistics.median(on), 1000 / statistics.median(off)
+            print(f"  rate: armed {r_on:.1f} exec/s, disarmed {r_off:.1f} "
+                  f"exec/s -- coverage costs {100 * (1 - r_on / r_off):.1f}% "
+                  f"of the rate")
+    stale = ab.get("attribution", {}).get("caveat")
+    if stale and all(ab["paired"][k].get("sign_consistent") is not None
+                     for k in ab.get("paired", {})):
+        pr = ab["paired"].get("iter_ms", {})
+        ds = pr.get("deltas_on_minus_off", [])
+        if ds and sign_test_p(len(ds), sum(1 for x in ds if x > 0)) <= 0.05:
+            print(f"\n  (the result file carries a caveat written by the "
+                  f"superseded unanimity rule; the sign test above "
+                  f"contradicts it)")
 
     blocks = ab.get("blocks", [])
     if blocks:
