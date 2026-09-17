@@ -279,3 +279,54 @@ def test_missing_symbols_is_reported_not_swallowed(tmp_path):
 def test_available_is_true_on_a_complete_abi(tmp_path):
     p, _ = _load(tmp_path)
     assert p.available() is True
+
+
+def test_every_coverage_symbol_reached_for_is_in_the_preflight_list():
+    """A C symbol this file calls but does not declare is invisible to the
+    preflight and raises mid-run instead.
+
+    FASTSNAP_COV_SYMBOLS is what fastloop checks before a run and refuses
+    over. `_fastsnap_cov_fn` raises on anything absent -- which is the right
+    behaviour at the call site and the wrong place to find out, because by
+    then a boot, a warmup and an arm have been spent. The two only agree if
+    every symbol reached for is also listed, and a hand-kept list of names
+    that are also written out one by one a hundred lines below is exactly the
+    pairing that drifts. So derive one from the file and compare.
+
+    This is the penguin-side half of the same invariant
+    qemu_builder/scripts/check-delta-present.sh enforces against the header.
+    """
+    import re
+
+    src = (REPO_ROOT / "pyplugins" / "compat" / "qemu_compat.py").read_text()
+    listed = set(re.findall(
+        r'"(penguin_fastsnap_cov_\w+)"',
+        src.split("FASTSNAP_COV_SYMBOLS = (")[1].split(")")[0]))
+    assert listed, "the coverage symbol list is empty; this check is inert"
+
+    # The list is itself part of the file, so everything in `listed` is also
+    # in `mentioned`; the difference is exactly the symbols reached for and
+    # never declared.
+    mentioned = set(re.findall(r'"(penguin_fastsnap_cov_\w+)"', src))
+    assert mentioned - listed == set(), sorted(mentioned - listed)
+
+
+def test_coverage_symbols_are_not_in_the_required_group():
+    """Coverage must not be a precondition for every run.
+
+    An image whose QEMU predates coverage is a perfectly good image for every
+    measurement that does not ask for it. FASTSNAP_SYMBOLS is the group
+    fastloop refuses a run over, so folding these into it would turn an
+    unrelated QEMU rebuild into a hard dependency of measurements that have
+    nothing to do with coverage -- while still leaving the runs that DO want
+    it protected, because fastloop checks the coverage group separately when
+    it is asked for.
+    """
+    import re
+
+    src = (REPO_ROOT / "pyplugins" / "compat" / "qemu_compat.py").read_text()
+    required = set(re.findall(
+        r'"(penguin_fastsnap_\w+)"',
+        src.split("FASTSNAP_SYMBOLS = (")[1].split(")")[0]))
+    assert required, "the required symbol list is empty; this check is inert"
+    assert not [n for n in required if "_cov_" in n], sorted(required)
