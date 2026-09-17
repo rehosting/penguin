@@ -359,7 +359,7 @@ def load_class():
     # the line that finally uses it -- `math` cost a round trip that way, and
     # `collections.Counter` cost snapfeed one before it. Refuse instead: if
     # the plugin has grown an import, that is a decision to make here.
-    ALLOWED = ("json", "os", "statistics", "time")
+    ALLOWED = ("json", "math", "os", "statistics", "time")
     imports = [n for n in tree.body if isinstance(n, ast.Import)]
     unknown = sorted({a.name for n in imports for a in n.names}
                      - set(ALLOWED))
@@ -1737,6 +1737,66 @@ def oracle_method_tests(tmp):
           "complete, VALID run")
 
 
+def cov_occupancy_tests(tmp):
+    """What the map is HIDING, not just how full it is.
+
+    An AFL map is a hash table with no collision handling: two edges landing
+    in the same byte are one edge forever. A full map therefore does not
+    report "full", it reports FEWER edges than the guest produced -- and that
+    is indistinguishable from a target that reaches less code. The real run
+    sat at 48.7% used, which reads as comfortable and is not.
+    """
+    cls, _mod = load_class()
+    occ = cls._cov_occupancy
+
+    # ---- THE REAL MEASUREMENT, which is worse than it looks -----------
+    # 31,920 distinct edges in a 65,536-byte map. "Half full" was the reading
+    # this check exists to correct.
+    r = occ(31920, 65536)
+    assert r["used_frac"] == 0.4871, r
+    assert 0.26 < r["est_loss_frac"] < 0.28, r
+    assert r["est_true_edges"] > 43000, r
+    assert "collisions" in r["verdict"], r["verdict"]
+    assert "cov_map_size" in r["verdict"], r["verdict"]
+    print(f"ok  48.7% used is {r['est_loss_frac'] * 100:.1f}% of edges lost "
+          f"({r['est_edges_lost']} of ~{r['est_true_edges']}), and says so")
+
+    # ---- AND A ROOMY MAP IS NOT WARNED ABOUT --------------------------
+    # The negative control. A verdict that fires at every occupancy is not a
+    # verdict, and a threshold that warns on a healthy map trains a reader to
+    # skip it -- which costs exactly the run where it was right.
+    r2 = occ(31920, 65536 * 16)
+    assert r2["est_loss_frac"] < 0.02, r2
+    assert "face value" in r2["verdict"], r2["verdict"]
+    assert "collisions" not in r2["verdict"], r2["verdict"]
+    print(f"ok  the same {31920} edges in a 16x map lose "
+          f"{r2['est_loss_frac'] * 100:.2f}% and are not warned about")
+
+    # ---- MONOTONE, so the estimate cannot be read the wrong way round --
+    prev = -1
+    for frac in (0.01, 0.1, 0.3, 0.5, 0.7, 0.9):
+        loss = occ(int(65536 * frac), 65536)["est_loss_frac"]
+        assert loss > prev, (frac, loss, prev)
+        prev = loss
+    print(f"ok  estimated loss rises monotonically with occupancy "
+          f"(to {prev * 100:.0f}% at 90% full)")
+
+    # ---- THE DEGENERATE ENDS ------------------------------------------
+    # A saturated map has no estimate: the log diverges. Returning a very
+    # large number would be worse than refusing, because a large number reads
+    # as a measurement.
+    r3 = occ(65536, 65536)
+    assert r3.get("saturated") is True, r3
+    assert "est_true_edges" not in r3, r3
+    assert "meaningless" in r3["errors"], r3
+    # And an empty map must not divide by zero on the way to saying nothing.
+    r4 = occ(0, 65536)
+    assert r4["used_frac"] == 0.0 and "est_loss_frac" not in r4, r4
+    assert occ(0, 0) is None
+    print("ok  a saturated map refuses an estimate; an empty one does not "
+          "divide by zero")
+
+
 def cov_ab_tests(tmp):
     """The IN-RUN A/B, which exists because the cross-run one failed.
 
@@ -2402,6 +2462,7 @@ def main():
     health_tests(tmp)
     coverage_tests(tmp)
     cov_ab_tests(tmp)
+    cov_occupancy_tests(tmp)
     oracle_method_tests(tmp)
     tcg_work_tests(tmp)
     arm_cost_tests(tmp)

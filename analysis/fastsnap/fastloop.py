@@ -47,6 +47,7 @@ zero would mean the oracle is not looking at a running guest at all.
 """
 
 import json
+import math
 import os
 import statistics
 import time
@@ -1722,6 +1723,65 @@ class FastLoop(Plugin):
                 row[name] = round(statistics.median(cur[k]), 4)
         self.ab_blocks.append(row)
 
+    @staticmethod
+    def _cov_occupancy(total_edges, map_size):
+        """How much of the map is used, and how much coverage it is hiding.
+
+        WHY THIS IS NOT JUST A PERCENTAGE. An AFL map is a hash table with no
+        collision handling: two distinct edges landing in the same byte are
+        one edge forever. So a full map does not report "full", it reports a
+        LOWER edge count than the guest actually produced -- coverage loss
+        that looks exactly like a target with less coverage. There is nothing
+        in the map that distinguishes them, which is why the estimate has to
+        come from the occupancy itself.
+
+        Under a uniform hash, n distinct edges fill an expected
+        m * (1 - e^(-n/m)) buckets. Observing a fraction f = buckets/m used,
+        that inverts to n ~= -m * ln(1 - f), and the shortfall between that
+        and what was observed is what the map is swallowing. The block index
+        is a splitmix64 finalizer, so uniformity is a fair assumption here --
+        it would NOT be for a plain `pc & mask`, which is why the selftest
+        checks the spread of 4096 page-aligned PCs against the birthday bound
+        rather than assuming it.
+        """
+        if not map_size or total_edges is None:
+            return None
+        f = total_edges / float(map_size)
+        out = {"distinct_edges": total_edges, "map_size": map_size,
+               "used_frac": round(f, 4)}
+        if total_edges <= 0:
+            return out
+        if f >= 1.0:
+            # Saturated: the estimator's log diverges and every further edge
+            # is invisible. Say so rather than returning a huge number.
+            out["saturated"] = True
+            out["errors"] = "the map is completely full; edge counts are meaningless"
+            return out
+        est = -map_size * math.log(1.0 - f)
+        out["est_true_edges"] = int(round(est))
+        out["est_edges_lost"] = int(round(est - total_edges))
+        out["est_loss_frac"] = round(1.0 - total_edges / est, 4)
+        # A THRESHOLD, because the number alone gets read as "fine". 5% loss
+        # is the point where raising cov_map_size buys more than the linear
+        # increase in scan cost it charges -- the scan is O(map), so doubling
+        # the map doubles the per-lap scan whether or not the extra room is
+        # used.
+        if out["est_loss_frac"] >= 0.05:
+            out["verdict"] = (
+                f"{out['est_loss_frac'] * 100:.1f}% of distinct edges are "
+                f"being lost to hash collisions ({out['est_edges_lost']} of "
+                f"an estimated {out['est_true_edges']}). This UNDERSTATES "
+                f"coverage and is indistinguishable from a target that "
+                f"reaches less code. Raise cov_map_size (the scan cost rises "
+                f"linearly with it) or narrow cov_filter_lo/hi to the "
+                f"victim's text.")
+        else:
+            out["verdict"] = (
+                f"map is {f * 100:.1f}% full; estimated collision loss "
+                f"{out['est_loss_frac'] * 100:.1f}%, low enough that the "
+                f"edge count can be read at face value")
+        return out
+
     def _ab_report(self):
         """What coverage cost, measured against itself inside this one run."""
         self._ab_flush_block()      # the last block never sees a toggle
@@ -3306,6 +3366,8 @@ class FastLoop(Plugin):
             }
             if self.cov_ab:
                 cov["ab"] = self._ab_report()
+            cov["occupancy"] = self._cov_occupancy(
+                cov["total_edges"], cov["map_size"])
             # THE ZERO THAT MEANS TWO THINGS. An empty map is produced both by
             # a guest that reached nothing and by a filter naming a range that
             # holds no code, and nothing in the map separates them. The tbs
