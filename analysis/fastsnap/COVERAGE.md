@@ -47,7 +47,7 @@ them whenever a C++ compiler is present, so the shipped
    `QEMU_PLUGIN_INLINE_ADD_U64` and `QEMU_PLUGIN_INLINE_STORE_U64` against a
    fixed scoreboard entry — no indexed addressing. So `map[prev ^ cur]++` is
    not expressible inline and must become a per-block *callback* through the
-   plugin dispatch: an indirect call per translated block, against seven inline
+   plugin dispatch: an indirect call per translated block, against eight inline
    TCG ops here.
 
 It also could not have gone in `cpu_tb_exec()`, which is the other obvious
@@ -65,8 +65,9 @@ prev       = cur >> 1
 ```
 
 `cur` is fixed when the block is translated and blocks are cached, so per
-execution this is a load, an xor, a byte load, an add, a byte store and a
-store. No call, no branch, no lookup. The map is 64 KiB by default because that
+execution this is a load, an xor, a pointer extend and add, a byte load, an
+add, a byte store and a store — eight TCG ops before optimisation, counted
+from the source rather than estimated. No call, no branch, no lookup. The map is 64 KiB by default because that
 is AFL's `MAP_SIZE` and what anything downstream assumes.
 
 Novelty is judged on AFL's power-of-two hit-count buckets, not on edge presence.
@@ -115,7 +116,7 @@ this lane an op is far the more expensive of the two — a hooked syscall is
 95.880 µs against 1.161 µs unhooked, and 98.8% of that is portal round trip.
 
 The per-block emission cost is **not yet measured on real firmware.** That is
-the honest state of it: seven inline ops is small, and small is not zero, and
+the honest state of it: eight inline ops is small, and small is not zero, and
 the lap it lands in is 3.4 ms of which ~2.06 ms is guest emulation. Arming
 coverage before the forward probe (which fastloop does, at the top of warmup)
 at least keeps both sides of the fidelity ratio on the same footing, so the

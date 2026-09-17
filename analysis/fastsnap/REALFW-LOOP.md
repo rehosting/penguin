@@ -1313,7 +1313,7 @@ reporting **coverage-guided** throughput. Comparing them was comparing two
 different quantities.
 
 `coverage: 1` closes that. The mechanism is in QEMU (`coverage.c` in
-qemu_builder plus series patch 0018): an AFL-shaped edge map filled by seven
+qemu_builder plus series patch 0018): an AFL-shaped edge map filled by eight
 inline TCG ops emitted into every translated block, summarised and cleared
 inside the same bottom half that rewinds guest RAM so it costs no extra
 scheduled op per lap. `COVERAGE.md` has the design, the three ways it can read
