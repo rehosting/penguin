@@ -350,6 +350,63 @@ class FastLoop(Plugin):
         # a hot loop this is a floor, not an exact count.
         self.cov_hits = []
         self.cov_scan_us = []       # what summarising cost, per lap
+        # ---- THE IN-RUN A/B, which exists because the cross-run one failed.
+        #
+        # Measuring coverage's cost by running a control run and a coverage
+        # run and subtracting does not work here, and the failure is on the
+        # record: two controls taken back to back differed by 23% in the guest
+        # half, because each run draws its own span to loop over and the spans
+        # are not equally expensive. A 23% instrument cannot resolve a 5%
+        # effect. Both coverage runs even landed BELOW both controls -- the
+        # wrong sign -- which is what a draw-dominated comparison looks like
+        # when it is asked a question it cannot answer.
+        #
+        # So the comparison has to happen INSIDE one run, on ONE draw, against
+        # ONE snapshot: arm coverage, run N laps, disarm, run N laps. The
+        # snapshot is identical across the phases by construction, so whatever
+        # made this draw expensive is a constant that subtracts out.
+        #
+        # ALTERNATING, not one switch. A single changeover confounds the phase
+        # with position in the run: if the guest drifts at all over 2000 laps
+        # (a log file growing, an allocator warming), all of that drift lands
+        # on whichever phase came second. Alternating on..off..on..off leaves
+        # each phase spread evenly across the run, so a linear drift cancels
+        # instead of being attributed to coverage.
+        #
+        # This measures the WHOLE cost -- emission plus the reset-side scan --
+        # because disarm stops both. That is the number worth having, and the
+        # scan half is separately known from cov_scan_us, so the emission half
+        # comes out by subtraction rather than having to be isolated directly.
+        self.cov_ab = int(self._num("cov_ab", 0))
+        # Laps after each toggle that belong to NEITHER steady state. Both arm
+        # and disarm queue a tb_flush, so the laps just after a toggle pay to
+        # re-translate every block the guest touches -- a real cost, but the
+        # toggle's, not the phase's. Recorded in its own bucket rather than
+        # dropped, so "the settle window is short" stays checkable.
+        self.cov_ab_settle = int(self._num("cov_ab_settle", 0))
+        if self.cov_ab and self.cov_ab_settle <= 0:
+            self.cov_ab_settle = max(20, self.cov_ab // 8)
+        self._ab_phase = "on"       # coverage is armed first, at warmup
+        self._ab_lap = 0            # plain laps since the last toggle
+        self._ab_switches = 0
+        self._ab_wait_seq = None    # see _ab_toggle on why this is awaited
+        self._ab_tbi = 0            # tbs_instrumented, summed over arms
+        # Three buckets per quantity, and the same split the run already makes
+        # between the reset half and the guest half. The whole point is to see
+        # WHERE the cost lands, so a single lap-time table would waste the
+        # experiment.
+        self.ab_ms = {"on": [], "off": [], "settle": []}
+        self.ab_sched = {"on": [], "off": [], "settle": []}
+        self.ab_obs = {"on": [], "off": [], "settle": []}
+        # PER-BLOCK medians as well as pooled ones, because pooling throws
+        # away the only thing that makes this design trustworthy. Alternating
+        # gives a sequence on,off,on,off,... of blocks run minutes apart; the
+        # medians of those blocks are a PAIRED sample, and a consistent sign
+        # across every pair is evidence no pooled median can offer. Pooled,
+        # one unusually expensive stretch of guest time is indistinguishable
+        # from a real effect. Paired, it shows up as one pair disagreeing.
+        self.ab_blocks = []
+        self._ab_cur = {"ms": [], "sched": [], "obs": []}
         self.health_time_frac = float(self._num("health_time_frac", 0.5))
         self.hot_class = None
         self._hw_n = self._hw_sig = 0
@@ -790,7 +847,10 @@ class FastLoop(Plugin):
     # to the runs that care.
     API_COVERAGE = frozenset({
         "FASTSNAP_COV_ARM",
-        "fastsnap_cov_available",
+        # Only the in-run A/B disarms, but it comes from the same build as
+        # the arm, so requiring the pair together costs nothing and keeps the
+        # group a group rather than a list with a conditional hole in it.
+        "FASTSNAP_COV_DISARM",
         "fastsnap_cov_missing_symbols",
         "fastsnap_cov_set_filter",
         "fastsnap_cov_set_map_size",
@@ -798,6 +858,7 @@ class FastLoop(Plugin):
         "fastsnap_cov_edges",
         "fastsnap_cov_new_edges",
         "fastsnap_cov_new_buckets",
+        "fastsnap_cov_hits",
         "fastsnap_cov_total_edges",
         "fastsnap_cov_tbs_instrumented",
         "fastsnap_cov_tbs_filtered",
@@ -1545,6 +1606,11 @@ class FastLoop(Plugin):
                     self.t_iter = now
                     self.t_loop0 = now
 
+                # Nothing may be scheduled while an A/B toggle is in flight;
+                # see _ab_step on what a premature _bh_done() would record.
+                if self._ab_blocked():
+                    return
+
                 # Verify on a schedule, not every lap: the oracle reads all of
                 # guest RAM back through process_vm_readv() and costs ~80x the
                 # reset, so verifying every lap would report the oracle's rate
@@ -1588,6 +1654,153 @@ class FastLoop(Plugin):
                 open(__file__, "rb").read()).hexdigest()[:16]
         except Exception:                                   # noqa: BLE001
             return None
+
+    # ---- the in-run A/B -------------------------------------------------
+
+    def _ab_bucket(self):
+        """Which phase the lap now closing belongs to, or None if not A/B-ing.
+
+        A lap inside the settle window after a toggle is named `settle` rather
+        than dropped: a discarded sample cannot be checked, and the claim that
+        re-translation is over within the window is exactly the claim a reader
+        should not have to take on faith.
+        """
+        if not (self.cov and self.cov_ab):
+            return None
+        if self._ab_lap < self.cov_ab_settle:
+            return "settle"
+        return self._ab_phase
+
+    def _ab_step(self, now):
+        """Count a plain lap toward the current phase and toggle when due.
+
+        Called at lap close, which is the only safe moment: nothing is
+        outstanding, and in particular the reset for the next lap has not been
+        scheduled yet.
+        """
+        if not (self.cov and self.cov_ab):
+            return
+        self._ab_lap += 1
+        if self._ab_lap < self.cov_ab + self.cov_ab_settle:
+            return
+        # Carry the instrumented-block count forward before it is lost. ARM
+        # zeroes cov_tbs_instrumented, so without this the final report would
+        # describe only the last armed phase and quietly understate how much
+        # of the guest was covered across the run.
+        if self._ab_phase == "on":
+            try:
+                self._ab_tbi += self.panda.fastsnap_cov_tbs_instrumented()
+            except Exception:                               # noqa: BLE001
+                pass
+        self._ab_flush_block()
+        self._ab_phase = "off" if self._ab_phase == "on" else "on"
+        self._ab_lap = 0
+        self._ab_switches += 1
+        # AWAITED, and this is not optional. Every fastsnap op bumps the one
+        # global fastsnap_seq, and _bh_done() is `seq() > seq_at_sched`. Let a
+        # reset be scheduled while this toggle's bottom half is still queued
+        # and the toggle's own bump satisfies the reset's completion test --
+        # the lap would then read last_us() and ram_restored_pages() left over
+        # from the PREVIOUS reset and record them as this one's. That is a
+        # wrong number, not a missing one, so the state machine stalls on the
+        # next detector hits until the toggle is observed instead.
+        self._ab_wait_seq = self.panda.fastsnap_seq()
+        self.panda.fastsnap_schedule(
+            self.panda.FASTSNAP_COV_ARM if self._ab_phase == "on"
+            else self.panda.FASTSNAP_COV_DISARM)
+
+    def _ab_flush_block(self):
+        """Close the steady-state block just finished, as three medians."""
+        cur, self._ab_cur = self._ab_cur, {"ms": [], "sched": [], "obs": []}
+        if not cur["ms"]:
+            return
+        row = {"phase": self._ab_phase, "i": self._ab_switches,
+               "laps": len(cur["ms"]),
+               "iter_ms": round(statistics.median(cur["ms"]), 4)}
+        for k, name in (("sched", "sched_to_bh_ms"), ("obs", "bh_to_observed_ms")):
+            if cur[k]:
+                row[name] = round(statistics.median(cur[k]), 4)
+        self.ab_blocks.append(row)
+
+    def _ab_report(self):
+        """What coverage cost, measured against itself inside this one run."""
+        self._ab_flush_block()      # the last block never sees a toggle
+        out = {
+            "laps_per_phase": self.cov_ab,
+            "settle_laps": self.cov_ab_settle,
+            "switches": self._ab_switches,
+            "tbs_instrumented_all_arms": self._ab_tbi,
+            "blocks": self.ab_blocks,
+        }
+        for name, d in (("iter_ms", self.ab_ms),
+                        ("sched_to_bh_ms", self.ab_sched),
+                        ("bh_to_observed_ms", self.ab_obs)):
+            out[name] = {k: _stats(v) for k, v in d.items()}
+
+        # THE PAIRED COMPARISON. Adjacent blocks differ in phase and are
+        # minutes apart, so each adjacent pair is one before/after measurement
+        # of the same guest under the same snapshot. The sign agreement across
+        # pairs is the statistic that matters: a pooled difference of the
+        # right size with two pairs disagreeing is not a measurement of
+        # anything.
+        pairs = {}
+        for key in ("iter_ms", "sched_to_bh_ms", "bh_to_observed_ms"):
+            deltas = []
+            for x, y in zip(self.ab_blocks, self.ab_blocks[1:]):
+                if x["phase"] == y["phase"]:
+                    continue
+                if key not in x or key not in y:
+                    continue
+                on, off = ((x, y) if x["phase"] == "on" else (y, x))
+                deltas.append(round(on[key] - off[key], 4))
+            if not deltas:
+                continue
+            pos = sum(1 for d in deltas if d > 0)
+            pairs[key] = {
+                "deltas_on_minus_off": deltas,
+                "n_pairs": len(deltas),
+                "median_delta_ms": round(statistics.median(deltas), 4),
+                "mean_delta_ms": round(statistics.fmean(deltas), 4),
+                "pairs_positive": pos,
+                # Every pair agreeing is the only reading that licenses a
+                # claim from five pairs. Anything less is reported as such
+                # rather than averaged into a number that looks settled.
+                "sign_consistent": pos == len(deltas) or pos == 0,
+            }
+        out["paired"] = pairs
+
+        # The arithmetic the whole experiment was built to do: total cost
+        # minus the part already measured directly, leaving the part that
+        # could not be. Stated as a subtraction so a reader can see which
+        # term is measured twice and which only once.
+        tot = pairs.get("iter_ms", {}).get("median_delta_ms")
+        scan = _stats(self.cov_scan_us).get("median") if self.cov_scan_us else None
+        if tot is not None and scan is not None:
+            emit = tot - scan / 1000.0
+            out["attribution"] = {
+                "total_cost_ms_per_lap": round(tot, 4),
+                "scan_ms_per_lap": round(scan / 1000.0, 4),
+                "emission_ms_per_lap": round(emit, 4),
+                "note": ("total is the paired median of iter_ms (armed minus "
+                         "disarmed); scan is QEMU's own clock around the map "
+                         "walk, which disarming also stops; the remainder is "
+                         "what the eight emitted TCG ops cost per lap"),
+            }
+            if not pairs.get("iter_ms", {}).get("sign_consistent"):
+                out["attribution"]["caveat"] = (
+                    "the pairs do not agree in sign, so this split is "
+                    "arithmetic on two numbers that are not separated by "
+                    "more than the noise -- read it as a bound, not a value")
+        return out
+
+    def _ab_blocked(self):
+        """True while a toggle's bottom half has not been observed yet."""
+        if self._ab_wait_seq is None:
+            return False
+        if self.panda.fastsnap_seq() > self._ab_wait_seq:
+            self._ab_wait_seq = None
+            return False
+        return True
 
     def _split_wall(self, now):
         """Split the schedule-to-observed span at the bottom half.
@@ -1651,6 +1864,17 @@ class FastLoop(Plugin):
         else:
             self.sched_ms.append(sched)
             self.obs_ms.append(obs)
+            # The same two halves again, bucketed by A/B phase. Appended here
+            # rather than recomputed later because this is the only place the
+            # split exists, and a second derivation would be a second thing
+            # that can disagree.
+            b = self._ab_bucket()
+            if b is not None:
+                self.ab_sched[b].append(sched)
+                self.ab_obs[b].append(obs)
+                if b != "settle":
+                    self._ab_cur["sched"].append(sched)
+                    self._ab_cur["obs"].append(obs)
 
     def _mark(self, now):
         """Close one iteration."""
@@ -1775,6 +1999,11 @@ class FastLoop(Plugin):
                 self.crash_iter_ms.append(dt)
             else:
                 self.iter_ms.append(dt)
+                b = self._ab_bucket()
+                if b is not None:
+                    self.ab_ms[b].append(dt)
+                    if b != "settle":
+                        self._ab_cur["ms"].append(dt)
             # Every class, in order, including the verified and crash-closed
             # ones: which class lap 0 fell into is part of what is being asked.
             if len(self.first_laps_ms) < self.first_laps_max:
@@ -1785,6 +2014,10 @@ class FastLoop(Plugin):
         self.t_iter = now
         self.t_signal_mono = None
         self.n_iters += 1
+        # AFTER the lap has been bucketed, so the lap that triggers a toggle
+        # is still attributed to the phase it actually ran under.
+        if not was_verify and not was_crash:
+            self._ab_step(now)
         self.t_loopN = now
         if self._publish_lap and self.mode == "loop":
             self._lap_event(was_crash, was_verify)
@@ -3071,6 +3304,8 @@ class FastLoop(Plugin):
                                              if n),
                 "scan_us": _stats(self.cov_scan_us),
             }
+            if self.cov_ab:
+                cov["ab"] = self._ab_report()
             # THE ZERO THAT MEANS TWO THINGS. An empty map is produced both by
             # a guest that reached nothing and by a filter naming a range that
             # holds no code, and nothing in the map separates them. The tbs

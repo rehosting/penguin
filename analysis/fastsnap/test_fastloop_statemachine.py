@@ -49,6 +49,7 @@ class FakeQemu:
     FASTSNAP_FORK_DIFF = 7
     FASTSNAP_FORK_DROP = 8
     FASTSNAP_COV_ARM = 18
+    FASTSNAP_COV_DISARM = 21
 
     def __init__(self, ram_bytes=268836864):
         self.seq = 0
@@ -102,7 +103,21 @@ class FakeQemu:
         self._cov_edges = 502
         self._cov_new = 12
         self._cov_new_b = 3
+        self._cov_hits = 1477
         self._cov_scan_us = 27
+        # THE TOGGLE'S BOTTOM HALF LAGS, which is the whole hazard the in-run
+        # A/B has to survive. Every fastsnap op bumps the one global seq and
+        # _bh_done() is `seq() > seq_at_sched`, so a toggle still queued when
+        # the next reset is scheduled can satisfy the reset's completion test.
+        # Default 0 (instant) so no existing test changes; a test that wants
+        # the race sets it.
+        self.toggle_defer = 0
+        self._defer_left = 0
+        # Opt-in per-reset unique page count, so a lap that read its numbers
+        # from the WRONG completed op is identifiable. With a constant here,
+        # a stale read and a correct one are the same value and the race is
+        # invisible -- which is how it would have shipped.
+        self.restored_unique = False
 
     # -- the API the plugin uses --
     def fastsnap_available(self):
@@ -140,11 +155,17 @@ class FakeQemu:
     # exemption is real; a fake that then raised AttributeError from its own
     # dispatch would report its own missing attribute as a plugin failure,
     # which is exactly the class of false result this file exists to prevent.
-    _FIRE_AND_FORGET = frozenset({8, 18})       # FORK_DROP, COV_ARM
+    _FIRE_AND_FORGET = frozenset({8, 18, 21})   # FORK_DROP, COV_ARM/DISARM
 
     def fastsnap_schedule(self, op):
         self.ops.append(op)
         if op in self._FIRE_AND_FORGET:
+            if self.toggle_defer and op in (18, 21):
+                # Queued, not run. The bump arrives some polls later, which
+                # is what a bottom half on the main loop actually looks like
+                # from a vCPU thread.
+                self._defer_left = self.toggle_defer
+                return
             self.seq += 1             # nothing polls it
             return
         self.pending = op
@@ -180,6 +201,9 @@ class FakeQemu:
     def fastsnap_cov_new_buckets(self):
         return self._cov_new_b
 
+    def fastsnap_cov_hits(self):
+        return self._cov_hits
+
     def fastsnap_cov_total_edges(self):
         return self.cov_total
 
@@ -193,6 +217,12 @@ class FakeQemu:
         return self._cov_scan_us
 
     def fastsnap_seq(self):
+        # A deferred toggle lands here, on a later poll, exactly as the real
+        # one lands when the main loop next drains its bottom halves.
+        if self._defer_left > 0:
+            self._defer_left -= 1
+            if self._defer_left == 0:
+                self.seq += 1
         return self.seq
 
     def fastsnap_last_rc(self):
@@ -208,6 +238,8 @@ class FakeQemu:
         return self.ram_bytes
 
     def fastsnap_ram_restored_pages(self):
+        if self.restored_unique:
+            return self.restored + len(self.completed)
         return self.restored
 
     def fastsnap_diff_pages(self):
@@ -1705,6 +1737,215 @@ def oracle_method_tests(tmp):
           "complete, VALID run")
 
 
+def cov_ab_tests(tmp):
+    """The IN-RUN A/B, which exists because the cross-run one failed.
+
+    Two controls taken back to back differed by 23% in the guest half, because
+    each run draws its own span to loop over. A 23% instrument cannot resolve a
+    5% effect, and both coverage runs landed BELOW both controls -- the wrong
+    sign. So the comparison moved inside a single run, on one draw and one
+    snapshot, alternating armed and disarmed.
+
+    What is asserted here is not that the numbers are right -- a fake has no
+    guest and no TCG, so its lap times are Python bookkeeping. It is that the
+    EXPERIMENT is wired correctly and that it refuses to report a value when
+    its own pairs disagree.
+    """
+
+    # ---- OFF BY DEFAULT ------------------------------------------------
+    # Coverage without cov_ab must stay a single arm for the whole run. The
+    # cost claim behind per-lap coverage is that it adds no op per lap, and a
+    # toggle is an op per N laps -- opt-in, so the plain coverage runs already
+    # recorded remain comparable.
+    p, q = make("loop", tmp, coverage=1)
+    to_loop(p, q)
+    for _ in range(6):
+        q.run_bottom_half()
+        hit(p)
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    assert q.FASTSNAP_COV_DISARM not in q.ops, q.ops
+    assert "ab" not in out["coverage"], out["coverage"].get("ab")
+    print("ok  cov_ab is off unless asked for; coverage stays one arm per run")
+
+    # ---- IT ALTERNATES, AND THE PHASES ARE SPREAD THROUGH THE RUN -----
+    # A single changeover would confound the phase with position in the run:
+    # any drift over 2000 laps lands entirely on whichever phase came second.
+    # Alternating leaves a linear drift cancelling between the pairs.
+    p, q = make("loop", tmp, coverage=1, iters=40, cov_ab=4, cov_ab_settle=1,
+                verify_every=0)
+    to_loop(p, q)
+    for _ in range(200):
+        if p.state == "done":
+            break
+        q.run_bottom_half()
+        hit(p)
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    ab = out["coverage"]["ab"]
+    toggles = [o for o in q.ops if o in (q.FASTSNAP_COV_ARM,
+                                         q.FASTSNAP_COV_DISARM)]
+    # The first is the warmup arm; after that they must strictly alternate.
+    # Two disarms in a row would mean a toggle was scheduled without the
+    # phase advancing, and every lap after it would be attributed to the
+    # wrong phase while still looking like a clean result.
+    assert toggles[0] == q.FASTSNAP_COV_ARM, toggles
+    for x, y in zip(toggles, toggles[1:]):
+        assert x != y, toggles
+    assert ab["switches"] == len(toggles) - 1, (ab["switches"], toggles)
+    assert ab["switches"] >= 4, ab["switches"]
+    phases = [b["phase"] for b in ab["blocks"]]
+    for x, y in zip(phases, phases[1:]):
+        assert x != y, phases
+    assert phases[0] == "on", phases
+    print(f"ok  cov_ab alternates: {ab['switches']} switches, "
+          f"blocks {''.join('A' if x == 'on' else 'B' for x in phases)}")
+
+    # ---- EVERY PLAIN LAP IS ACCOUNTED FOR, IN EXACTLY ONE BUCKET ------
+    # A lap that fell through all three buckets would shrink the experiment
+    # silently; a lap counted twice would tighten it falsely.
+    n_on = ab["iter_ms"]["on"]["n"]
+    n_off = ab["iter_ms"]["off"]["n"]
+    n_settle = ab["iter_ms"]["settle"]["n"]
+    assert n_on and n_off and n_settle, ab["iter_ms"]
+    assert n_on + n_off + n_settle == len(p.iter_ms), \
+        (n_on, n_off, n_settle, len(p.iter_ms))
+    # The settle window is charged to the toggle, not to either phase: both
+    # arm and disarm queue a tb_flush, so the laps just after one pay to
+    # re-translate every block the guest touches.
+    # switches + 1, not switches: the FIRST phase has a settle window too.
+    # The warmup arm flushes the TB cache exactly as every later toggle does,
+    # so the opening laps pay the same re-translation and must not be charged
+    # to the armed phase they happen to fall in.
+    assert n_settle == (ab["switches"] + 1) * ab["settle_laps"], \
+        (n_settle, ab["switches"], ab["settle_laps"])
+    # And it is REPORTED rather than dropped, so "the flush is over within
+    # the window" stays a claim a reader can check.
+    assert ab["iter_ms"]["settle"]["median"] is not None
+    print(f"ok  laps accounted: on={n_on} off={n_off} settle={n_settle} "
+          f"= {len(p.iter_ms)} plain laps, settle charged to the toggle")
+
+    # ---- THE TOGGLE IS AWAITED, AND THAT GUARD IS LOAD-BEARING --------
+    # Every fastsnap op bumps the one global fastsnap_seq and _bh_done() is
+    # `seq() > seq_at_sched`. Schedule a reset while a toggle's bottom half is
+    # still queued and the toggle's own bump satisfies the reset's completion
+    # test -- the lap then reads the PREVIOUS reset's numbers and records them
+    # as this one's. A wrong number, not a missing one.
+    def _run_ab(patch_out_guard):
+        pp, qq = make("loop", tmp, coverage=1, iters=40, cov_ab=4,
+                      cov_ab_settle=0, verify_every=0)
+        qq.restored_unique = True     # so a stale read is identifiable
+        to_loop(pp, qq)
+        # The bottom half lags TWO polls, which is what makes this a race at
+        # all: one poll and the toggle would be observed by the guard's first
+        # check and there would be nothing to guard against.
+        qq.toggle_defer = 2
+        if patch_out_guard:
+            pp._ab_blocked = lambda: False
+        for _ in range(300):
+            if pp.state == "done":
+                break
+            qq.run_bottom_half()
+            hit(pp)
+            # A SECOND HIT WITH NO BOTTOM HALF IN BETWEEN, and the race needs
+            # it. on_hit runs on a vCPU thread and the bottom half runs on the
+            # main loop; a guest that reaches the detector twice before the
+            # main loop drains is the ordinary case, not a corner. Driven one
+            # hit per drain, the reset always completes first and the hazard
+            # cannot appear -- which is why the first version of this test
+            # passed with the guard removed.
+            if pp.state != "done":
+                hit(pp)
+        return pp, qq
+
+    pp, qq = _run_ab(patch_out_guard=False)
+    dups = len(pp.restored) - len(set(pp.restored))
+    assert dups == 0, (dups, pp.restored)
+    guarded = list(pp.restored)
+    pp.uninit()
+
+    # THE NEGATIVE CONTROL. With the guard removed the same fake must produce
+    # the damage, or the assertion above passed for some other reason and the
+    # guard is decoration.
+    pp2, qq2 = _run_ab(patch_out_guard=True)
+    dups2 = len(pp2.restored) - len(set(pp2.restored))
+    assert dups2 > 0, (
+        "removing the _ab_blocked guard produced no stale read, so the test "
+        "above does not show the guard is doing anything")
+    pp2.uninit()
+    print(f"ok  the toggle is awaited: {len(guarded)} distinct resets with the "
+          f"guard, {dups2} stale reads without it")
+
+    # ---- THE PAIRED ANALYSIS, ON KNOWN NUMBERS ------------------------
+    # Driven directly rather than through a run: a fake has no guest, so its
+    # lap times cannot carry a known effect. The arithmetic and, more
+    # importantly, the refusal are what need checking.
+    cls, _mod = load_class()
+    inst = cls.__new__(cls)
+    inst.cov_ab, inst.cov_ab_settle, inst._ab_switches = 400, 50, 5
+    inst._ab_tbi, inst._ab_phase = 49694, "off"
+    inst._ab_cur = {"ms": [], "sched": [], "obs": []}
+    inst.ab_ms = {"on": [], "off": [], "settle": []}
+    inst.ab_sched = {"on": [], "off": [], "settle": []}
+    inst.ab_obs = {"on": [], "off": [], "settle": []}
+    inst.cov_scan_us = [160] * 100
+
+    # A CONSISTENT effect: every armed block dearer than the disarmed block
+    # beside it, by 0.200 ms, while the blocks themselves drift upward -- the
+    # drift the alternation exists to cancel.
+    inst.ab_blocks = []
+    for i in range(6):
+        drift = 0.05 * i
+        inst.ab_blocks.append({"phase": "on", "i": i, "laps": 400,
+                               "iter_ms": round(3.400 + drift + 0.200, 4),
+                               "sched_to_bh_ms": round(0.360 + 0.164, 4),
+                               "bh_to_observed_ms": round(2.98 + drift + 0.036, 4)})
+        inst.ab_blocks.append({"phase": "off", "i": i, "laps": 400,
+                               "iter_ms": round(3.400 + drift, 4),
+                               "sched_to_bh_ms": 0.360,
+                               "bh_to_observed_ms": round(2.98 + drift, 4)})
+    rep = inst._ab_report()
+    pair = rep["paired"]["iter_ms"]
+    assert pair["n_pairs"] == 11, pair
+    assert pair["sign_consistent"] is True, pair
+    assert abs(pair["median_delta_ms"] - 0.200) < 1e-6, pair
+    att = rep["attribution"]
+    assert abs(att["scan_ms_per_lap"] - 0.160) < 1e-9, att
+    assert abs(att["emission_ms_per_lap"] - 0.040) < 1e-6, att
+    assert "caveat" not in att, att
+    # The drift is 0.30 ms end to end, larger than the 0.20 ms effect. A
+    # design that compared the first half of the run to the second would read
+    # this as coverage being FASTER. The pairing is what makes it come out.
+    assert inst.ab_blocks[-1]["iter_ms"] > inst.ab_blocks[0]["iter_ms"], \
+        "the drift this case exists to defeat is not present"
+    print(f"ok  paired A/B recovers {att['emission_ms_per_lap']:.3f} ms of "
+          f"emission under a drift ({0.05 * 5:.2f} ms) larger than the effect")
+
+    # ---- AND IT REFUSES WHEN THE PAIRS DISAGREE -----------------------
+    # The failure mode this whole file is about: an instrument that always
+    # produces a number, including when its input cannot support one. Same
+    # median as a real effect, but the pairs do not agree in sign.
+    inst2 = cls.__new__(cls)
+    for k, v in vars(inst).items():
+        setattr(inst2, k, v)
+    inst2._ab_cur = {"ms": [], "sched": [], "obs": []}
+    inst2.ab_blocks = []
+    for i, (on, off) in enumerate([(3.6, 3.4), (3.4, 3.7), (3.65, 3.4),
+                                   (3.4, 3.55), (3.62, 3.4), (3.4, 3.6)]):
+        inst2.ab_blocks.append({"phase": "on", "i": i, "laps": 400,
+                                "iter_ms": on})
+        inst2.ab_blocks.append({"phase": "off", "i": i, "laps": 400,
+                                "iter_ms": off})
+    rep2 = inst2._ab_report()
+    pair2 = rep2["paired"]["iter_ms"]
+    assert pair2["sign_consistent"] is False, pair2
+    assert 0 < pair2["pairs_positive"] < pair2["n_pairs"], pair2
+    assert "caveat" in rep2["attribution"], rep2["attribution"]
+    assert "bound, not a value" in rep2["attribution"]["caveat"]
+    print(f"ok  pairs disagreeing ({pair2['pairs_positive']}/"
+          f"{pair2['n_pairs']} positive) is reported as a bound, not a value")
+
+
 def coverage_tests(tmp):
     """Edge coverage: that it is off unless asked for, refused when asked for
     and absent, and that an empty map is never quietly reported as a result."""
@@ -2160,6 +2401,7 @@ def main():
     lap_tests(tmp)
     health_tests(tmp)
     coverage_tests(tmp)
+    cov_ab_tests(tmp)
     oracle_method_tests(tmp)
     tcg_work_tests(tmp)
     arm_cost_tests(tmp)

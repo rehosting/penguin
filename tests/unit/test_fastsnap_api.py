@@ -330,3 +330,64 @@ def test_coverage_symbols_are_not_in_the_required_group():
         src.split("FASTSNAP_SYMBOLS = (")[1].split(")")[0]))
     assert required, "the required symbol list is empty; this check is inert"
     assert not [n for n in required if "_cov_" in n], sorted(required)
+
+
+def test_fastloop_exempts_every_coverage_name_it_reaches_for():
+    """Every coverage accessor fastloop uses must be in its API_COVERAGE group.
+
+    THE BUG THIS CATCHES, which it was written after rather than before.
+    `fastsnap_cov_hits` was added to coverage.c, to penguin-fastsnap.h, to
+    qemu_compat.py and to FASTSNAP_COV_SYMBOLS -- everywhere but fastloop's
+    own API_COVERAGE set. fastloop derives the names it needs from its
+    bytecode and then subtracts API_OPTIONAL (which contains API_COVERAGE), so
+    a coverage accessor left out of that set becomes a requirement of EVERY
+    run, coverage or not. An image whose QEMU predates coverage would then be
+    refused for measurements that never asked for it, which is precisely the
+    failure API_COVERAGE exists to prevent.
+
+    It went unnoticed because the symptom on a current image is nothing at
+    all: the general preflight tests `dir(panda)`, and the binding was there.
+    It only bites on an older QEMU -- and on the host-side fake, where it
+    aborted the statemachine suite in its first group.
+
+    Derived from the bytecode on both sides, so a name added tomorrow is
+    covered without this test being edited.
+    """
+    import ast
+    import types
+
+    path = REPO_ROOT / "analysis" / "fastsnap" / "fastloop.py"
+    if not path.exists():
+        pytest.skip("analysis/fastsnap/fastloop.py is not in this checkout")
+
+    # Exec'd the way penguin does -- into a bare module with the base class
+    # stripped -- because the sets are class attributes and the name walk
+    # needs real code objects, not source text. A regex over the source would
+    # also match names inside comments, which is how a check like this quietly
+    # becomes unfalsifiable.
+    tree = ast.parse(path.read_text())
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef))
+    cls.bases = []
+    keep = [n for n in tree.body if isinstance(n, (ast.Import, ast.FunctionDef))]
+    mod = types.ModuleType("fastloop_under_test")
+    exec(compile(ast.fix_missing_locations(
+        ast.Module(body=keep + [cls], type_ignores=[])),
+        "fastloop_under_test", "exec"), mod.__dict__)
+    FastLoop = mod.__dict__[cls.name]
+
+    used = FastLoop._api_names_used()
+    assert used, "the name walk found nothing; this check is inert"
+    cov_used = {n for n in used if "_COV_" in n or "_cov_" in n}
+    assert cov_used, "no coverage names found in fastloop; this check is inert"
+    missing = sorted(cov_used - set(FastLoop.API_COVERAGE))
+    assert not missing, (
+        f"fastloop reaches for {missing} but does not list them in "
+        f"API_COVERAGE, so every run -- including runs that never ask for "
+        f"coverage -- now requires them")
+
+    # And the reverse: a name listed but no longer used is a stale exemption,
+    # which quietly widens what the general preflight will tolerate.
+    stale = sorted(set(FastLoop.API_COVERAGE) - used)
+    assert not stale, (
+        f"API_COVERAGE lists {stale}, which fastloop no longer uses; a stale "
+        f"exemption widens what the preflight lets through")
