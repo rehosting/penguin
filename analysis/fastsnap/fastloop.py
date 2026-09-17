@@ -3469,6 +3469,15 @@ class FastLoop(Plugin):
         if self.cov and self._cov_armed:
             tbi = self.panda.fastsnap_cov_tbs_instrumented()
             tbf = self.panda.fastsnap_cov_tbs_filtered()
+            # ARM ZEROES THIS COUNTER, so under the A/B `tbi` describes only
+            # the LAST armed phase -- run 113 reported 28,524 where the whole
+            # run translated 392,075. Left alone that is a number a reader
+            # would compare against a single-arm run and conclude the guest
+            # had shrunk. _ab_step carries the total forward across arms; use
+            # it where it exists, and keep the per-arm figure under its own
+            # name rather than silently replacing it.
+            if self.cov_ab and self._ab_tbi:
+                tbi_arm, tbi = tbi, self._ab_tbi + tbi
             cov = {
                 "map_size": self.panda.fastsnap_cov_map_size(),
                 "filter": [self.cov_lo, self.cov_hi],
@@ -3484,6 +3493,12 @@ class FastLoop(Plugin):
                                              if n),
                 "scan_us": _stats(self.cov_scan_us),
             }
+            if self.cov_ab and self._ab_tbi:
+                cov["tbs_instrumented_last_arm"] = tbi_arm
+                cov["tbs_instrumented_note"] = (
+                    "tbs_instrumented is summed over every arm; each toggle "
+                    "flushes the TB cache and re-translates, so it counts "
+                    "translations rather than distinct blocks")
             if self.cov_ab:
                 cov["ab"] = self._ab_report()
             cov["occupancy"] = self._cov_occupancy(

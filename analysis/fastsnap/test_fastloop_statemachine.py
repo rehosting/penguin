@@ -1885,6 +1885,23 @@ def cov_ab_tests(tmp):
     print(f"ok  laps accounted: on={n_on} off={n_off} settle={n_settle} "
           f"= {len(p.iter_ms)} plain laps, settle charged to the toggle")
 
+    # ---- AND THE INSTRUMENTED-BLOCK COUNT IS NOT SILENTLY PER-ARM -----
+    # ARM zeroes cov_tbs_instrumented, so under the A/B the accessor describes
+    # only the LAST armed phase. Run 113 reported 28,524 where the run had
+    # translated 392,075 -- a number a reader would compare against a
+    # single-arm run and conclude the guest had shrunk. The fake returns a
+    # fixed 940 per arm, so the total must be a multiple of it and strictly
+    # larger than one arm's worth.
+    cv = out["coverage"]
+    arms = 1 + sum(1 for b in ab["blocks"] if b["phase"] == "on") - 1
+    assert cv["tbs_instrumented"] > cv["tbs_instrumented_last_arm"], cv
+    assert cv["tbs_instrumented"] % q.cov_tbs_i == 0, cv["tbs_instrumented"]
+    assert cv["tbs_instrumented"] // q.cov_tbs_i >= arms, (cv, arms)
+    assert "re-translates" in cv["tbs_instrumented_note"], cv
+    print(f"ok  tbs_instrumented is summed over {cv['tbs_instrumented'] // q.cov_tbs_i} "
+          f"arms ({cv['tbs_instrumented']}), not left as the last arm's "
+          f"{cv['tbs_instrumented_last_arm']}")
+
     # ---- THE TOGGLE IS AWAITED, AND THAT GUARD IS LOAD-BEARING --------
     # Every fastsnap op bumps the one global fastsnap_seq and _bh_done() is
     # `seq() > seq_at_sched`. Schedule a reset while a toggle's bottom half is
