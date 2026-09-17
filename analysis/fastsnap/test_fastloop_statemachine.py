@@ -1968,6 +1968,11 @@ def cov_ab_tests(tmp):
     pair = rep["paired"]["iter_ms"]
     assert pair["n_pairs"] == 11, pair
     assert pair["sign_consistent"] is True, pair
+    assert pair["resolved"] is True, pair
+    # Exact, not approximated. 11 of 11 one way is p = 2/2^11 = 0.00097656;
+    # the field is rounded to six places, so the tolerance is the rounding.
+    assert abs(pair["sign_test_p"] - 2 / 2048) < 1e-6, pair
+    assert pair["t_stat"] > 3.0, pair
     assert abs(pair["median_delta_ms"] - 0.200) < 1e-6, pair
     att = rep["attribution"]
     assert abs(att["scan_ms_per_lap"] - 0.160) < 1e-9, att
@@ -1999,9 +2004,65 @@ def cov_ab_tests(tmp):
     rep2 = inst2._ab_report()
     pair2 = rep2["paired"]["iter_ms"]
     assert pair2["sign_consistent"] is False, pair2
+    assert pair2["resolved"] is False, pair2
+    assert pair2["sign_test_p"] > 0.05, pair2
     assert 0 < pair2["pairs_positive"] < pair2["n_pairs"], pair2
     assert "caveat" in rep2["attribution"], rep2["attribution"]
     assert "bound, not a value" in rep2["attribution"]["caveat"]
+
+    # ---- AND IT DOES NOT THROW AWAY A RESOLVED RESULT -----------------
+    # The complement, and the reason the all-or-nothing rule was replaced.
+    # With 33 pairs and a real 2-3 sigma effect, one or two pairs disagree by
+    # chance. The first version reported that as a bound -- discarding a
+    # thoroughly resolved measurement because it was not unanimous.
+    inst3 = cls.__new__(cls)
+    for k, v in vars(inst).items():
+        setattr(inst3, k, v)
+    inst3._ab_cur = {"ms": [], "sched": [], "obs": []}
+    inst3.ab_blocks = []
+    # 34 blocks, a +0.20 ms effect, and TWO pairs deliberately reversed.
+    wobble = {7: -0.35, 20: -0.40}
+    for i in range(17):
+        eff = 0.200 + wobble.get(i * 2, 0.0)
+        inst3.ab_blocks.append({"phase": "on", "i": i, "laps": 300,
+                                "iter_ms": round(3.400 + eff, 4)})
+        inst3.ab_blocks.append({"phase": "off", "i": i, "laps": 300,
+                                "iter_ms": 3.400})
+    rep3 = inst3._ab_report()
+    pair3 = rep3["paired"]["iter_ms"]
+    assert pair3["sign_consistent"] is False, pair3
+    assert pair3["pairs_positive"] < pair3["n_pairs"], pair3
+    assert pair3["resolved"] is True, pair3
+    assert 0 < pair3["sign_test_p"] < 0.01, pair3
+    assert "caveat" not in rep3["attribution"], rep3["attribution"]
+    print(f"ok  {pair3['pairs_positive']}/{pair3['n_pairs']} positive "
+          f"(p={pair3['sign_test_p']:.2g}) is resolved, not discarded for "
+          f"being non-unanimous")
+
+    # ---- A CONSISTENT BUT TRIVIAL EFFECT IS NOT "RESOLVED" ------------
+    # What the sign test alone cannot see. Every pair agreeing by a
+    # nanosecond gives a perfect p and means nothing, so the t-ratio has to
+    # agree too.
+    inst4 = cls.__new__(cls)
+    for k, v in vars(inst).items():
+        setattr(inst4, k, v)
+    inst4._ab_cur = {"ms": [], "sched": [], "obs": []}
+    inst4.ab_blocks = []
+    for i in range(8):
+        # +1 ns, unanimous, buried in 0.5 ms of block-to-block spread.
+        jitter = (0.5, -0.4, 0.3, -0.5, 0.45, -0.3, 0.2, -0.45)[i]
+        inst4.ab_blocks.append({"phase": "on", "i": i, "laps": 300,
+                                "iter_ms": round(3.4 + jitter + 0.000001, 6)})
+        inst4.ab_blocks.append({"phase": "off", "i": i, "laps": 300,
+                                "iter_ms": round(3.4 + jitter, 6)})
+    pair4 = inst4._ab_report()["paired"]["iter_ms"]
+    assert pair4["sign_test_p"] <= 0.05, pair4
+    assert pair4["t_stat"] < 3.0, pair4
+    # The assertion this case exists for: the sign test alone would have
+    # called a one-nanosecond effect resolved.
+    assert pair4["resolved"] is False, pair4
+    print(f"ok  a unanimous but trivial effect (p={pair4['sign_test_p']:.2g}, "
+          f"t={pair4['t_stat']}) is judged on both tests, not just the sign")
     print(f"ok  pairs disagreeing ({pair2['pairs_positive']}/"
           f"{pair2['n_pairs']} positive) is reported as a bound, not a value")
 

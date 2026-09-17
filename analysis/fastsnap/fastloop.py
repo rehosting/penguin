@@ -74,6 +74,22 @@ def _stats(v):
     }
 
 
+def _sign_test_p(n, pos):
+    """Exact two-sided binomial p for `pos` of `n` deltas sharing a sign.
+
+    Written out rather than reached for: scipy is not in the image, and the
+    alternative -- a normal approximation -- is wrong in exactly the regime
+    this is used in. At n=5 all-positive the approximation gives p=0.025 and
+    the exact answer is 0.0625, so it would license a claim from five pairs
+    that five pairs cannot support.
+    """
+    if n <= 0:
+        return 1.0
+    k = max(pos, n - pos)
+    tail = sum(math.comb(n, i) for i in range(k, n + 1))
+    return min(1.0, 2.0 * tail / float(2 ** n))
+
+
 class FastLoop(Plugin):
     def __init__(self) -> None:
         self.outdir = self.get_arg("outdir")
@@ -1815,18 +1831,47 @@ class FastLoop(Plugin):
                 deltas.append(round(on[key] - off[key], 4))
             if not deltas:
                 continue
+            n = len(deltas)
             pos = sum(1 for d in deltas if d > 0)
-            pairs[key] = {
+            row = {
                 "deltas_on_minus_off": deltas,
-                "n_pairs": len(deltas),
+                "n_pairs": n,
                 "median_delta_ms": round(statistics.median(deltas), 4),
                 "mean_delta_ms": round(statistics.fmean(deltas), 4),
                 "pairs_positive": pos,
-                # Every pair agreeing is the only reading that licenses a
-                # claim from five pairs. Anything less is reported as such
-                # rather than averaged into a number that looks settled.
-                "sign_consistent": pos == len(deltas) or pos == 0,
+                "sign_consistent": pos == n or pos == 0,
             }
+            # TWO TESTS, AND BOTH MUST PASS, because each covers the other's
+            # blind spot.
+            #
+            # The SIGN TEST is distribution-free: under no effect each pair is
+            # a coin flip, so an exact two-sided binomial on the split is the
+            # weakest assumption that says anything. It cannot be fooled by
+            # one enormous pair, and it does not care what the lap-time
+            # distribution looks like -- which matters, because this one is
+            # heavy-tailed and nothing here should assume otherwise.
+            #
+            # The T-RATIO covers what the sign test cannot see: a perfectly
+            # consistent effect that is trivially small. Thirty pairs all
+            # leaning the same way by a microsecond would give an impressive
+            # p and mean nothing.
+            #
+            # Requiring only "every pair agrees" was the first version and it
+            # was wrong in the direction that loses information: with 30-odd
+            # pairs and a real 2-3 sigma effect, one or two pairs will
+            # disagree by chance, and an all-or-nothing rule would report a
+            # thoroughly resolved measurement as a bound.
+            row["sign_test_p"] = float(f"{_sign_test_p(n, pos):.3g}")
+            if n >= 2:
+                sd = statistics.stdev(deltas)
+                row["sd_delta_ms"] = round(sd, 4)
+                row["t_stat"] = (round(abs(row["mean_delta_ms"])
+                                       / (sd / math.sqrt(n)), 3)
+                                 if sd > 0 else None)
+            row["resolved"] = bool(
+                row["sign_test_p"] <= 0.05
+                and (row.get("t_stat") is None or row["t_stat"] >= 3.0))
+            pairs[key] = row
         out["paired"] = pairs
 
         # The arithmetic the whole experiment was built to do: total cost
@@ -1846,11 +1891,15 @@ class FastLoop(Plugin):
                          "walk, which disarming also stops; the remainder is "
                          "what the eight emitted TCG ops cost per lap"),
             }
-            if not pairs.get("iter_ms", {}).get("sign_consistent"):
+            if not pairs.get("iter_ms", {}).get("resolved"):
+                pr = pairs.get("iter_ms", {})
                 out["attribution"]["caveat"] = (
-                    "the pairs do not agree in sign, so this split is "
-                    "arithmetic on two numbers that are not separated by "
-                    "more than the noise -- read it as a bound, not a value")
+                    f"the paired deltas do not separate the phases "
+                    f"(sign-test p={pr.get('sign_test_p')}, "
+                    f"t={pr.get('t_stat')}, {pr.get('pairs_positive')} of "
+                    f"{pr.get('n_pairs')} positive), so this split is "
+                    f"arithmetic on two numbers the data does not distinguish "
+                    f"-- read it as a bound, not a value")
         return out
 
     def _ab_blocked(self):
