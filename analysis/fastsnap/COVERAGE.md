@@ -104,7 +104,7 @@ cannot separate two processes sharing a range, and an empty map means *either*
 distinction in `coverage.blind` and in `errors`, and loopcmp prints `BLIND`
 rather than a zero.
 
-## Cost, measured on real firmware (runs 109–112)
+## Cost, measured on real firmware (runs 109–113)
 
 Four runs on the armel target, same driver and same arming axis: two controls
 (109, 111) and two with coverage on (110, 112).
@@ -124,6 +124,11 @@ bottom-half completion, measured from Python — isolates it:
 delta (+164 µs) and QEMU's own clock around the scan (160–163 µs). On a 3.4 ms
 lap that is **~4.8%**.
 
+Superseded in magnitude by the paired measurement below, which puts the reset
+half at **+178.5 µs** with 35 of 35 pairs agreeing. The cross-run figure was
+not wrong so much as imprecise: it differenced four runs with different draws.
+The paired number is the one to quote.
+
 **This is five times what the selftest guest suggested, and the earlier
 estimate of 25–31 µs in this document was wrong to extrapolate.** The scan is
 O(map size) with a zero-word skip, and the skip is what collapses: the toy
@@ -131,29 +136,99 @@ guest sets 151 bytes so almost every 64-bit word is zero, while real firmware
 sets 4,849 per lap spread across the map, leaving about half the words
 non-zero. Scan cost is a function of map OCCUPANCY, not of the guest.
 
-### The guest side is below the noise floor
+### The guest side, resolved by an in-run A/B (run 113)
 
-| | control 109 | control 111 | coverage 110 | coverage 112 |
-|---|---|---|---|---|
-| guest half `bh_to_observed_ms` | 2.9837 | 3.6832 | 2.8411 | 2.8661 |
+The cross-run comparison could not see this at all, and the earlier text here
+said so: the two controls differ by **23%** in the guest half because each run
+draws its own span, both coverage runs landed *below* both controls, and the
+report was that per-block emission was **not resolved**. That was the right
+thing to say and the wrong place to stop.
 
-The two controls differ by **23%** — run 111 drew an expensive span — so
-anything under roughly 150 µs is invisible here, and both coverage runs land
-*below* both controls, which is the wrong sign for an overhead. The honest
-statement is that per-block emission is **not resolved**, not that it is zero.
+What resolves it is not more runs, it is a different experiment: alternate
+armed and disarmed **inside one run**, on one draw against one snapshot, so
+whatever made that draw expensive is a constant that subtracts out. `cov_ab: n`
+toggles every `n` plain laps; disarm flushes the TB cache so blocks
+re-translate uninstrumented.
 
-A first-principles bound from the same runs: a lap executes **13,366 blocks**
-(median `hits`, itself a floor because byte counters saturate at 255 per edge),
-and eight TCG ops optimise to a handful of host instructions, which puts
-emission in the tens of microseconds — consistent with being invisible against
-a ±0.5 ms guest half.
+Run 113 — 12,000 laps, 300 per phase, 40-lap settle window, **35 switches**:
 
-**Resolving it needs an in-run A/B**, not more runs: arm coverage, run N laps,
-disarm (which flushes the TB cache, so blocks re-translate uninstrumented), run
-N laps. Same draw, same snapshot, so draw variance cancels. That instrument
-does not exist yet.
+| | armed | disarmed | paired delta | pairs + | sign-test p | t (trimmed) |
+|---|---|---|---|---|---|---|
+| `iter_ms` | 3.4599 | 3.1990 | **+0.2612** | 31/35 | 3.5e-06 | 15.4 |
+| `sched_to_bh_ms` | 0.5359 | 0.3563 | **+0.1785** | 35/35 | 5.8e-11 | 244 |
+| `bh_to_observed_ms` | 2.8677 | 2.7927 | **+0.0817** | 31/35 | 3.5e-06 | 9.7 |
+
+```
+lap total                261.2 us
+  reset half             178.5 us
+    scan, QEMU's clock   165.0 us
+    unattributed          13.5 us
+  guest half (emission)   81.7 us
+CHECK  reset + guest - total   -1.0 us
+```
+
+**Emission is 81.7 µs per lap**, measured two independent ways that agree to
+1 µs: directly as the paired guest half, and as the paired lap total minus the
+paired reset half (261.2 − 178.5 = 82.7). At 13,674 block executions per lap
+that is **at most 6.0 ns per block** — roughly 18 cycles for eight TCG ops,
+about two cycles an op. That is the first number in this exercise that can be
+checked against physics rather than against another measurement.
+
+The close is a **check, not an identity**: the total and the two halves are
+three separate paired measurements of the same run. They closed to 1 µs in 261.
+
+The reset half deserves its own line. Armed blocks span 0.5294–0.5436 ms and
+disarmed 0.3524–0.3634 across all 36 blocks — **completely disjoint**, 35 of 35
+pairs positive. It also runs **13.5 µs larger than the scan's own clock**, and
+that gap is reported as *unattributed* rather than folded into the scan: the
+scan clock already covers the walk and the virgin-map fold, so whatever else an
+armed bottom half costs (a call, and 128 KiB of working set walked past the
+reset's own) is real and is not in it.
+
+### Why the statistic is a sign test, and why it is trimmed
+
+Two design decisions here were wrong first and are worth recording as such.
+
+**Unanimity was the wrong bar.** The first version called a result resolved
+only when every pair agreed in sign. That is right at five pairs and wrong at
+thirty-five: with a real effect, a couple of pairs disagree by chance, so
+unanimity would have discarded a thoroughly resolved measurement. Replaced by
+an exact two-sided binomial sign test (distribution-free, which matters because
+lap times are heavy-tailed) **and** a t-ratio, both of which must pass — the
+sign test cannot see a consistent effect that is trivially small, and the
+t-ratio cannot resist one enormous pair.
+
+**The four negative pairs are two blocks, not noise in the effect.** Of 18
+disarmed blocks, 16 landed in 3.130–3.247 ms and every armed block in
+3.394–3.606 — disjoint — while two disarmed blocks came in at 3.565 and 3.662.
+Each sits between two armed blocks, so two bad blocks produce exactly the four
+negative pairs observed. On the guest half, the smallest of the three
+quantities and the one the experiment exists for, those two dragged t from 9.7
+to **2.9** — from settled to under the bar. Hence a fixed symmetric 10% trim,
+applied to every quantity alike and reported alongside the untrimmed figure.
+The sign test never needed it.
+
+### What the settle window is for
+
+Both arm and disarm queue a `tb_flush`, so the laps just after a toggle pay to
+re-translate every block the guest touches. This is not small: the run log shows
+200 laps taking 11 s right after a toggle against 400 laps in 2 s in steady
+state. Those laps go in their own bucket rather than being dropped, so "the
+flush is over within the window" stays a claim a reader can check — run 113's
+settle median is 3.5464 ms against an armed 3.4742.
 
 ### Net effect on the rate
+
+From the same run, so this is one draw rather than four:
+
+| | exec/s | lap ms |
+|---|---|---|
+| armed | **289.0** | 3.4599 |
+| disarmed | **312.6** | 3.1990 |
+
+**Coverage costs 7.5% of the rate.** The earlier cross-run table is kept below
+for the record, and its lesson stands: four runs could not see a 5% effect in
+exec/s, because the draw dominates.
 
 | run | coverage | exec/s median | lap ms |
 |---|---|---|---|
@@ -161,11 +236,6 @@ does not exist yet.
 | 111 | off | 242.57 | 4.1226 |
 | 110 | **on** | 291.05 | 3.4358 |
 | 112 | **on** | 287.59 | 3.4772 |
-
-The coverage runs sit inside the controls' range. That is not a claim that
-coverage is free — the +164 µs is real and directly measured — it is a
-statement that with this workload's draw variance, four runs cannot see a 5%
-effect in exec/s. The reset-side number is the one to quote.
 
 Asking for the scan as its own op instead would cost a scheduled op per lap,
 and on this lane an op is far the more expensive of the two — a hooked syscall
@@ -203,8 +273,13 @@ has not been done.
 
 ## What this still does not close
 
-- **Per-block cost on real firmware is unmeasured.** Needs an A/B on the same
-  target: one run `coverage: 0`, one `coverage: 1`, same driver, same arm axis.
+- ~~Per-block cost on real firmware is unmeasured.~~ **Closed by run 113**:
+  81.7 µs per lap, at most 6.0 ns per block execution. Note that the remedy
+  named here — "one run `coverage: 0`, one `coverage: 1`, same driver, same arm
+  axis" — is *exactly what runs 109–112 did*, and it did not work. Two runs
+  with the same config still draw different spans. The comparison had to move
+  inside a single run before it could resolve anything, which is the part this
+  entry had wrong.
 - **The filter aliases across processes.** Fine for a pinned single workload,
   wrong the moment the target forks something that shares the range.
 - **`prev` is a host global**, as in AFL's QEMU mode. Two vCPUs interleave
@@ -216,6 +291,17 @@ has not been done.
 - **Nothing consumes the map yet.** `fastsnap_cov_map_bytes()` hands out an
   AFL-layout buffer; no scheduler, corpus or mutation feedback loop reads it.
   Coverage is now *measured*, not yet *guiding*.
+- **A 64 KiB map is losing about a quarter of the edges.** At 31,920 distinct
+  edges the map is 48.7% full, which reads as comfortable and is not: an AFL
+  map has no collision handling, so inverting `m(1 − e^(−n/m))` puts the true
+  count near 43,750 and the loss near **27%**. Under-reported coverage is
+  indistinguishable from a target that reaches less code. Raise `cov_map_size`
+  (the scan cost rises with it) or narrow `cov_filter_lo/hi` to the victim's
+  text — most of the 49,694 instrumented blocks are kernel.
+- **Coverage growth under mutation is unmeasured.** Every figure here was taken
+  with `mutate: 0`, so 1,408 new edges over 12,000 laps is the right reading
+  for a fixed input set and says nothing about what a mutating fuzzer would
+  reach.
 
 So the honest claim after this change is narrower than "we fuzz at 248 exec/s":
 it is that an exec/s from this loop can now be quoted with a coverage number
