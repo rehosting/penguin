@@ -403,6 +403,67 @@ until the read-idle timeout. Completing the payload without making it valid (a
 400 is a perfectly good fuzzing outcome) is the property the alternation
 depends on.
 
+## Tuning it: the kernel filter and the map size (runs 116–118)
+
+Four runs, all `mutate: 1` with the in-run A/B, changing one thing at a time.
+
+### Excluding the kernel: yes, and it costs nothing in signal
+
+`cov_filter_hi: 0xC0000000` is ARM's `PAGE_OFFSET`, so `[0, 0xC0000000)` is
+userspace. This is **more target-agnostic than this document previously
+claimed** — filtering to *lighttpd's text* would need the range read off the
+guest, but the user/kernel split is an arch constant of the kernel penguin
+itself builds. One number per architecture, no guest introspection.
+
+Measured, the kernel is **58.7% of the replayed span's working set** and ~49%
+of block executions — a small, very hot set, which is what a syscall path
+looks like.
+
+| | unfiltered | kernel filtered |
+|---|---|---|
+| edges/lap | 4,586 | 1,438 |
+| block execs/lap | 11,560 | 5,902 |
+| `cov_scan_us` | 247 | **147** |
+| exec/s median | 272.6 | **296.5** |
+
+Kernel blocks execute on every lap and are novel exactly once. Dropping them
+cost nothing in discovery.
+
+### The map size: 1 MiB, and the two wrong turns on the way
+
+| map | cost/lap | exec/s | collision loss | **new edges/s** |
+|---|---|---|---|---|
+| 256 KiB | 163.0 µs | 309.6 | 4.32% | **55.1** |
+| **1 MiB** | **255.5 µs** | 296.5 | 1.20% | **103.2** |
+| 4 MiB | 464.6 µs | 286.0 | 0.30% | **100.8** |
+
+**1 MiB is the smallest map that does not lose discoveries.** 4 MiB finds code
+at the same rate (2% apart) and pays 82% more per lap for it; 256 KiB is
+cheaper *and* faster and finds half as much, because a 4.3% static edge loss
+compounds into a 49% loss of discoveries — a blinded slot stays blinded.
+
+Two things went wrong reaching that, both worth keeping.
+
+**The cost model had no term for the map's cache footprint.** Emission came
+out at 6.0 ns/block on a 64 KiB map and 17.2 ns/block on a 1 MiB one, and
+eight fixed TCG ops cannot do that. Every instrumented block writes one byte
+at a *hashed* offset, so the accesses are scattered by construction: a small
+map is L2-resident and a large one is not. The model priced the map purely
+through the scan, which is why "the 1 MiB map costs +105 µs" was too low.
+
+**The figure of merit was noise for one commit.** Bucket novelty rate was made
+primary, and it ranks these runs 6.54 / 10.04 / 6.74 % — a 16× change in map
+size and a 14× change in collision loss moving the number by 0.2 points, with
+the middle size inexplicably best. No mechanism produces that. A new *bucket*
+can be the same path at a different iteration count, so it tracks loop trip
+counts; a new *edge* is code never reached. On edges the same runs are clean
+and the collision mechanism is supported. The result now reports
+`new_edges_per_s` as primary and names the bucket rate as the noisier measure.
+
+The general lesson is the one this lane keeps relearning: **overhead and exec/s
+are costs.** A configuration can win on both and find less code. 256 KiB is the
+worked example.
+
 ## What this still does not close
 
 - ~~Per-block cost on real firmware is unmeasured.~~ **Closed by run 113**:
@@ -431,12 +492,22 @@ depends on.
 - ~~Coverage growth under mutation is unmeasured.~~ **Closed by run 115**:
   the novelty rate goes from 1.25% to 9.16% of laps, 7.3x, at no cost in
   exec/s.
-- **The remaining lever is the address filter.** Most of the ~50,000
-  instrumented blocks are kernel, and `cov_filter_lo/hi` would cut both the
-  emission cost and the scan. It needs the victim's text range read off the
-  guest, and a hard-coded range is not target-agnostic in the way the rest of
-  this pipeline is — so the open question is how to *derive* the range rather
-  than whether filtering would help.
+- ~~The remaining lever is the address filter.~~ **Closed by run 116**: the
+  kernel is 58.7% of the working set, and excluding it with an arch-constant
+  `PAGE_OFFSET` needs no guest introspection. It cut the scan 40% and cost
+  nothing in discovery.
+- **The scan still skims the whole map.** At 1 MiB that is 65.5 µs a lap of
+  pure waste — per-lap occupancy is 0.44%, so 99.5% of the skim reads words
+  that were never going to be set. A `ctz` pass over set bytes instead of all
+  eight of every non-zero word would cut the *other* term (~134 µs on the
+  pre-filter numbers, less now). Neither has been tried; both need a QEMU
+  rebuild, and after the filter landed the scan is no longer the dominant
+  cost, so the priority is lower than it looked.
+- **The emission cache term is measured but not modelled.** 6.0 ns/block at
+  64 KiB, 12.2 at 256 KiB, 17.2 at 1 MiB, 13.0 at 4 MiB — not monotonic, so
+  the simple "bigger map misses more" story is incomplete. It does not change
+  the map-size answer, which rests on discoveries per second, but the cost
+  model cannot yet predict emission across map sizes.
 
 ## What can now be claimed
 
@@ -447,11 +518,12 @@ an accuracy problem, it was a category problem.
 
 What can be said now, with the cost of saying it measured rather than assumed:
 
-> **~289 exec/s coverage-guided** on real armel firmware, full-system, with no
-> in-guest instrumentation. Edge coverage costs **261 µs per lap, 7.5% of the
-> rate** — 178.5 µs on the reset side and 81.7 µs of TCG emission, measured
-> inside a single run by a paired A/B and closing to 1 µs. With mutation on,
-> **one lap in eleven finds a new coverage bucket**, at no cost in rate.
+> **~296 exec/s coverage-guided** on real armel firmware, full-system, with no
+> in-guest instrumentation, discovering **~103 new edges per second**. Edge
+> coverage costs **255 µs per lap, 6.9% of the rate** — measured inside a
+> single run by a paired A/B whose three independent halves close to 1 µs.
+> Best configuration: 1 MiB map, kernel excluded by an arch-constant address
+> filter, mutation on.
 
 Three honest limits on that sentence. The map should be 1 MiB, not AFL's
 default 64 KiB, or roughly a quarter of the cumulative edges go unreported.
