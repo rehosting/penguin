@@ -329,6 +329,8 @@ class Core(PartialModelMixin, BaseModel):
             "mipseb", "mipsbe",
             "mips64el",
             "mips64eb", "mips64be",
+            "mips64eb_octeon", "octeon", "mips64be_octeon",
+            "mips64el_octeon", "octeonel",
             "powerpc", "ppc",
             "powerpc64", "ppc64",
             "powerpc64le", "ppc64le", "powerpc64el", "ppc64el",
