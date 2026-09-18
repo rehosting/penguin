@@ -42,7 +42,7 @@ class InterfaceFinder(InitPlugin):
     NETDEV_DENY: set[str] = {"inet", "inet6", "ipv4", "ipv6", "ipv4cfg", "ipv6cfg"}
 
     # Programs that deliver false postives
-    NETDEV_BLACKLIST = ("/ip", "/pppd", "/zebra", "/busybox")
+    NETDEV_BLACKLIST = ("/ip", "/pppd", "/zebra", "/busybox", "/openvpn", "/ip-up", "/miniupnpd", "/openvpnstate.sh", "/bgpd", "/cifs.ko", "/libospf.so.0.0.0", "/ripd", "/vtysh", "/ethtool")
 
     def _keep_iface(self, iface: str, count: int | None = None, files: list[str] | None = None) -> bool:
         """Whether a scraped token is a plausible real interface name."""
