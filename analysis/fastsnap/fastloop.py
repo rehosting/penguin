@@ -3621,16 +3621,46 @@ class FastLoop(Plugin):
             if cov["laps"]:
                 nov = cov["laps_with_new_buckets"] / float(cov["laps"])
                 rate = out.get("exec_per_s_median")
+                # NEW EDGES PER SECOND IS THE METRIC. Buckets are reported
+                # beside it and are NOT the one to compare on.
+                #
+                # A new EDGE is a map slot never set before: code the loop had
+                # not reached. A new BUCKET can be the same path at a
+                # different iteration count, so it tracks loop trip counts and
+                # moves with the input rather than with discovery.
+                #
+                # THE TWO DISAGREE, and picking the wrong one flips the
+                # answer. Three runs, kernel filtered, only the map differing:
+                #
+                #   map      collision loss   new edges   bucket-novel rate
+                #   256 KiB       4.32%          2,134         6.54%
+                #   1 MiB         1.20%          4,179        10.04%
+                #   4 MiB         0.30%          4,228         6.74%
+                #
+                # On edges the mechanism is clean and compounding -- 4.3%
+                # static loss costs 49% of discoveries, and the two roomy maps
+                # agree to 1.2%. On buckets, a 16x change in map size and a
+                # 14x change in collision loss move nothing, and the middle
+                # size is inexplicably the best. That is noise wearing a
+                # mechanism's clothes, and it was reported here as the figure
+                # of merit until run 118 contradicted it.
+                secs = ((out.get("iterations") or 0) / rate) if rate else None
+                eps = (cov["new_edges_total"] / secs
+                       if secs else None)
                 cov["throughput"] = {
-                    "novelty_rate": round(nov, 5),
+                    "new_edges_per_s": round(eps, 3) if eps else None,
+                    "new_edges_total": cov["new_edges_total"],
                     "exec_per_s_median": rate,
+                    "bucket_novelty_rate": round(nov, 5),
                     "novel_laps_per_s": (round(rate * nov, 3)
                                          if rate is not None else None),
-                    "note": ("novel_laps_per_s = exec_per_s_median x "
-                             "novelty_rate. THIS is what a coverage-guided "
-                             "loop produces; overhead and exec/s are costs, "
-                             "and a configuration can win on both and still "
-                             "be worse. Compare configurations on this."),
+                    "note": ("COMPARE CONFIGURATIONS ON new_edges_per_s. "
+                             "Overhead and exec/s are costs, and a "
+                             "configuration can win on both and still find "
+                             "less code. bucket_novelty_rate is reported for "
+                             "completeness and is the noisier measure -- it "
+                             "moves with loop trip counts rather than with "
+                             "discovery."),
                 }
                 # The trap, named where the number is. Collision loss is
                 # reported by `occupancy` as a percentage of EDGES, which
@@ -3641,11 +3671,13 @@ class FastLoop(Plugin):
                     cov["throughput"]["warning"] = (
                         f"the map is losing an estimated "
                         f"{occ['est_loss_frac'] * 100:.1f}% of edges to "
-                        f"collisions, and novelty loss runs several times "
-                        f"that -- measured 4.3% edge loss costing 34% of the "
-                        f"novelty rate. A cheaper, faster configuration with "
-                        f"a smaller map is likely to be a WORSE one; check "
-                        f"novel_laps_per_s before choosing it")
+                        f"collisions, and DISCOVERY loss compounds well "
+                        f"beyond that -- measured, 4.3% static edge loss cost "
+                        f"49% of the new edges found over 12,000 laps, "
+                        f"because a blinded slot stays blinded. A cheaper, "
+                        f"faster configuration with a smaller map is likely "
+                        f"to be a WORSE one; check new_edges_per_s before "
+                        f"choosing it")
             out["coverage"] = cov
 
         dev_blind = [v for v in self.verifies

@@ -1758,12 +1758,21 @@ def cov_throughput_tests(tmp):
     # The fake reports a new bucket every lap, so the rate is 1.0 and the
     # product must be exactly the lap rate. An identity, but it is the
     # identity that was missing.
-    assert t["novelty_rate"] == 1.0, t
+    assert t["bucket_novelty_rate"] == 1.0, t
     assert t["exec_per_s_median"] == out["exec_per_s_median"], t
-    assert abs(t["novel_laps_per_s"] - out["exec_per_s_median"]) < 1e-3, t
-    assert "novel_laps_per_s" in t["note"], t["note"]
-    print(f"ok  novel_laps_per_s is reported ({t['novel_laps_per_s']:.1f}/s) "
-          f"as the figure of merit, not just the costs")
+    # new_edges_per_s is the primary and must be derived from the EDGE count,
+    # not the bucket count. The fake logs 12 new edges per lap, so the two
+    # measures are deliberately different numbers here -- a metric that read
+    # the bucket count would coincide with novel_laps_per_s and pass anything.
+    assert t["new_edges_total"] == 12 * out["coverage"]["laps"], t
+    secs = out["iterations"] / out["exec_per_s_median"]
+    assert abs(t["new_edges_per_s"] - t["new_edges_total"] / secs) < 1e-2, t
+    assert t["new_edges_per_s"] != t["novel_laps_per_s"], t
+    assert "new_edges_per_s" in t["note"], t["note"]
+    assert "noisier" in t["note"], t["note"]
+    print(f"ok  new_edges_per_s is the primary metric "
+          f"({t['new_edges_per_s']:.1f}/s), with the bucket rate reported "
+          f"beside it and named as the noisier one")
 
     # ---- A CHEAP, FAST, WORSE CONFIGURATION IS FLAGGED -----------------
     # The specific trap: `occupancy` reports collision loss as a percentage
