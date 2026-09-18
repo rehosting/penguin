@@ -14,7 +14,7 @@ with `apt` + `pip` + release downloads.
 - **Nix** with flakes enabled (`experimental-features = nix-command flakes`).
 - The flake declares the shared **Cachix** substituter
   (`rehosting-tools.cachix.org`) in its `nixConfig`, so a first build pulls the
-  heavy artifacts (cross toolchains, the qemu fork) from the cache instead of
+  heavy artifacts (cross toolchains, qemu) from the cache instead of
   compiling them. Accept it when prompted, or pass
   `--accept-flake-config`.
 
@@ -107,11 +107,11 @@ Inspect without building the whole image, e.g. `nix build .#iglooStatic` then
 
 ### The qemu seam
 
-The PANDA-QEMU fork is the one input most likely to change. It is consumed as
-**its own flake**, pinned by release tag:
+PANDA-QEMU is the one input most likely to change. It is consumed as **its own
+flake**, with the revision held in `flake.lock` rather than in the URL:
 
 ```nix
-inputs.penguin-qemu.url = "github:rehosting/qemu/v0.0.12";
+inputs.penguin-qemu.url = "github:rehosting/qemu_builder";
 ```
 
 We use the flake's `penguin-qemu` *package* output (not a `fetchurl` of the
@@ -121,19 +121,36 @@ release tarball): the Nix-built `libqemu-system-*.so` / `qemu-img` carry
 leave those dangling. It also ships CFFI env modules built against this flake's
 CPython (3.13), so they match penguin's interpreter.
 
-**To move to a new qemu release** (after it is tagged and released):
+**Where it comes from.** `rehosting/qemu_builder` replaced the old
+`rehosting/qemu` fork. It is not a branch of QEMU: it holds the IGLOO delta as
+a curated patch series applied to a pristine upstream QEMU *release* tarball
+(v11.1.0, pinned by hash in its `base.json`), exactly as `linux_builder` does
+for the kernel. The fork branched from `edcc429e`, a mid-cycle staging merge
+that was never a release, which left nothing to rebase onto.
+
+Two consequences for anyone working on this seam:
+
+- Build options are **data**, not patches — `configs/default.json` in
+  qemu_builder carries the `--enable-*` flags with the nixpkgs dependency each
+  one needs, so the flag list and the `buildInputs` list cannot drift apart.
+- qemu_builder pins the **same nixpkgs revision this flake does**, deliberately.
+  `follows` means its artifact is always built against penguin's nixpkgs
+  anyway; pinning makes its own CI test the thing penguin actually consumes.
+  Bump the two together.
+
+**To move to a new qemu revision:**
 
 ```sh
-# edit flake.nix: inputs.penguin-qemu.url = "github:rehosting/qemu/vX.Y.Z";
-nix flake update penguin-qemu --accept-flake-config
+./nix-dev.sh bump penguin-qemu            # or: nix flake update penguin-qemu
 nix build .#dockerImage --accept-flake-config   # re-validate
 ```
 
-The qemu fork's `build.sh` controls which system targets ship via
-`PENGUIN_SYSTEM_ARCHES`. The library name must match what penguin's
-`arch_registry` resolves — e.g. the x86_64 guest needs
-`libqemu-system-x86_64.so` (shipped from qemu **v0.0.12**; earlier releases
-only had the `intel64` alias).
+Which system targets ship is `systemArches` in qemu_builder's
+`configs/default.json` (its `build.sh` reads that list, and
+`PENGUIN_SYSTEM_ARCHES` still overrides it for a one-off build). The library
+name must match what penguin's `arch_registry` resolves — e.g. the x86_64 guest
+needs `libqemu-system-x86_64.so`, so `x86_64` and its `intel64` alias are both
+in the list and both ship.
 
 ### Guest native helpers — dynamic vs. static
 
@@ -280,7 +297,7 @@ The old Dockerfile let you drop a prebuilt artifact into `local_packages/` to
 override a pinned dependency. For anything that lands under `/igloo_static`
 (guest tools, kernels, the driver), the successor is **`./penguin --dev-static
 <dist>`** — a run-time overlay, no image rebuild (see the Development loop
-below). For inputs baked elsewhere in the image (the qemu fork, the debug-tool
+below). For inputs baked elsewhere in the image (qemu, the debug-tool
 closures), point the flake input at your checkout and rebuild:
 
 ```sh

@@ -21,18 +21,27 @@
   # own); flake.lock records the narHash. These replace the Dockerfile
   # `get_release.sh` downloads (asset URLs: .../releases/download/v<ver>/<asset>).
 
-  # The PANDA-QEMU fork. THIS IS THE qemu SEAM: it's now the qemu repo's own
-  # flake (built from source), pinned by release tag. We consume the flake's
-  # `penguin-qemu` package output (not a fetchurl of the tarball): the Nix-built
-  # libqemu-system-*.so / qemu-img carry rpaths into /nix/store, so the package
-  # output drags its closure (glibc/pixman/libfdt/glib/slirp) into the image --
-  # a plain tarball would leave those dangling. It pins the same nixpkgs as us
-  # (follows), so the closure is shared, and ships CFFI env modules built
-  # against this flake's CPython (3.13) so they match penguin's interpreter.
+  # PANDA-QEMU. THIS IS THE qemu SEAM: its own flake, built from source, with
+  # the revision in flake.lock. We consume the flake's `penguin-qemu` package
+  # output (not a fetchurl of the tarball): the Nix-built libqemu-system-*.so /
+  # qemu-img carry rpaths into /nix/store, so the package output drags its
+  # closure (glibc/pixman/libfdt/glib/slirp) into the image -- a plain tarball
+  # would leave those dangling. It pins the same nixpkgs as us (follows), so the
+  # closure is shared, and ships CFFI env modules built against this flake's
+  # CPython (3.13) so they match penguin's interpreter.
+  #
+  # The source is qemu_builder, not the old rehosting/qemu fork. Same seam, same
+  # output, different provenance: qemu_builder carries the IGLOO delta as a
+  # curated patch series applied to a pristine upstream QEMU *release* tarball
+  # (v11.1.0, pinned by hash in its base.json), where the fork was a branch off
+  # edcc429e -- a mid-cycle staging merge that was never a release. Same move
+  # linux_builder made, and for the same reason: forking from a non-release
+  # means there is no upstream version to rebase onto.
+  #
   # NOTE: bumping this is behaviour-changing (emulator). flake.lock holds the
   # revision; move it deliberately, never as part of a bulk update.
   inputs.penguin-qemu = {
-    url = "github:rehosting/qemu";
+    url = "github:rehosting/qemu_builder";
     inputs.nixpkgs.follows = "nixpkgs";
   };
   # The IGLOO kernels. THIS IS THE kernel SEAM, and unlike the other prebuilt

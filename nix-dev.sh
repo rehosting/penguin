@@ -43,7 +43,7 @@ fi
 # nixpkgs is pinned by commit (deliberately, to match penguin-tools' pin so the
 # two flakes share a closure) -- excluded from bump, bump it by hand.
 declare -A REPO SHAPE
-REPO[penguin-qemu]=rehosting/qemu;          SHAPE[penguin-qemu]=flake
+REPO[penguin-qemu]=rehosting/qemu_builder;  SHAPE[penguin-qemu]=flake
 REPO[console]=rehosting/console;            SHAPE[console]=flake
 REPO[guesthopper]=rehosting/guesthopper;    SHAPE[guesthopper]=flake
 REPO[vpnguin]=rehosting/vpnguin;            SHAPE[vpnguin]=flake
