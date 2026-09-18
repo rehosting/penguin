@@ -337,17 +337,15 @@ more boundary laps, so that figure carries the same confound and is not a clean
 "collisions removed" number either. What mutation does to that is measured separately
 (run 115), because it is a different question.
 
-## What the scan actually costs, as a model (runs 112, 114, 115)
+## What the scan actually costs, as a model (runs 112, 114, 115; corrected)
 
-The map-size comparison forced a correction — cost is not linear in map size —
-and the replacement is specific enough to be testable. The scan skims the map
-eight bytes at a time and only drops into byte-wise work on words that are not
-all zero, so a single set byte drags its whole 8-byte word in with it:
+The map-size comparison forced a first correction — cost is not linear in map
+size — and the replacement was specific enough to be testable:
 
 > cost ≈ 0.5 ns × (map/8 words skimmed) + 5.1 ns × (bytes in non-zero words)
 
-Fitted on runs 112 and 114. **Run 115 was not used to fit it** — same 1 MiB map
-as 114, different edges per lap — so it is a test:
+Fitted on runs 112 and 114, and it *passed* its test on run 115, which was not
+used to fit it:
 
 | run | map | edges/lap | words | bytes examined | scan µs | ⇒ ns/byte |
 |---|---|---|---|---|---|---|
@@ -355,11 +353,86 @@ as 114, different edges per lap — so it is a test:
 | 114 | 1 MiB | 5,011 | 131,072 | 39,424 | 268 | 5.14 |
 | 115 | 1 MiB | 4,586 | 131,072 | 36,127 | 247 | **5.02** |
 
-The per-byte constant lands in 5.02–5.28 ns — **5.1% spread across two map
-sizes**. The practical consequence is the one the earlier "O(map size)" claim
-got backwards: **scan cost tracks edges set per lap**, and the map's size only
-buys the cheap skim. Run 115 is the cleanest demonstration — it *lowered* the
-scan cost (268 → 247 µs) by finding *fewer* edges per lap on the same map.
+**It was still wrong, and passing that test could not have caught it.** The
+second term counts *bytes in non-zero words*, and on this workload a non-zero
+word holds about one set byte — so in every run above, "bytes in non-zero
+words" was exactly `8 × non-zero words`. The coefficient could as truthfully
+be written **41 ns per non-zero word**. The fit cannot tell the two apart,
+because nothing in the data varies the ratio. Run 115 varied the number of
+edges, not the bytes-per-word, so it re-tested the fit without testing the
+attribution.
+
+The two readings are not academic; they recommend opposite work. *Per byte*
+says the fix is to stop touching the seven dead bytes of every non-zero word.
+*Per word* says the byte loop is not where the time is at all.
+
+**Separating them takes a map with the ratio deliberately changed**, which no
+real lap provides. Handing the scan the same number of set bytes packed eight
+to a word — an eighth as many non-zero words, identical byte count — collapses
+the fold cost about fivefold. It is per word. The corrected model, fitted on
+that pair at 1 MiB:
+
+> cost ≈ 0.56 ns × (words in the map) + 29 ns × (non-zero words) + 4.1 ns × (set bytes)
+
+Then used to **predict** a 64 KiB map at a different occupancy: 125.7 µs
+against 123.4 measured, 1.9% out. At the production shape (1 MiB, ~2,800 edges
+in ~2,770 words) it decomposes as 73 µs of skim, 92 µs of per-word cost and
+11 µs of actual byte folding.
+
+Measured by `fastsnap_cov_scan_selfcheck()` in `qemu_builder/src/fastsnap/
+coverage.c`, reported by the selftest on every build.
+
+### The 29 ns is not any of the four things it looked like
+
+Each of these is a working implementation, checked against the shipped scan
+for exact equality of all four counters and of both maps byte-for-byte, and
+timed beside it in the same process:
+
+| candidate | 1 MiB spread | vs shipped |
+|---|---|---|
+| **shipped** (word test, eight byte tests) | **165 µs** | — |
+| `ctz64` walk over set bytes only | 159–195 µs | no better |
+| cache-line skim (8 words, one branch) | 192–196 µs | **worse** |
+| + deferred fold, cumulative map prefetched | 202 µs | worse |
+| every data-dependent branch removed | 185–191 µs | worse |
+
+- **Not the skim.** Isolated on an *empty* 1 MiB map, where nothing is folded,
+  the skim is 73 µs of the 165 and eight-words-at-a-time does cut it to 50.
+  The saving does not survive a map with anything in it: ~1.4 ns saved per
+  empty chunk against ~12 ns lost per non-empty one puts break-even near 10%
+  of chunks occupied, and this workload runs at 15%.
+- **Not the seven unset bytes.** The `ctz` walk removes them and is slightly
+  slower — and on a *packed* map, where it should win biggest, it loses by
+  more. Eight byte tests are independent and issue in parallel; a `ctz` walk is
+  a serial dependency chain through the word being cleared.
+- **Not branch misprediction on the novelty tests.** Running the *same shipped
+  code* against a cumulative map pre-filled with `0xff` makes "is this edge
+  new" and "is this bucket new" resolve identically every time — same loads,
+  same stores, same cache lines, no mispredicts. The time does not move:
+  **165.4 µs vs 165.7** at 1 MiB, **128.0 vs 128.1** at 64 KiB.
+- **Not hideable by prefetching.** Deferring the fold eight chunks behind the
+  skim and prefetching each cumulative-map line ahead of use helped at no
+  shape. The accesses ascend monotonically, which the hardware prefetcher
+  already handles.
+
+So ~116 cycles per non-zero word arrived at, with everything cache-resident,
+unexplained. That is the whole remaining lever in the scan, and four attempts
+have not moved it.
+
+### Why the bench has an order control, and what it caught
+
+Four implementations timed in a fixed order inside one process is a story
+about cache unless something says otherwise, so the shipped scan is timed
+**twice — first and last**. When those agree (they do, to ≤1% on most rows)
+the numbers between them mean what they say.
+
+It earned its place immediately. An attribution probe — the shipped fold with
+the cumulative map removed, so strictly less work — reported **2.2× the time**
+of the full scan at 1 MiB. That is physically impossible and was a codegen
+artefact of the probe, not a measurement; without the control it would have
+been written up as "the cumulative map is free, the skim is everything". The
+probe was deleted and replaced with the saturated-map experiment above, which
+uses the shipped code unchanged and therefore cannot have that failure mode.
 
 ## Coverage growth under mutation (run 115)
 
@@ -496,13 +569,15 @@ worked example.
   kernel is 58.7% of the working set, and excluding it with an arch-constant
   `PAGE_OFFSET` needs no guest introspection. It cut the scan 40% and cost
   nothing in discovery.
-- **The scan still skims the whole map.** At 1 MiB that is 65.5 µs a lap of
-  pure waste — per-lap occupancy is 0.44%, so 99.5% of the skim reads words
-  that were never going to be set. A `ctz` pass over set bytes instead of all
-  eight of every non-zero word would cut the *other* term (~134 µs on the
-  pre-filter numbers, less now). Neither has been tried; both need a QEMU
-  rebuild, and after the filter landed the scan is no longer the dominant
-  cost, so the priority is lower than it looked.
+- ~~The scan still skims the whole map, and a `ctz` pass would cut the other
+  term.~~ **Both measured and both falsified.** The skim is 73 µs of the 165,
+  and cutting it to 50 costs more than it saves once the map has anything in
+  it; the `ctz` pass is slower, not ~134 µs faster. The estimate came from a
+  cost model whose second term was degenerate — see the corrected model above.
+  What is left is ~29 ns per non-zero word, ~92 µs a lap, and four independent
+  attempts have not moved it. Anyone picking this up should start from
+  `fastsnap_cov_scan_selfcheck()`, which will re-measure a new candidate
+  against the shipped scan in one build.
 - **The emission cache term is measured but not modelled.** 6.0 ns/block at
   64 KiB, 12.2 at 256 KiB, 17.2 at 1 MiB, 13.0 at 4 MiB — not monotonic, so
   the simple "bigger map misses more" story is incomplete. It does not change

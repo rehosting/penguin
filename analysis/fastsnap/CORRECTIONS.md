@@ -14,7 +14,10 @@ was right, said so accurately, and put it fourth in a paragraph headed with the
 other half's verdict -- and entry 11 is the reader's version of the same thing:
 a conclusion drawn from the two files that were open, which nothing in those
 two files contradicted. Entry 12 is the one that keeps the list honest: it
-retracts entry 10's conclusion, on evidence entry 10 never looked at.
+retracts entry 10's conclusion, on evidence entry 10 never looked at. Entry 13
+is the furthest out so far -- a model that fitted, held out a sample, passed
+that test, and still named the wrong cause, because the thing it got wrong was
+invisible to every sample the workload can produce.
 
 ## 1. The central integration decision was backwards
 
@@ -394,6 +397,60 @@ replaced it is a criterion derived from what the code measures, which happens
 to leave one of the three retractions standing. A rule that overturns
 everything you doubted is worth more suspicion than one that overturns some of
 it.
+
+## 13. A cost model that fit, predicted, and named the wrong cause
+
+The scan's cost model was fitted on two runs and then **tested on a third that
+was not used to fit it**, which is the right discipline and is why this one is
+worth keeping:
+
+> cost ≈ 0.5 ns × (map/8 words skimmed) + 5.1 ns × (bytes in non-zero words)
+
+The per-byte constant landed in 5.02–5.28 ns across two map sizes and three
+runs — 5.1% spread. Run 115 lowered the scan cost by finding fewer edges on
+the same map, exactly as predicted. Everything about it was well-behaved.
+
+It was still causally wrong, and no amount of that kind of testing could have
+shown it. On this workload a non-zero word holds **about one set byte**, so in
+every sample the term "bytes in non-zero words" was numerically identical to
+`8 × non-zero words`. The same numbers are equally well described by **41 ns
+per non-zero word**. The fit cannot choose between them because nothing in the
+data varies the ratio; run 115 varied the *number* of edges, which re-tested
+the fit without touching the attribution.
+
+The two readings recommend opposite work, and this lane acted on the wrong
+one. "Per byte" says the fix is to stop touching the seven dead bytes of every
+non-zero word — which is precisely the `ctz` optimisation the open-questions
+list carried, sized at ~134 µs a lap. Implemented and measured against the
+shipped scan, it is **slower**, and on a map packed eight set bytes to a word,
+where it should win biggest, it loses by more.
+
+**Separating the terms needs an input no real lap produces:** the same number
+of set bytes deliberately packed into an eighth as many words. That collapses
+the fold cost about fivefold. The corrected model
+
+> cost ≈ 0.56 ns × words + 29 ns × non-zero words + 4.1 ns × set bytes
+
+predicts a 64 KiB map at a different occupancy to 1.9%.
+
+Three things about the shape of this error:
+
+- **The out-of-sample test was real and passed.** Holding back a run is the
+  standard defence against overfitting, and it defends against the wrong
+  thing here. Collinearity is not overfitting; it is two regressors that no
+  sample distinguishes, and a held-out sample drawn from the same process
+  inherits the same collinearity. Only a *constructed* input breaks it.
+- **The residual is honest about being unexplained.** The 29 ns is not the
+  skim, not the seven unset bytes, not branch misprediction on the novelty
+  tests (the same code against a saturated cumulative map runs 165.4 vs
+  165.7 µs), and not hideable by prefetching. Four implementations were built
+  and measured. Naming it "a memory stall" was tempting and is not supported:
+  it is the same ~29 ns on a 64 KiB cumulative map that fits in cache.
+- **The check that caught the next error was the cheap one.** Timing four
+  implementations in a fixed order inside one process, the rig also times the
+  shipped scan first *and* last. An attribution probe doing strictly less work
+  reported 2.2× the time; without that control it would have been published as
+  a finding instead of deleted as an artefact.
 
 ## The VPN finding, now with evidence rather than inference
 
