@@ -504,16 +504,49 @@ cost nothing in discovery.
 
 ### The map size: 1 MiB, and the two wrong turns on the way
 
-| map | cost/lap | exec/s | collision loss | **new edges/s** |
-|---|---|---|---|---|
-| 256 KiB | 163.0 µs | 309.6 | 4.32% | **55.1** |
-| **1 MiB** | **255.5 µs** | 296.5 | 1.20% | **103.2** |
-| 4 MiB | 464.6 µs | 286.0 | 0.30% | **100.8** |
+> **WITHDRAWN — the `new edges/s` column below is not a measurement.**
+>
+> Runs 116, 117 and 118 were all taken with `cov_ab` on. A `cov_ab` run
+> disarms coverage for half its laps; a disarmed lap runs no scan, so
+> `fastsnap_cov_new_edges()` returns the *previous armed lap's* value, and
+> `fastloop` summed that stale read once per disarmed lap. Every
+> `new_edges_total` on a `cov_ab` run is therefore inflated by a factor that
+> depends on how many disarmed laps happened to follow a high-novelty lap —
+> not a constant, and not one that cancels in a ratio.
+>
+> The one controlled pair available (runs 122 and 123, identical but for
+> `cov_ab`) puts the inflation at **4.6×**: 416 new edges / 10.2 per second
+> with `cov_ab: 0`, against 1,904 / 49.9 with it on.
+>
+> Fixed in `34b05d58`; the per-lap append is now guarded by
+> `fastsnap_cov_armed()`, and a disarmed lap is counted in `disarmed_laps`
+> instead of silently re-reporting the last armed one.
+>
+> **What survives:** `cost/lap`, `exec/s` and `collision loss`. None of those
+> come from the coverage accessors — the first two are the scan's own clock
+> and the lap timer, the third is computed from distinct-edge occupancy.
+>
+> **What does not:** the `new edges/s` column, and therefore the conclusion
+> drawn from it. The claim "1 MiB is the smallest map that does not lose
+> discoveries" rested *entirely* on that column and is withdrawn with it.
+> 1 MiB remains the configured default, on the strength of its *modelled*
+> collision loss (1.20% against 256 KiB's 4.32%) — a model, not a
+> measurement, and it should be read as a placeholder until re-measured.
+>
+> Runs 125/126/127 re-measure all three sizes with `cov_ab: 0`. The
+> predictions, including the effect size this design can and cannot resolve,
+> were written down first in `PREDICTION-mapsize.md`.
 
-**1 MiB is the smallest map that does not lose discoveries.** 4 MiB finds code
-at the same rate (2% apart) and pays 82% more per lap for it; 256 KiB is
+| map | cost/lap | exec/s | collision loss | ~~new edges/s~~ |
+|---|---|---|---|---|
+| 256 KiB | 163.0 µs | 309.6 | 4.32% | ~~55.1~~ |
+| **1 MiB** | **255.5 µs** | 296.5 | 1.20% | ~~103.2~~ |
+| 4 MiB | 464.6 µs | 286.0 | 0.30% | ~~100.8~~ |
+
+~~**1 MiB is the smallest map that does not lose discoveries.** 4 MiB finds
+code at the same rate (2% apart) and pays 82% more per lap for it; 256 KiB is
 cheaper *and* faster and finds half as much, because a 4.3% static edge loss
-compounds into a 49% loss of discoveries — a blinded slot stays blinded.
+compounds into a 49% loss of discoveries — a blinded slot stays blinded.~~
 
 Two things went wrong reaching that, both worth keeping.
 
@@ -594,19 +627,34 @@ an accuracy problem, it was a category problem.
 What can be said now, with the cost of saying it measured rather than assumed:
 
 > **~296 exec/s coverage-guided** on real armel firmware, full-system, with no
-> in-guest instrumentation, discovering **~103 new edges per second**. Edge
+> in-guest instrumentation, discovering **~10 new edges per second**. Edge
 > coverage costs **255 µs per lap, 6.9% of the rate** — measured inside a
 > single run by a paired A/B whose three independent halves close to 1 µs.
-> Best configuration: 1 MiB map, kernel excluded by an arch-constant address
+> Configuration: 1 MiB map, kernel excluded by an arch-constant address
 > filter, mutation on.
 
-Three honest limits on that sentence. The map should be 1 MiB, not AFL's
-default 64 KiB, or roughly a quarter of the cumulative edges go unreported.
-Nothing *consumes* the map yet — there is no corpus, scheduler or mutation
-feedback reading it, so coverage is measured and not yet guiding. And the rate
-itself is a median over a bimodal workload: a few laps per thousand replay a
-connection boundary at ~10 s, so `exec_per_s_median` runs 5-6x the wall-clock
-rate and `wall_share` is the field to read before quoting either.
+**The discovery figure was ~103 until run 122 and that number should not be
+quoted.** It came from `cov_ab`-on runs, where a disarmed lap re-reported the
+previous armed lap's `new_edges` and `fastloop` summed it — see the withdrawal
+notice on the map-size table above. Run 122, the same configuration with
+`cov_ab: 0`, gives **416 new edges over 12,000 laps, 10.2 per second**. If the
+~103 figure has been passed to anyone, it needs retracting: it is off by 4.6×
+in the flattering direction, and it is the single number most likely to have
+been quoted out of this document.
+
+The exec/s and the coverage *cost* are unaffected — `cov_ab` is a cost
+instrument and remains valid for cost — but "discovering N new edges per
+second" was never a thing `cov_ab` could measure, and running it as though it
+were is the mistake.
+
+Four honest limits on that sentence. The map should be 1 MiB, not AFL's
+default 64 KiB, or roughly a quarter of the cumulative edges go unreported —
+though the *measured* case for 1 MiB over 256 KiB is withdrawn above and being
+re-run. Nothing *consumes* the map yet — there is no corpus, scheduler or
+mutation feedback reading it, so coverage is measured and not yet guiding. And
+the rate itself is a median over a bimodal workload: a few laps per thousand
+replay a connection boundary at ~10 s, so `exec_per_s_median` runs 5-6x the
+wall-clock rate and `wall_share` is the field to read before quoting either.
 
 ## Reading a result
 

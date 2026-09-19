@@ -452,6 +452,59 @@ Three things about the shape of this error:
   reported 2.2× the time; without that control it would have been published as
   a finding instead of deleted as an artefact.
 
+## 14. The instrument that measured a cost was also read as measuring a benefit
+
+`cov_ab` alternates armed and disarmed laps inside one run so that the *cost*
+of coverage can be measured against the same draw and the same snapshot. It
+does that well: run 113 closed reset half + guest half against lap total to
+within 1 µs across 35 alternations.
+
+It cannot measure *discovery*, and for about ten days every discovery number
+this lane published came off a `cov_ab` run.
+
+The mechanism is four lines of Python. `fastsnap_cov_scan()` only runs on an
+armed lap. On a disarmed lap the accessors are not cleared and not recomputed —
+they simply hold whatever the last armed lap left. `fastloop` appended them
+unconditionally, so the last armed lap's `new_edges` was re-counted once for
+every disarmed lap that followed it, and `new_edges_total` summed the lot.
+
+Three properties made it survive:
+
+- **It fails upward.** A stale read inflates the number that reads as success.
+  Nothing looks broken; the fuzzer looks good.
+- **The inflation is not a constant.** It scales with how many disarmed laps
+  happened to follow a *high-novelty* lap, which is a property of the draw. So
+  it does not cancel in a ratio, and two runs of the same config are inflated
+  by different amounts — which is exactly the shape that gets mistaken for a
+  real effect between arms of an A/B.
+- **It was invisible to every check I had.** `total_edges` is a running count
+  of the virgin map and is barely affected (21,121 vs 22,788, 8%), so the two
+  numbers did not visibly disagree. The per-lap distributions are fine. Only
+  the *sum* is wrong, and the sum has no independent reference.
+
+What it cost: runs 116/117/118 — the entire map-size ranking in `COVERAGE.md` —
+and the headline "~103 new edges per second", which had already been passed to
+another session for a funder-facing writeup. The corrected figure for the same
+configuration is 10.2 (run 122). **4.6×, flattering.**
+
+How it was caught, which is the part worth keeping: not by review. Run 122 was
+launched to test something else entirely (whether the corpus was hurting
+discovery) and came back with *fewer* new edges than the run it was supposed to
+beat. Chasing that gap — rather than accepting the pleasing number — found a
+pair of runs differing in exactly one config key.
+
+The general shape is one this lane has hit before under a different name: **an
+instrument built to answer question A, left switched on while question B is
+asked.** `cov_ab` is labelled a cost instrument in the config comments, and
+that label was written by me, and I read straight past it. A comment saying
+what a knob is *for* does not prevent using it for something else; the accessor
+returning stale data instead of erroring is what made the misuse silent.
+
+The fix (`34b05d58`) guards the append on `fastsnap_cov_armed()` and counts
+`disarmed_laps` separately, so a `cov_ab` run now reports a smaller, correct
+sum over its armed laps and says how many laps it did not measure.
+
+
 ## The VPN finding, now with evidence rather than inference
 
 The design said "the fast path requires `vpn.enabled: false`". On the real
