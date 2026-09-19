@@ -361,6 +361,10 @@ class FastLoop(Plugin):
         # Whether the lap now closing had its coverage summarised. Consumed
         # by _lap_event(); see the append site for why it cannot be assumed.
         self._cov_fresh = False
+        # Laps whose reset performed no coverage scan because
+        # coverage was disarmed (cov_ab's off phases). Their
+        # accessors hold the previous armed lap's numbers.
+        self.cov_disarmed_laps = 0
         self.cov_new = []           # edges never seen before, per lap
         self.cov_new_buckets = []   # new hit-count buckets -- the AFL signal
         # Block executions per lap. Recorded because it is the DENOMINATOR the
@@ -883,6 +887,11 @@ class FastLoop(Plugin):
         "fastsnap_cov_set_filter",
         "fastsnap_cov_set_map_size",
         "fastsnap_cov_set_clear_on_reset",
+        # Read every lap, to tell a lap that scanned from one that did not.
+        # Without it the accessors below are indistinguishable between "this
+        # lap found nothing new" and "no scan ran, so these are the previous
+        # armed lap's numbers".
+        "fastsnap_cov_armed",
         "fastsnap_cov_edges",
         "fastsnap_cov_new_edges",
         "fastsnap_cov_new_buckets",
@@ -1614,7 +1623,26 @@ class FastLoop(Plugin):
                     # of the reset, which is the only reason coverage can be
                     # per-lap here at all -- an op per lap would cost more
                     # than the scan it asked for.
-                    if self.cov:
+                    # A DISARMED LAP HAS NOTHING TO REPORT, AND THE
+                    # ACCESSORS DO NOT SAY SO.
+                    #
+                    # fastsnap_cov_clear_on_reset() is
+                    # (clear_on_reset && armed), so while coverage is
+                    # disarmed the reset performs NO SCAN and every accessor
+                    # keeps whatever the last ARMED lap left in it. Appending
+                    # them anyway re-counts that lap's novelty once per
+                    # disarmed lap -- and new_edges_total is a sum over this
+                    # list, so a single lap that found 50 edges is worth 50 x
+                    # cov_ab of them.
+                    #
+                    # MEASURED, because this shipped and was published from.
+                    # Runs 122 and 123 differ only in cov_ab, same session,
+                    # same everything else: new_edges_total 416 against 1904,
+                    # new_edges_per_s 10.2 against 49.9 -- while total_edges,
+                    # a cumulative counter inside QEMU that no host-side sum
+                    # can distort, moved 21,121 to 22,788. The code reached
+                    # was the same. The counting was not.
+                    if self.cov and self.panda.fastsnap_cov_armed():
                         self.cov_edges.append(self.panda.fastsnap_cov_edges())
                         self.cov_new.append(
                             self.panda.fastsnap_cov_new_edges())
@@ -1629,6 +1657,11 @@ class FastLoop(Plugin):
                         self.cov_hits.append(self.panda.fastsnap_cov_hits())
                         self.cov_scan_us.append(
                             self.panda.fastsnap_cov_scan_us())
+                    elif self.cov:
+                        # Counted, not silently dropped: a coverage block
+                        # whose lap count is below the run's lap count needs
+                        # to say why, or it reads as laps going missing.
+                        self.cov_disarmed_laps += 1
                     self.pending_reset = False
                     self._mark(now)
                     if self.state != "loop":
@@ -3567,6 +3600,7 @@ class FastLoop(Plugin):
                 "tbs_filtered": tbf,
                 "total_edges": self.panda.fastsnap_cov_total_edges(),
                 "laps": len(self.cov_edges),
+                "disarmed_laps": self.cov_disarmed_laps,
                 "edges": _stats(self.cov_edges),
                 "new_edges_total": sum(self.cov_new),
                 "new_buckets_total": sum(self.cov_new_buckets),

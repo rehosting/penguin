@@ -105,6 +105,13 @@ class FakeQemu:
         self._cov_new_b = 3
         self._cov_hits = 1477
         self._cov_scan_us = 27
+        # ARMED STATE, MODELLED, because the accessors above are STALE while
+        # disarmed. In QEMU fastsnap_cov_clear_on_reset() is
+        # (clear_on_reset && armed), so a disarmed lap's reset runs no scan
+        # and every accessor keeps the last armed lap's value. A double that
+        # answered fresh numbers while disarmed could not reproduce the bug
+        # that shipped -- new_edges_total is a SUM over those reads.
+        self._cov_armed = True
         # THE TOGGLE'S BOTTOM HALF LAGS, which is the whole hazard the in-run
         # A/B has to survive. Every fastsnap op bumps the one global seq and
         # _bh_done() is `seq() > seq_at_sched`, so a toggle still queued when
@@ -159,6 +166,14 @@ class FakeQemu:
 
     def fastsnap_schedule(self, op):
         self.ops.append(op)
+        # getattr, because one test DELETES the optional coverage names from
+        # this class to prove the exemption is real. A bare self.FASTSNAP_*
+        # here raises inside the double and fails that test for a reason that
+        # has nothing to do with what it is checking.
+        if op == getattr(self, "FASTSNAP_COV_ARM", object()):
+            self._cov_armed = True
+        elif op == getattr(self, "FASTSNAP_COV_DISARM", object()):
+            self._cov_armed = False
         if op in self._FIRE_AND_FORGET:
             if self.toggle_defer and op in (18, 21):
                 # Queued, not run. The bump arrives some polls later, which
@@ -194,6 +209,9 @@ class FakeQemu:
 
     def fastsnap_cov_edges(self):
         return self._cov_edges
+
+    def fastsnap_cov_armed(self):
+        return self._cov_armed
 
     def fastsnap_cov_new_edges(self):
         return self._cov_new
@@ -2630,6 +2648,52 @@ def lap_tests(tmp):
     print("ok  a lap carries its own new-edge and edge counts, and carries "
           "None when there is no coverage rather than a zero that reads the "
           "same as 'found nothing'")
+
+    # ---- A DISARMED LAP CONTRIBUTES NOTHING ----------------------------
+    # THE BUG THIS EXISTS FOR SHIPPED AND WAS PUBLISHED FROM.
+    #
+    # In QEMU, fastsnap_cov_clear_on_reset() is (clear_on_reset && armed), so
+    # while coverage is disarmed the reset performs NO SCAN and every
+    # accessor keeps the value the last ARMED lap left in it. fastloop summed
+    # those reads: new_edges_total is a sum over the per-lap list, so one lap
+    # that found 50 new edges was worth 50 x (laps in the off phase).
+    #
+    # Measured on real firmware, two runs differing only in cov_ab, same
+    # session: new_edges_total 416 against 1904, new_edges_per_s 10.2 against
+    # 49.9 -- while total_edges, a cumulative counter inside QEMU that no
+    # host-side sum can distort, moved only 21,121 to 22,788. The code
+    # reached was the same; the counting was not. The published figure of
+    # "~103 new edges per second" came from an inflated run.
+    p, q = make("loop", tmp, coverage=1, verify_every=1000, iters=200)
+    to_loop(p, q)
+    q._cov_new = 50                     # one armed lap finds 50
+    q.run_bottom_half()
+    hit(p)
+    armed_laps = len(p.cov_new)
+    banked = sum(p.cov_new)
+    q._cov_armed = False                # ...then the A/B disarms
+    for _ in range(20):
+        q.run_bottom_half()
+        hit(p)
+    assert len(p.cov_new) == armed_laps, (
+        f"{len(p.cov_new) - armed_laps} disarmed laps were appended; their "
+        f"accessors hold the last armed lap's numbers")
+    assert sum(p.cov_new) == banked, (
+        f"a disarmed lap's stale new-edge count was summed: {sum(p.cov_new)} "
+        f"against {banked}")
+    assert p.cov_disarmed_laps == 20, p.cov_disarmed_laps
+    print("ok  a lap whose reset ran no coverage scan contributes nothing, "
+          "so a stale new-edge count is never summed once per disarmed lap")
+
+    # ...and the omission is REPORTED. A coverage block whose lap count is
+    # below the run's lap count has to say why, or laps read as missing.
+    p.uninit()
+    out = json.load(open(os.path.join(tmp, "fastloop.json")))
+    assert out["coverage"]["disarmed_laps"] == 20, out["coverage"]
+    assert out["coverage"]["laps"] < out["iterations"], (
+        out["coverage"]["laps"], out["iterations"])
+    print("ok  and the run says how many laps it left out, so a coverage lap "
+          "count below the iteration count is explained rather than noticed")
 
     # ---- WHY THE LAST ONE ENDED ---------------------------------------
     # A lap that closed on a fault and a lap that carried the oracle's ~48 ms
