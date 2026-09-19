@@ -514,9 +514,18 @@ cost nothing in discovery.
 > depends on how many disarmed laps happened to follow a high-novelty lap —
 > not a constant, and not one that cancels in a ratio.
 >
-> The one controlled pair available (runs 122 and 123, identical but for
-> `cov_ab`) puts the inflation at **4.6×**: 416 new edges / 10.2 per second
-> with `cov_ab: 0`, against 1,904 / 49.9 with it on.
+> The one pair available (runs 122 and 123, configured identically but for
+> `cov_ab`) differs **4.6×** in `new_edges_total`: 416 against 1,904. **That
+> pair cannot size the bug**, and saying it could was the first version of
+> this notice. The two runs also differ **3.3× in boundary-lap exposure** —
+> `exposure.outlier_laps` is 7 and 23 — and a boundary lap replays a guest
+> fork+exec worth ~10× the median lap's edges, which is where nearly all
+> discovery happens. Two causes, one number, one pair: not separable. The
+> run's own `exposure` block prints exactly this warning, and I read past it.
+>
+> So the mechanism is established (it is four lines of Python, read directly)
+> and the **magnitude is not**. Runs 125/126/127 are cov_ab-free and do not
+> depend on knowing it.
 >
 > Fixed in `34b05d58`; the per-lap append is now guarded by
 > `fastsnap_cov_armed()`, and a disarmed lap is counted in `disarmed_laps`
@@ -627,20 +636,42 @@ an accuracy problem, it was a category problem.
 What can be said now, with the cost of saying it measured rather than assumed:
 
 > **~296 exec/s coverage-guided** on real armel firmware, full-system, with no
-> in-guest instrumentation, discovering **~10 new edges per second**. Edge
+> in-guest instrumentation, discovering **~7.6 new edges per second**. Edge
 > coverage costs **255 µs per lap, 6.9% of the rate** — measured inside a
 > single run by a paired A/B whose three independent halves close to 1 µs.
 > Configuration: 1 MiB map, kernel excluded by an arch-constant address
 > filter, mutation on.
 
 **The discovery figure was ~103 until run 122 and that number should not be
-quoted.** It came from `cov_ab`-on runs, where a disarmed lap re-reported the
-previous armed lap's `new_edges` and `fastloop` summed it — see the withdrawal
-notice on the map-size table above. Run 122, the same configuration with
-`cov_ab: 0`, gives **416 new edges over 12,000 laps, 10.2 per second**. If the
-~103 figure has been passed to anyone, it needs retracting: it is off by 4.6×
-in the flattering direction, and it is the single number most likely to have
-been quoted out of this document.
+quoted.** Two independent instrument faults inflated it, and they compound.
+
+**Fault one, the numerator.** It came from `cov_ab`-on runs, where a disarmed
+lap re-reported the previous armed lap's `new_edges` and `fastloop` summed it
+— see the withdrawal notice on the map-size table above.
+
+**Fault two, the denominator.** `new_edges_per_s` divided by
+`iterations / exec_per_s_median` — the time the run *would* have taken if
+every lap cost the median. That is not the time any run took, and it fails in
+the flattering direction on exactly the runs that discover most:
+
+| | modelled | measured | outlier laps |
+|---|---|---|---|
+| run 122 | 41.0 s | 54.5 s | 7 |
+| run 123 | 38.2 s | 113.8 s | 23 |
+
+A boundary lap replays a guest fork+exec, costs ~10 s, and is where nearly all
+the new edges are found. The modelled denominator counts those discoveries in
+the numerator while pricing the lap at 3 ms. Run 123's rate was overstated 3.0×
+by this alone, on top of whatever the stale read did. Fixed: the denominator is
+now the measured lap-class sum, and `new_edges_denominator` says which one was
+used.
+
+**The honest figure for the resting configuration is run 122: 416 new edges
+over 12,000 laps in 54.5 measured seconds — 7.6 per second.** If ~103 has been
+passed to anyone, it needs retracting; it is the single number most likely to
+have been quoted out of this document. The corrected value is **an order of
+magnitude lower**, and I am not putting a precise ratio on it, because the only
+pair that could supply one is confounded by exposure.
 
 The exec/s and the coverage *cost* are unaffected — `cov_ab` is a cost
 instrument and remains valid for cost — but "discovering N new edges per

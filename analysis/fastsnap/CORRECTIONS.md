@@ -485,7 +485,23 @@ Three properties made it survive:
 What it cost: runs 116/117/118 — the entire map-size ranking in `COVERAGE.md` —
 and the headline "~103 new edges per second", which had already been passed to
 another session for a funder-facing writeup. The corrected figure for the same
-configuration is 10.2 (run 122). **4.6×, flattering.**
+configuration is **7.6** (run 122, measured denominator).
+
+**And the first version of this entry got the size of it wrong.** It said
+"4.6×, flattering", citing runs 122 and 123 as a controlled pair. They are not
+a controlled pair. They also differ 3.3× in `exposure.outlier_laps` (7 against
+23) — boundary laps that replay a guest fork+exec, carry ~10× the median lap's
+edges, and account for nearly all discovery. Two causes, one number, one pair.
+
+The run's own `exposure` block prints the warning verbatim: *"total_edges is
+CUMULATIVE over that exposure and is not comparable to another run's unless the
+outlier count matches."* I wrote that check, it fired on both runs, and I made
+the comparison anyway — inside a commit whose subject was about not trusting
+contaminated numbers. **A check that fires is not a check that is read**, and
+this lane now has two instances of that in the same instrument.
+
+So: the mechanism is established by reading four lines of Python; the magnitude
+is not established at all.
 
 How it was caught, which is the part worth keeping: not by review. Run 122 was
 launched to test something else entirely (whether the corpus was hurting
@@ -503,6 +519,69 @@ returning stale data instead of erroring is what made the misuse silent.
 The fix (`34b05d58`) guards the append on `fastsnap_cov_armed()` and counts
 `disarmed_laps` separately, so a `cov_ab` run now reports a smaller, correct
 sum over its armed laps and says how many laps it did not measure.
+
+
+## 15. The rate was divided by a time the run did not take
+
+`new_edges_per_s` — named in `fastloop.py` as the thing to *"COMPARE
+CONFIGURATIONS ON"*, in capitals — was computed as
+
+    seconds = iterations / exec_per_s_median
+
+which is the time the run would have taken **if every lap had cost the
+median**. It is a model, it was never labelled as one, and it was the
+denominator of every discovery rate this lane has published.
+
+The error is not small and it is not random:
+
+| | modelled | measured | outlier laps |
+|---|---|---|---|
+| run 122 | 41.0 s | 54.5 s | 7 |
+| run 123 | 38.2 s | 113.8 s | 23 |
+
+On this target a few laps per thousand replay a connection boundary — a guest
+fork+exec, ~10 s, ~10× the median lap's edges — and that is where nearly all
+new code is found. So the modelled denominator **counts a boundary lap's
+discoveries in the numerator while pricing the lap at 3 ms**. The bias is
+proportional to the tail, and the tail is proportional to the discoveries. The
+metric flatters exactly the runs that look best, by exactly the mechanism that
+makes them look best.
+
+Two things make this worth an entry of its own rather than a line in 14.
+
+**It is independent of the `cov_ab` bug and survives it.** Entry 14's fix
+corrects the numerator. A run with `cov_ab: 0` and a fat tail is still
+overstated by this, by 3.0× in run 123's case. Fixing one and declaring the
+number sound would have been the natural move.
+
+**`loop_wall_s` — the measured alternative sitting in the same report — was
+itself broken, on precisely the runs where it mattered.** `t_loop0` is
+re-stamped by every lap that arrives with no reset outstanding, which includes
+the lap after each `cov_ab` toggle barrier; run 123 re-stamped it 35 times and
+reported `loop_wall_s` of **1.12 s** for a loop whose laps sum to 113.8 s,
+alongside `exec_per_s_wall_incl_oracle` of **10,703/s**. Two impossible numbers
+sat in the report next to the one being quoted.
+
+And `wall_share` caught it. It put `unaccounted` at **−100.5%** of the span,
+and a negative share of a positive span cannot happen. The check fired, on the
+run, into the JSON, and was not read — the same failure as entry 14's
+`exposure` warning, in the same file, on the same pair of runs.
+
+The fixes: `t_loop0` is stamped once; the report refuses `loop_wall_s` outright
+when the laps outlast the span rather than printing an impossible share beside
+it; and the rate divides by the measured lap-class sum, with
+`new_edges_denominator` naming which denominator was used so a future reader
+does not have to reverse-engineer it from the arithmetic.
+
+**The general lesson is not "check your denominators".** It is that this lane
+keeps writing correct self-checks and then not reading them. Three now:
+`exposure`'s uneven-run warning, `wall_share`'s negative residual, and the
+`cov_ab` config comment saying in plain words that it is a cost instrument.
+Every one fired. None changed a conclusion until a number refused to make
+sense for an unrelated reason. Checks that emit into a JSON blob are checks
+that will be read after the mistake, not before it — so the guards added here
+go in the *result*, next to the number they invalidate, and say what is wrong
+with that specific number rather than describing a condition.
 
 
 ## The VPN finding, now with evidence rather than inference

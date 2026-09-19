@@ -1671,7 +1671,22 @@ class FastLoop(Plugin):
                     # the first interval is a real one rather than the gap
                     # since the control finished.
                     self.t_iter = now
-                    self.t_loop0 = now
+                    # ONCE. This branch is not only the first lap: it is every
+                    # lap that arrives with no reset outstanding, which
+                    # includes the lap after each cov_ab toggle barrier. Run
+                    # 123 re-stamped t_loop0 thirty-five times and reported
+                    # loop_wall_s = 1.12 s for a loop whose own per-lap sum was
+                    # 113.8 s -- and exec_per_s_wall_incl_oracle = 10,703/s,
+                    # which is not a number this machine can produce.
+                    #
+                    # It did not go unnoticed for lack of a check. wall_share
+                    # put `unaccounted` at -100.5% of the span, and a negative
+                    # share of a positive span is arithmetically impossible.
+                    # The check fired on the run and nobody read it, which is
+                    # why the report now refuses the span outright rather than
+                    # printing an impossible share next to it.
+                    if self.t_loop0 is None:
+                        self.t_loop0 = now
 
                 # Nothing may be scheduled while an A/B toggle is in flight;
                 # see _ab_step on what a premature _bh_done() would record.
@@ -3537,6 +3552,19 @@ class FastLoop(Plugin):
                 (self.n_iters - 1) / span if span else None)
             out["loop_wall_s"] = span
             out["wall_share"] = self._wall_attribution(span)
+            # A negative unaccounted share means the laps took longer than the
+            # span that is supposed to contain them, i.e. the span is wrong --
+            # not that the accounting is. Say so on the report rather than
+            # leaving an impossible percentage for a reader to notice.
+            wa = out["wall_share"]
+            if wa and (wa["unaccounted"]["wall_s"] < 0):
+                out["loop_wall_s_invalid"] = (
+                    f"loop_wall_s ({span:.2f} s) is SHORTER than the sum of "
+                    f"the laps it contains "
+                    f"({-wa['unaccounted']['wall_s'] + span:.2f} s), so the "
+                    f"loop clock was restarted mid-run and this span, "
+                    f"exec_per_s_wall_incl_oracle and every wall_share below "
+                    f"are meaningless. Use the lap-class sum instead.")
 
         # A negative diff means the oracle could not look. That is neither a
         # pass nor an ordinary failure, and lumping it in with "pages differ"
@@ -3688,22 +3716,67 @@ class FastLoop(Plugin):
                 # answer. Three runs, kernel filtered, only the map differing:
                 #
                 #   map      collision loss   new edges   bucket-novel rate
-                #   256 KiB       4.32%          2,134         6.54%
-                #   1 MiB         1.20%          4,179        10.04%
-                #   4 MiB         0.30%          4,228         6.74%
+                #   256 KiB       4.32%         (2,134)        6.54%
+                #   1 MiB         1.20%         (4,179)       10.04%
+                #   4 MiB         0.30%         (4,228)        6.74%
                 #
-                # On edges the mechanism is clean and compounding -- 4.3%
-                # static loss costs 49% of discoveries, and the two roomy maps
-                # agree to 1.2%. On buckets, a 16x change in map size and a
-                # 14x change in collision loss move nothing, and the middle
-                # size is inexplicably the best. That is noise wearing a
-                # mechanism's clothes, and it was reported here as the figure
-                # of merit until run 118 contradicted it.
-                secs = ((out.get("iterations") or 0) / rate) if rate else None
+                # THE NEW-EDGE COLUMN IS WITHDRAWN -- runs 116/117/118 all ran
+                # with cov_ab on, and a disarmed lap re-reported the previous
+                # armed lap's new_edges for this sum to add again. Kept in
+                # parentheses only because the argument below is about which
+                # KIND of number to compare on, and that argument survives its
+                # data: a new EDGE is code never reached, a new BUCKET is the
+                # same path at a different trip count. Do not quote the
+                # figures. See CORRECTIONS entry 14 and PREDICTION-mapsize.md.
+                #
+                # On buckets, a 16x change in map size and a 14x change in
+                # collision loss move nothing, and the middle size is
+                # inexplicably the best. That is noise wearing a mechanism's
+                # clothes, and it was reported here as the figure of merit
+                # until run 118 contradicted it.
+                # THE DENOMINATOR, and it was wrong until run 123.
+                #
+                # This used to be `iterations / exec_per_s_median` -- the time
+                # the run WOULD have taken if every lap had cost the median.
+                # It is not the time the run took, and on this target the two
+                # diverge in the one direction that flatters:
+                #
+                #   run 122   modelled 41.0 s   measured  54.5 s   7 outliers
+                #   run 123   modelled 38.2 s   measured 113.8 s  23 outliers
+                #
+                # A boundary lap replays a guest fork+exec, costs ~10 s, and
+                # is where nearly all the new edges are found. The modelled
+                # denominator prices those laps at the median -- so it counts
+                # a boundary lap's discoveries in the numerator while
+                # pretending it took 3 ms. The more expensive a run's tail,
+                # the more the rate is overstated: run 123's by 3.0x.
+                #
+                # Measured time is the sum over the lap classes, not
+                # `loop_wall_s`. The lap sum is immune to the clock being
+                # re-stamped mid-run (see t_loop0 above) and is exactly the
+                # time the loop spent looping.
+                lap_secs = None
+                wa = out.get("wall_share")
+                if isinstance(wa, dict):
+                    lap_secs = sum(wa[k]["wall_s"] for k in
+                                   ("plain", "crash", "verify") if k in wa)
+                    if lap_secs <= 0:
+                        lap_secs = None
+                model_secs = ((out.get("iterations") or 0) / rate) if rate else None
+                secs = lap_secs or model_secs
                 eps = (cov["new_edges_total"] / secs
                        if secs else None)
                 cov["throughput"] = {
                     "new_edges_per_s": round(eps, 3) if eps else None,
+                    "new_edges_denominator": ("measured lap-time sum"
+                                              if lap_secs else
+                                              "MODELLED iters/median -- "
+                                              "overstates the rate on a run "
+                                              "with expensive tail laps"),
+                    "seconds_measured": (round(lap_secs, 2)
+                                         if lap_secs else None),
+                    "seconds_modelled": (round(model_secs, 2)
+                                         if model_secs else None),
                     "new_edges_total": cov["new_edges_total"],
                     "exec_per_s_median": rate,
                     "bucket_novelty_rate": round(nov, 5),
@@ -3716,6 +3789,21 @@ class FastLoop(Plugin):
                              "completeness and is the noisier measure -- it "
                              "moves with loop trip counts rather than with "
                              "discovery."),
+                    # Said HERE because this is the number that gets carried
+                    # into a comparison, and the caveat has to travel with it.
+                    "cross_run_caveat": (
+                        "new_edges_total is cumulative over this run's "
+                        "exposure. A few laps per thousand replay a "
+                        "connection boundary (a guest fork+exec) worth ~10x "
+                        "the median lap's edges, and nearly all discovery "
+                        "happens there -- so two runs of the SAME config "
+                        "differing in exposure.outlier_laps differ in "
+                        "new_edges_total for that reason alone. Runs 122 and "
+                        "123 differ 4.6x in new_edges_total and also 3.3x in "
+                        "outlier_laps (7 against 23); that pair cannot "
+                        "separate the two causes and should not be quoted as "
+                        "if it could. Check outlier_laps on BOTH runs before "
+                        "attributing a difference to configuration."),
                 }
                 # The trap, named where the number is. Collision loss is
                 # reported by `occupancy` as a percentage of EDGES, which
@@ -3726,13 +3814,17 @@ class FastLoop(Plugin):
                     cov["throughput"]["warning"] = (
                         f"the map is losing an estimated "
                         f"{occ['est_loss_frac'] * 100:.1f}% of edges to "
-                        f"collisions, and DISCOVERY loss compounds well "
-                        f"beyond that -- measured, 4.3% static edge loss cost "
-                        f"49% of the new edges found over 12,000 laps, "
-                        f"because a blinded slot stays blinded. A cheaper, "
-                        f"faster configuration with a smaller map is likely "
-                        f"to be a WORSE one; check new_edges_per_s before "
-                        f"choosing it")
+                        f"collisions, and DISCOVERY loss is expected to "
+                        f"compound well beyond that, because a blinded slot "
+                        f"stays blinded for the rest of the run. That "
+                        f"compounding is a MECHANISM, not a measurement: the "
+                        f"figure that used to appear here (4.3% static loss "
+                        f"costing 49% of discoveries) came off cov_ab runs "
+                        f"and is withdrawn. A cheaper, faster configuration "
+                        f"with a smaller map may still be a WORSE one; check "
+                        f"new_edges_per_s, and check that the runs being "
+                        f"compared have similar exposure.outlier_laps before "
+                        f"believing the difference")
             out["coverage"] = cov
 
         dev_blind = [v for v in self.verifies

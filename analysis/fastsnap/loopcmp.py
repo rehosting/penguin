@@ -150,6 +150,20 @@ def cheap_mode_verdict(fl):
     return "workload" if max(p10 / lo, lo / p10) < 3.0 else "pause"
 
 
+def lap_time_sum(fl):
+    """Seconds the loop spent in laps, from the disjoint lap classes.
+
+    The honest denominator for a discovery rate. See the note at the `new/s`
+    computation in main() for why neither `loop_wall_s` nor
+    `iterations / exec_per_s_median` can be used instead.
+    """
+    wa = fl.get("wall_share")
+    if not isinstance(wa, dict):
+        return None
+    t = sum(wa[k]["wall_s"] for k in ("plain", "crash", "verify") if k in wa)
+    return t or None
+
+
 def row(d):
     fl, sf, hb = (load(d, "fastloop.json"), load(d, "snapfeed.json"),
                   load(d, "hook_budget.json"))
@@ -216,6 +230,7 @@ def row(d):
                     if sf.get("n_sent") is not None and iters else None),
         "feed_wall": feed,
         "loop_wall": wall,
+        "lap_secs": lap_time_sum(fl),
         "disjoint": (disjoint / n_epoll_pass
                      if disjoint and n_epoll_pass else None),
         "hook_ms_lap": hook_ms,
@@ -247,10 +262,21 @@ def _cov(fl):
         # way the numbers below are the absence of a measurement, and a row
         # that printed them as zeros would read as a result.
         return {"cov": "BLIND", "cov_edges": None, "cov_new": None}
+    map_size = c.get("map_size")
     return {
         "cov": "on",
         "cov_edges": (c.get("edges") or {}).get("median"),
         "cov_new": c.get("new_edges_total"),
+        "map_KiB": (map_size // 1024) if map_size else None,
+        # Carried so the caller can refuse to report a discovery rate off a
+        # run that spent laps disarmed. See the warning in main().
+        "disarmed": c.get("disarmed_laps"),
+        # Boundary laps. A few per thousand replay a guest fork+exec and carry
+        # ~10x the median lap's edges, and nearly all discovery happens there
+        # -- so two runs of the SAME config with different outlier counts have
+        # different new_edges_total for that reason alone. This column exists
+        # so that a table of runs cannot be read without it in view.
+        "outliers": (c.get("exposure") or {}).get("outlier_laps"),
     }
 
 
@@ -264,13 +290,29 @@ COLS = [
     ("disjoint", "{:.0%}", 9), ("hook_ms_lap", "{:.3f}", 12),
     ("spread", "{:.1f}x", 8), ("fwd1_ms", "{:.2f}", 10),
     ("fid1", "{:.3f}", 8), ("cheap", "{}", 10),
-    ("cov", "{}", 6), ("cov_edges", "{:.0f}", 10),
-    ("cov_new", "{:.0f}", 9),
+    ("cov", "{}", 6), ("map_KiB", "{}", 8),
+    ("cov_edges", "{:.0f}", 10),
+    ("cov_new", "{:.0f}", 9), ("new/s", "{:.2f}", 8),
+    ("outliers", "{}", 9),
 ]
 
 
 def main(dirs):
     rows = [row(d) for d in dirs]
+    for r in rows:
+        # The figure of merit, computed here rather than by hand. Doing it by
+        # hand each time is part of how an inflated version of this number
+        # stayed in COVERAGE.md across three runs.
+        #
+        # NOT loop_wall_s. That is `t_loopN - t_loop0`, and t_loop0 was
+        # re-stamped by every cov_ab toggle barrier -- run 123 reports 1.12 s
+        # for a loop whose laps sum to 113.8 s. NOT iterations/median either:
+        # that is the time the run would have taken if no lap hit a connection
+        # boundary, which prices the expensive laps at the median while
+        # counting their discoveries. The lap-class sum is the time the loop
+        # actually spent looping and is immune to both.
+        n, w = r.get("cov_new"), r.get("lap_secs")
+        r["new/s"] = (n / w) if (n is not None and w) else None
     head = "".join(f"{name:>{w}}" for name, _, w in COLS)
     print(head)
     print("-" * len(head))
@@ -297,8 +339,40 @@ def main(dirs):
                 and r["feed_wall"] < 0.5 * r["loop_wall"]):
             print(f"  run {r['run']}: fed for {r['feed_wall']:.0f}s of a "
                   f"{r['loop_wall']:.0f}s loop -- the guest starved")
+        # A cov_ab run alternates armed and disarmed laps. An edge first
+        # reached while disarmed is never logged, so cov_new UNDERCOUNTS by an
+        # unknown amount -- and before 34b05d58 the same laps re-reported the
+        # last armed lap's new_edges, so it OVERCOUNTED by 4.6x instead. Either
+        # way it is not a discovery measurement, which is the whole content of
+        # CORRECTIONS entry 14. Say so on the row rather than trusting a
+        # comment in a config file to be read.
+        if r.get("lap_secs") and r.get("loop_wall") and (
+                r["loop_wall"] < 0.9 * r["lap_secs"]):
+            print(f"  run {r['run']}: loop_wall_s {r['loop_wall']:.2f}s is "
+                  f"shorter than its own laps ({r['lap_secs']:.2f}s) -- the "
+                  f"loop clock was restarted mid-run; wall_s here is "
+                  f"meaningless and new/s uses the lap sum instead")
+        if r.get("disarmed"):
+            print(f"  run {r['run']}: {r['disarmed']} of {r['iters']} laps ran "
+                  f"DISARMED (cov_ab) -- cov_new and new/s are not a discovery "
+                  f"rate for this run, at best a lower bound over the armed "
+                  f"laps. cov_ab prices coverage; it cannot measure it.")
         if r["verdict"].startswith("FAILED"):
             print(f"  run {r['run']}: {r['verdict']}")
+    # THE CROSS-RUN REFUSAL. Discovery concentrates in boundary laps, so a
+    # spread in outlier counts is a competing explanation for any spread in
+    # cov_new -- one that has nothing to do with whatever config key the runs
+    # were meant to differ in. This is the exact confound that produced the
+    # withdrawn map-size ranking, so it refuses here rather than being left as
+    # a judgement call after the numbers are in view.
+    ol = [r["outliers"] for r in rows if r.get("outliers")]
+    if len(ol) > 1 and max(ol) > 2 * min(ol):
+        print(f"\n  REFUSED: outlier (boundary) laps span {min(ol)}-{max(ol)}, "
+              f"more than 2x across these runs. A boundary lap replays a guest "
+              f"fork+exec worth ~10x the median lap's edges and is where "
+              f"nearly all discovery happens, so these runs differ in EXPOSURE "
+              f"as well as in configuration. Any difference in cov_new or "
+              f"new/s is confounded and must not be attributed to the config.")
     return 0
 
 

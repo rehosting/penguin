@@ -84,3 +84,43 @@ mutation on, corpus off, kernel filtered `[0, 0xC0000000)`, `cov_ab: 0`,
     run 125    262144   (256 KiB)
     run 126   1048576   (1 MiB)
     run 127   4194304   (4 MiB)
+
+---
+
+## Addendum, written while runs 125-127 were in flight
+
+**No prediction above is changed.** This records two instrument faults found
+after launch, and how they affect reading the results.
+
+**1. The rate denominator was modelled, not measured.** `new_edges_per_s` in
+`fastloop.json` divides by `iterations / exec_per_s_median` — the time the run
+would have taken if every lap cost the median. Measured time is the lap-class
+sum in `wall_share`. The two diverge with the tail: run 122 modelled 41.0 s
+against 54.5 s measured; run 123, 38.2 s against 113.8 s.
+
+Runs 125/126/127 were launched with the plugin copy that predates the fix, so
+**their `throughput.new_edges_per_s` must not be read directly.** The corrected
+rate is `new_edges_total / sum(wall_share[plain, crash, verify].wall_s)`, and
+that is what these three arms will be compared on. Under the corrected
+denominator P1's reference point (run 122) is **7.6** rather than 10.2, which
+is still inside P1's stated 7-15 band, so P1 stands as written.
+
+**2. The 4.6× attributed to the `cov_ab` stale read is not supportable.** Runs
+122 and 123 also differ 3.3× in `exposure.outlier_laps` (7 against 23). The
+stale-read mechanism is established by reading the code; its magnitude is not
+established by that pair. Nothing above depended on the 4.6×.
+
+## The additional check these two faults force
+
+`exposure.outlier_laps` must be reported for all three arms, and a difference
+in it is a competing explanation for any difference in `new_edges_total` — one
+that has nothing to do with map size.
+
+**Pre-registered refusal:** if the three arms' `outlier_laps` counts span more
+than 2×, the discovery comparison is abandoned and reported as confounded,
+whatever ordering the numbers happen to show. The arms would then differ in how
+often they replayed a connection boundary, and that alone moves discovery more
+than any map size in this range plausibly does.
+
+This is the specific trap that produced the withdrawn ranking, so it gets a
+rule written before the data rather than a judgement call after it.
