@@ -1,6 +1,6 @@
 # Prediction: the map-size ranking, re-measured with `cov_ab: 0`
 
-Written before runs 125/126/127 are launched, so it can fail.
+Written before runs 126/127/128 are launched, so it can fail.
 
 ## Why the ranking is being re-measured
 
@@ -81,13 +81,24 @@ Identical to the resting configuration in every respect but `cov_map_size`:
 mutation on, corpus off, kernel filtered `[0, 0xC0000000)`, `cov_ab: 0`,
 12,000 iters, `arm_after_s: 150`, `arm_retries: 12`, seed 1337.
 
-    run 125    262144   (256 KiB)
-    run 126   1048576   (1 MiB)
-    run 127   4194304   (4 MiB)
+    run 126    262144   (256 KiB)
+    run 127   1048576   (1 MiB)
+    run 128   4194304   (4 MiB)
+
+Run 125 was this sweep's first 256 KiB arm and was **aborted two thirds of
+the way through, deliberately**. Mid-run I found the two denominator faults
+recorded in the addendum below, and fixing them also produced a third thing
+the old plugin does not emit: `coverage.discovery`, which splits novelty by
+whether the lap was a boundary lap. Without it, a sweep whose arms draw
+different numbers of boundary laps has no comparison it is allowed to make
+and has to be re-run anyway. Given the 7-against-23 spread on the last pair
+that looked more likely than not, so the twenty minutes already spent were
+cheaper to abandon than the hour they would probably have cost. `results/125`
+holds no `fastloop.json`; it stopped before writing one.
 
 ---
 
-## Addendum, written while runs 125-127 were in flight
+## Addendum, written while runs 126-128 were in flight
 
 **No prediction above is changed.** This records two instrument faults found
 after launch, and how they affect reading the results.
@@ -98,12 +109,12 @@ would have taken if every lap cost the median. Measured time is the lap-class
 sum in `wall_share`. The two diverge with the tail: run 122 modelled 41.0 s
 against 54.5 s measured; run 123, 38.2 s against 113.8 s.
 
-Runs 125/126/127 were launched with the plugin copy that predates the fix, so
-**their `throughput.new_edges_per_s` must not be read directly.** The corrected
-rate is `new_edges_total / sum(wall_share[plain, crash, verify].wall_s)`, and
-that is what these three arms will be compared on. Under the corrected
-denominator P1's reference point (run 122) is **7.6** rather than 10.2, which
-is still inside P1's stated 7-15 band, so P1 stands as written.
+Run 125 carried the unfixed plugin and was abandoned for it. Runs 126/127/128
+carry the fix, so `throughput.new_edges_per_s` in their JSON is already on the
+measured denominator and `new_edges_denominator` says so. Under that
+denominator P1's reference point (run 122, recomputed by hand) is **7.6**
+rather than 10.2 — still inside P1's stated 7-15 band, so P1 stands as
+written.
 
 **2. The 4.6× attributed to the `cov_ab` stale read is not supportable.** Runs
 122 and 123 also differ 3.3× in `exposure.outlier_laps` (7 against 23). The
@@ -124,3 +135,39 @@ than any map size in this range plausibly does.
 
 This is the specific trap that produced the withdrawn ranking, so it gets a
 rule written before the data rather than a judgement call after it.
+
+## Amendment to the refusal, made before any arm produced data
+
+The refusal above ("if the arms' `outlier_laps` span more than 2×, abandon the
+discovery comparison") was written when I had no exposure-free number to fall
+back on. Fixing the denominators produced one, so the rule changes — and
+because changing a pre-registered rule mid-experiment is exactly the move that
+pre-registration exists to catch, here is the change stated in full, with the
+timing: **no arm of this sweep had produced a `fastloop.json` when this was
+written.** Run 125 was aborted before writing one; runs 126/127/128 had not
+started.
+
+`coverage.discovery` now splits novelty by lap class and reports
+**`new_edges_per_1k_typical_laps`** — new edges per thousand non-boundary
+laps. It is per-lap, so it does not grow with run length, and it excludes the
+outliers, so it does not move with how many boundary laps an arm happened to
+draw. That is the confound, removed by construction rather than by refusing to
+look.
+
+**The primary comparison for this sweep is `new_edges_per_1k_typical_laps`.**
+`new_edges_total` and `new_edges_per_s` are reported beside it and are
+secondary, because both are cumulative over exposure.
+
+The refusal survives in weaker form, and it is not weaker in what counts as
+evidence: if the arms' `outlier_laps` span more than 2×, then
+`new_edges_total` and `new_edges_per_s` are confounded for those arms and
+**may not be quoted or ranked**, while `new_edges_per_1k_typical_laps` may.
+The readability threshold of ~1.5× from draw variance still applies to the
+primary metric, and it applies to the *typical* laps' variance, which is not
+yet characterised — so if the three arms land inside 1.5× on the primary
+metric, the answer is still "no measurable difference", not a ranking.
+
+`outlier_discovery_share` is reported for each arm as a side finding: if
+boundary laps turn out to carry most of the discovery on every arm, that is a
+more important fact about this fuzzing loop than any map size, and it argues
+for a driver that produces boundaries deliberately rather than by accident.

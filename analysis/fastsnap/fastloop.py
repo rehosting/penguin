@@ -1806,6 +1806,61 @@ class FastLoop(Plugin):
         self.ab_blocks.append(row)
 
     @staticmethod
+    def _cov_discovery_split(edges, new, threshold):
+        """Discovery, split by whether the lap was a boundary lap.
+
+        THE CONFOUND THIS EXISTS TO REMOVE. `_cov_exposure` above counts the
+        boundary laps and warns that a cumulative total is not comparable
+        across runs with different counts. That warning is correct and was
+        printed on two runs I then compared anyway -- because counting the
+        outliers tells a reader the comparison is unsafe without giving them a
+        safe one to make instead. A warning with no remedy gets read as a
+        caveat and skipped.
+
+        The remedy is arithmetic. Boundary laps replay a guest fork+exec and
+        see ~10x the median lap's edges, so they discover far more per lap
+        than a typical lap does; a run that drew more of them discovers more
+        for a reason that has nothing to do with its configuration. Splitting
+        the novelty by lap class gives `new_edges_per_1k_typical_laps`, which
+        is per-lap and excludes the outliers, and is therefore comparable
+        between runs whose exposure differs.
+
+        It is not a complete answer -- boundary laps are real fuzzing and
+        their discoveries are real -- so both halves are reported. The point
+        is that a cross-run comparison now has a number it is allowed to use.
+        """
+        if not edges or not new or threshold is None:
+            return None
+        n = min(len(edges), len(new))
+        hi_new = hi_laps = lo_new = lo_laps = 0
+        for k in range(n):
+            if edges[k] > threshold:
+                hi_laps += 1
+                hi_new += new[k]
+            else:
+                lo_laps += 1
+                lo_new += new[k]
+        out = {
+            "outlier_laps": hi_laps,
+            "typical_laps": lo_laps,
+            "new_edges_on_outlier_laps": hi_new,
+            "new_edges_on_typical_laps": lo_new,
+            "new_edges_per_1k_typical_laps": (round(lo_new / lo_laps * 1000.0, 2)
+                                              if lo_laps else None),
+            "note": ("COMPARE RUNS ON new_edges_per_1k_typical_laps when "
+                     "their outlier_laps counts differ. It is per-lap and "
+                     "excludes the boundary laps, so it does not move with "
+                     "how many of them a run happened to draw. The outlier "
+                     "half is reported beside it because those discoveries "
+                     "are real -- the split is to stop exposure being "
+                     "mistaken for configuration, not to discard laps."),
+        }
+        if hi_new + lo_new:
+            out["outlier_discovery_share"] = round(
+                hi_new / float(hi_new + lo_new), 4)
+        return out
+
+    @staticmethod
     def _cov_exposure(per_lap):
         """How uneven the per-lap coverage was, because total_edges depends on
         it and nothing else in the report says so.
@@ -3662,6 +3717,21 @@ class FastLoop(Plugin):
             cov["occupancy"] = self._cov_occupancy(
                 cov["total_edges"], cov["map_size"])
             cov["exposure"] = self._cov_exposure(self.cov_edges)
+            cov["discovery"] = self._cov_discovery_split(
+                self.cov_edges, self.cov_new,
+                (cov["exposure"] or {}).get("outlier_threshold"))
+            # The per-lap novelty series, sparse. Only laps that found
+            # something are listed, which on a 12,000-lap run is a few hundred
+            # entries rather than 12,000 -- small enough to keep, and it is the
+            # raw material for every exposure question that gets asked AFTER
+            # the run. Both re-analyses this lane has needed so far were
+            # impossible without it and cost a re-run each.
+            if self.cov_new:
+                novel = [[k, self.cov_edges[k], v]
+                         for k, v in enumerate(self.cov_new) if v]
+                cov["novel_laps"] = novel[:4000]
+                if len(novel) > 4000:
+                    cov["novel_laps_truncated"] = len(novel)
             # THE ZERO THAT MEANS TWO THINGS. An empty map is produced both by
             # a guest that reached nothing and by a filter naming a range that
             # holds no code, and nothing in the map separates them. The tbs
