@@ -1686,6 +1686,85 @@ def replay_fidelity_tests(tmp):
           "warning and is marked usable")
 
 
+def cov_discovery_split_tests(tmp):
+    """The exposure confound, removed by arithmetic rather than by refusing.
+
+    `_cov_exposure` counts boundary laps and warns that a cumulative total is
+    not comparable across runs whose counts differ. That warning is correct,
+    it fired on runs 122 and 123, and the comparison got made anyway -- a
+    warning with no remedy reads as a caveat and gets skipped. The remedy is
+    `new_edges_per_1k_typical_laps`: per-lap, outliers excluded, so it does not
+    move with how many boundary laps a run happened to draw.
+
+    What these cases pin down is that the split is doing the ONE job it exists
+    for: two runs that reached the same code at the same per-lap rate must
+    report the same primary number even when their exposure differs wildly.
+    """
+    cls, _mod = load_class()
+    split = cls._cov_discovery_split
+
+    # ---- THE PROPERTY THAT MATTERS ------------------------------------
+    # Two runs, identical typical laps (10 novel edges per 1,000), differing
+    # only in how many boundary laps they drew: one and five. On cumulative
+    # totals they look 4.8x apart. On the primary metric they are identical.
+    def synth(n_typical, n_boundary, per_boundary):
+        edges = [100] * n_typical + [1000] * n_boundary
+        new = [0] * n_typical + [per_boundary] * n_boundary
+        for k in range(0, n_typical, 100):       # 10 per 1,000 typical laps
+            new[k] = 1
+        return edges, new
+
+    a = split(*synth(1000, 1, 200), 200)
+    b = split(*synth(1000, 5, 200), 200)
+    assert a["new_edges_per_1k_typical_laps"] == 10.0, a
+    assert b["new_edges_per_1k_typical_laps"] == 10.0, b
+    # ...while the cumulative totals do NOT agree, which is the whole point.
+    tot_a = a["new_edges_on_typical_laps"] + a["new_edges_on_outlier_laps"]
+    tot_b = b["new_edges_on_typical_laps"] + b["new_edges_on_outlier_laps"]
+    assert tot_b > 2 * tot_a, (a, b)
+    print(f"ok  exposure 1 vs 5 boundary laps: cumulative {tot_a} vs {tot_b} "
+          f"({tot_b / tot_a:.1f}x apart), primary metric identical at "
+          f"{a['new_edges_per_1k_typical_laps']}/1k typical laps")
+
+    # ---- BOTH HALVES ARE REPORTED, NOT ONE ----------------------------
+    # Boundary laps are real fuzzing and their discoveries are real. A split
+    # that dropped them would understate the run; the split exists to stop
+    # exposure being mistaken for configuration, not to discard laps.
+    assert b["new_edges_on_outlier_laps"] == 1000, b
+    assert b["outlier_laps"] == 5 and b["typical_laps"] == 1000, b
+    assert abs(b["outlier_discovery_share"] - 1000 / 1010.0) < 1e-3, b
+    print(f"ok  both halves kept: {b['new_edges_on_outlier_laps']} on "
+          f"{b['outlier_laps']} boundary laps is reported beside the "
+          f"typical-lap rate, share {b['outlier_discovery_share']}")
+
+    # ---- THE MEASURED SHAPE, AS A REGRESSION --------------------------
+    # Run 127's real numbers. Nine laps in 12,205 carried 239 of 527 new
+    # edges: 0.07% of laps, 45% of the discovery. If a future change makes
+    # this read as a tidy minority, something has stopped counting.
+    edges = [1422] * 12196 + [16668] * 9
+    new = [0] * len(edges)
+    for k in range(0, 12196, 200):
+        new[k] = 288 // 61 + (1 if k < 200 * (288 % 61) else 0)
+    for k in range(12196, 12205):
+        new[k] = 239 // 9 + (1 if k < 12196 + 239 % 9 else 0)
+    r = split(edges, new, 2 * 1422)
+    assert r["outlier_laps"] == 9, r
+    assert r["new_edges_on_outlier_laps"] == 239, r
+    assert 0.4 < r["outlier_discovery_share"] < 0.5, r
+    print(f"ok  run 127's shape: {r['outlier_laps']} of {len(edges)} laps "
+          f"(0.07%) carry {r['outlier_discovery_share'] * 100:.0f}% of the "
+          f"discovery")
+
+    # ---- NO DATA IS NOT ZERO DATA -------------------------------------
+    # A run with coverage off, or one that never armed, must return None
+    # rather than a tidy zero that reads as "found nothing".
+    assert split([], [], 100) is None
+    assert split([1, 2], [], 100) is None
+    assert split([1, 2], [0, 0], None) is None
+    print("ok  absent inputs return None rather than a zero that reads as a "
+          "measurement")
+
+
 def oracle_method_tests(tmp):
     # ---- HOW THE ORACLE GOT ITS ANSWER --------------------------------
     # "byte-identical across 281 MB" means something different when 99.6% of
@@ -1783,7 +1862,27 @@ def cov_throughput_tests(tmp):
     # measures are deliberately different numbers here -- a metric that read
     # the bucket count would coincide with novel_laps_per_s and pass anything.
     assert t["new_edges_total"] == 12 * out["coverage"]["laps"], t
-    secs = out["iterations"] / out["exec_per_s_median"]
+    # THE DENOMINATOR IS PART OF THE CONTRACT, and this assertion used to
+    # hard-code the wrong one. It checked the rate against
+    # iterations/exec_per_s_median -- the time the run WOULD have taken if
+    # every lap cost the median, which is not the time any run took and
+    # overstates the rate on exactly the runs with an expensive tail. See
+    # CORRECTIONS entry 15.
+    #
+    # So the test no longer names a denominator. It reads the one the report
+    # says it used and checks the arithmetic against that, which is the
+    # property that has to hold whichever branch was taken -- and it fails if
+    # the two ever drift apart, which the old form could not.
+    lap_secs = sum(out["wall_share"][k]["wall_s"]
+                   for k in ("plain", "crash", "verify")
+                   if k in (out.get("wall_share") or {}))
+    model_secs = out["iterations"] / out["exec_per_s_median"]
+    if lap_secs > 0:
+        assert t["new_edges_denominator"].startswith("measured"), t
+        secs = lap_secs
+    else:
+        assert "MODELLED" in t["new_edges_denominator"], t
+        secs = model_secs
     assert abs(t["new_edges_per_s"] - t["new_edges_total"] / secs) < 1e-2, t
     assert t["new_edges_per_s"] != t["novel_laps_per_s"], t
     assert "new_edges_per_s" in t["note"], t["note"]
@@ -2866,6 +2965,7 @@ def main():
     cov_occupancy_tests(tmp)
     cov_exposure_tests(tmp)
     cov_throughput_tests(tmp)
+    cov_discovery_split_tests(tmp)
     oracle_method_tests(tmp)
     tcg_work_tests(tmp)
     arm_cost_tests(tmp)
