@@ -79,11 +79,15 @@ def load_class():
             and n.names[0].name in ("json", "os", "random", "time")]
     assigns = [n for n in tree.body if isinstance(n, ast.Assign)
                and getattr(n.targets[0], "id", "") in ("SEEDS", "HEADERS")]
+    # Module-level helpers the class calls. Without these the class loads and
+    # then raises NameError at the one moment it is asked to report.
+    helpers = [n for n in tree.body if isinstance(n, ast.FunctionDef)]
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef))
     cls.bases = []
     mod = types.ModuleType("snapfeed_under_test")
     sys.modules["snapfeed_under_test"] = mod
-    body = ast.Module(body=keep + assigns + [cls], type_ignores=[])
+    body = ast.Module(body=keep + assigns + helpers + [cls],
+                      type_ignores=[])
     exec(compile(ast.fix_missing_locations(body), "snapfeed_under_test", "exec"),
          mod.__dict__)
     return mod.__dict__[cls.name], mod
@@ -1124,6 +1128,37 @@ def corpus_tests(tmp):
         "in the denominator")
     print("ok  snapfeed: the lift's denominator counts inputs at the lap "
           "boundary, so warmup feeds cannot inflate it")
+
+    # ---- THE DISTRIBUTION, NOT JUST THE SUM ----------------------------
+    # corpus_lift is a ratio of two SUMS, and a ratio of sums is the statistic
+    # a single lap can own. Run 120 reported 29 corpus discoveries totalling
+    # 69 edges against 35 seed discoveries totalling 209 -- which reads as a
+    # threefold difference whether it is a shift in the whole distribution or
+    # one lap worth 150. The per-arm values are kept so a median can say which.
+    p, _, _ = make(tmp, corpus=1)
+    for n in (1, 1, 2, 200):
+        p._corpus_lap([(b"s%d" % n, "seed")], n, 2800)
+    for n in (2, 3, 2, 3):
+        p._corpus_lap([(b"c%d" % n, "corpus")], n, 2800)
+    p.uninit()
+    out = json.load(open(pathlib.Path(tmp) / "snapfeed.json"))
+    # By the sums the seeds look 20x better; by the medians the corpus is
+    # ahead. Both are in the file, which is the point.
+    assert out["edges_from_seed"] == 204 and out["edges_from_corpus"] == 10
+    assert out["seed_find_median"] == 1.5, out["seed_find_median"]
+    assert out["corpus_find_median"] == 2.5, out["corpus_find_median"]
+    assert out["corpus_lift"] < 1, out["corpus_lift"]
+    print("ok  snapfeed: every discovery's size is kept per arm, so a lift "
+          "driven by one large find can be told from a real shift")
+
+    # An empty arm reports None, not 0 -- a median of nothing is not a
+    # measurement that nothing was found.
+    p, _, _ = make(tmp, corpus=1)
+    p.uninit()
+    out = json.load(open(pathlib.Path(tmp) / "snapfeed.json"))
+    assert out["corpus_find_median"] is None and out["seed_find_median"] is None
+    print("ok  snapfeed: an arm with no discoveries reports a median of None "
+          "rather than zero")
 
     # ---- THE SIGNATURE MATCHES WHAT fastloop ACTUALLY PUBLISHES --------
     # plugin_manager's publish() calls cb(*args) with the publisher's own

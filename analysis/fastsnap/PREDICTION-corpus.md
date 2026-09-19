@@ -50,3 +50,36 @@ this. Throughput is a side effect, it is confounded by the draw, and a single
 pair of runs cannot settle it. It is written down here because it was noticed
 before the data was read, and because "the corpus made it 3x faster" is
 exactly the kind of claim this lane has previously made and had to retract.
+
+---
+
+# Outcome: the prediction was wrong (run 120)
+
+**`n_accept` = 148**, against 146 on both corpus-off runs. Not materially
+fewer — indistinguishable. And run 120 was still fast: **126 laps/s wall**
+against 33. That is the case written above as *"Kills it: `n_accept` is at or
+above 146 while the run is still fast."*
+
+So the connection-death explanation is dead. Corpus entries do not keep the
+connection alive more often, and the wall-rate gap is something else.
+
+What is left, neither confirmed:
+
+- **Outlier laps.** Runs 116/118 had 15 and 14 laps over twice the median edge
+  count; run 120 had **3**. Those are the expensive replays. But 12 extra laps
+  at ~1050 ms is ~13 s, and the gap is ~250 s, so this is at most a tenth of
+  it.
+- **Host load.** Runs 116–118 ran in a previous session; 119 and 120 ran on an
+  otherwise idle machine. Runs 116 and 118 agree closely (33.1, 33.0) while
+  117 was 23.4 — so ~30% wall variance exists within one session, and 3.8x
+  across sessions is more likely environmental than causal. This cannot be
+  reconstructed retroactively.
+
+**The wall-rate difference is unexplained and is not attributed to the
+corpus.** `keepalive_fixed` did halve (1725 → 886), which is expected and
+mechanical — corpus entries are stored after `_keep_alive` has already run, so
+mutating one starts from a keepalive-clean base — but with `n_accept` flat it
+explains no connection deaths and therefore no time.
+
+Recording this rather than quietly dropping it: the hypothesis was specific,
+it named its own falsifier, and the falsifier fired.

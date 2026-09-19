@@ -100,6 +100,14 @@ def judge(sf):
             f"{multi} of {laps_new} discovery laps fed more than one payload "
             f"({multi / laps_new:.1%}), so the edge ratio rests on the rest")
 
+    cf, sfd = sf.get("corpus_finds") or [], sf.get("seed_finds") or []
+    if cf and sfd:
+        share = max(max(cf) / sum(cf), max(sfd) / sum(sfd))
+        if share > 0.5:
+            refusals.append(
+                f"one lap is {share:.0%} of an arm's edges -- the lift is a "
+                f"ratio of sums and this one is a ratio of that lap")
+
     if NULL_BAND[0] <= lift <= NULL_BAND[1]:
         verdict = (f"NO EFFECT: lift {lift} is inside the null band "
                    f"{NULL_BAND}. The corpus is collected and drawn from and "
@@ -143,6 +151,17 @@ def main():
     print(f"  run          laps={cov.get('laps')} "
           f"new_edges_total={cov.get('new_edges_total')} "
           f"exec/s={fl.get('exec_per_s_median')}")
+
+    cf, sfd = sf.get("corpus_finds") or [], sf.get("seed_finds") or []
+    if cf and sfd:
+        print(f"  find size    corpus median={sf.get('corpus_find_median')} "
+              f"max={max(cf)} n={len(cf)}   "
+              f"seed median={sf.get('seed_find_median')} max={max(sfd)} "
+              f"n={len(sfd)}")
+        # A ratio of sums is the statistic one lap can own. Say how much of
+        # each arm its single largest find accounts for.
+        print(f"  top find is  {max(cf) / sum(cf):.0%} of the corpus arm, "
+              f"{max(sfd) / sum(sfd):.0%} of the seed arm")
 
     verdict, refusals = judge(sf)
     print()

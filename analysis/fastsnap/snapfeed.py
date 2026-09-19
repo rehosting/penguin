@@ -72,6 +72,16 @@ from penguin import Plugin, plugins
 
 syscalls = plugins.syscalls
 
+def _median(xs):
+    """Median, or None for an empty sample -- never 0, which would read as a
+    real measurement of nothing being found."""
+    if not xs:
+        return None
+    o = sorted(xs)
+    n = len(o)
+    return float(o[n // 2] if n % 2 else (o[n // 2 - 1] + o[n // 2]) / 2)
+
+
 SEEDS = [
     b"GET / HTTP/1.1\r\nHost: x\r\n\r\n",
     b"GET /index.html HTTP/1.1\r\nHost: x\r\nConnection: keep-alive\r\n\r\n",
@@ -176,6 +186,16 @@ class SnapFeed(Plugin):
         # _corpus_lap on why the difference decides the sign of the bias.
         self.n_corpus_input = 0
         self.n_seed_input = 0
+        # Every discovery's SIZE, per arm. The ratio of the two sums is the
+        # headline, and a ratio of sums is exactly the statistic one lap can
+        # own: 29 discoveries totalling 69 edges and 35 totalling 209 look
+        # like a threefold difference whether that is a shift in the whole
+        # distribution or a single lap worth 150. Keeping the values lets the
+        # median answer it. Bounded because this is host memory inside a
+        # 12,000-lap loop, and a discovery is rare enough (~64 a run here)
+        # that the bound is never reached in practice.
+        self.corpus_finds = []
+        self.seed_finds = []
         self.n_multi_fed_laps = 0
         self._cov_absent_laps = 0    # laps that arrived with no coverage
         self._warned_cov_absent = False
@@ -559,9 +579,13 @@ class SnapFeed(Plugin):
         if provenance == "corpus":
             self.n_new_from_corpus += 1
             self.edges_from_corpus += new_edges
+            if len(self.corpus_finds) < 2000:
+                self.corpus_finds.append(new_edges)
         else:
             self.n_new_from_seed += 1
             self.edges_from_seed += new_edges
+            if len(self.seed_finds) < 2000:
+                self.seed_finds.append(new_edges)
 
         if payload in self._corpus_seen:
             self.n_corpus_dup += 1
@@ -1151,6 +1175,10 @@ class SnapFeed(Plugin):
             "n_new_from_seed": self.n_new_from_seed,
             "edges_from_corpus": self.edges_from_corpus,
             "edges_from_seed": self.edges_from_seed,
+            "corpus_finds": self.corpus_finds,
+            "seed_finds": self.seed_finds,
+            "corpus_find_median": _median(self.corpus_finds),
+            "seed_find_median": _median(self.seed_finds),
             "n_multi_fed_laps": self.n_multi_fed_laps,
             # THE PRIMARY RESULT, and it is an IN-RUN one.
             #
