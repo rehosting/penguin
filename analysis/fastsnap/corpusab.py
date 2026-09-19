@@ -34,6 +34,17 @@ rather than folded into the verdict:
   * many multi-fed laps               -> edge attribution was skipped often
                                          enough that the ratio rests on a
                                          minority of laps
+
+ONE BIAS THAT IS NOT REFUSED, BECAUSE IT RUNS THE SAFE WAY. The corpus starts
+empty, so the first laps of a run are necessarily seed-derived, and those are
+the richest laps a run has -- discovery decays as the easy edges are taken.
+Corpus-derived inputs therefore face a harder environment on average than seed
+-derived ones, and the lift is pulled DOWN by it. The prefix is short (the
+corpus takes its first entry within a few dozen laps and ~10% of laps
+discover) so the effect should be small, but the direction matters: a lift
+above 1 is trustworthy in spite of this, while a lift of ~1 is ambiguous
+between "no effect" and "an effect this bias ate". Do not read a null result
+here as strong evidence of no effect.
 """
 import json
 import pathlib
