@@ -171,3 +171,113 @@ metric, the answer is still "no measurable difference", not a ranking.
 boundary laps turn out to carry most of the discovery on every arm, that is a
 more important fact about this fuzzing loop than any map size, and it argues
 for a driver that produces boundaries deliberately rather than by accident.
+
+---
+
+# RESULT — runs 126/127/128
+
+| | 256 KiB | 1 MiB | 4 MiB |
+|---|---|---|---|
+| **`new_edges_per_1k_typical_laps`** (primary) | **22.06** | **23.61** | **22.55** |
+| `new_edges_total` | 553 | 527 | 517 |
+| `new_edges_per_s` (measured denom.) | 5.50 | 7.34 | 6.06 |
+| `outlier_laps` | 12 | 9 | 10 |
+| `outlier_discovery_share` | 0.514 | 0.454 | 0.468 |
+| `cov_scan_us` median | 75 | 134 | 372 |
+| `exec_per_s_median` | 310.7 | 296.3 | 275.8 |
+| occupancy | 8.02% | 2.04% | 0.73% |
+| est. collision loss | 4.06% | 1.02% | 0.36% |
+
+`outlier_laps` spans 9–12, inside 2×, so the pre-registered confound refusal
+does not fire and all the columns above may be read.
+
+## The predictions, scored
+
+**P1 (magnitude) — HELD.** The 1 MiB arm came in at 7.34 new edges/s against a
+predicted 7–15, an order of magnitude below the published 103.2. The
+stale-read diagnosis is confirmed by a run that does not depend on it.
+
+**P2 (direction) — FAILED.** Predicted `1 MiB >= 4 MiB > 256 KiB`. On the
+primary metric the three arms are **22.06 / 23.61 / 22.55 — a 7% spread across
+a 16× change in map size**, which is not an ordering. On cumulative new edges
+the nominal order is *reversed* (256 KiB highest). The collision-compounding
+mechanism I predicted would survive the bug is not observable here.
+
+**P3 (the gap narrows) — FAILED, in the direction of there being no gap.**
+Predicted 256 KiB at 60–90% of the 1 MiB rate. Measured 93% on the primary
+metric. The published gap was 53%; the honest gap is **indistinguishable from
+zero**.
+
+**P4 (cost unaffected) — HELD.** Cost ordering reproduces cleanly and is the
+one real effect in the table: scan 75 / 134 / 372 µs, exec/s 310.7 / 296.3 /
+275.8.
+
+## The finding
+
+**The map-size ranking does not exist.** A 1.9× difference was published
+(55.1 against 103.2 new edges/s); the measured difference on an
+exposure-corrected, correctly-denominated metric is **1.07×**, with the sign
+unstable across metrics. Cost is real, benefit is not.
+
+## Why no version of this design could have answered it
+
+This is the part worth keeping, and it was not visible until `novel_laps`
+existed:
+
+* **Only ~69 laps in 12,000 discover anything at all** — 69, 69, 68 across the
+  three arms. Twelve thousand laps is a sample size of sixty-nine.
+* **Two laps carry ~43% of each run's discovery.** The two largest single-lap
+  contributions are 128+97=225 of 553, 135+89=224 of 527, and 121+108=229 of
+  517. Nearly half of each run's headline number rests on two events, and all
+  three arms got almost exactly the same two-lap contribution — these are
+  structural events, not configuration responding.
+* **The arms did not execute the same code.** `tbs_instrumented` is 20,330 /
+  20,311 / **26,959** — run 128's guest translated 33% more blocks, which is
+  also why its `total_edges` reads 30,488 against ~21,000. That is guest
+  behaviour varying run to run, not a map-size effect, and it is a second
+  reason cumulative counts cannot be compared across these runs.
+
+So the effective sample is ~69 events dominated by 2, not 12,000 laps and not
+553 edges. **No single-run-per-arm design can resolve anything about map size**,
+and the 1.5× readability threshold written at the top of this document was far
+too generous. The published ranking was noise that happened to look like a
+mechanism, and the mechanism was available to explain it.
+
+## What follows for the configuration
+
+`cov_map_size: 1048576` **stays**, and the reason changes completely.
+
+It is not that 1 MiB discovers more — measured, it does not. It is that 256 KiB
+is already 8.0% full at 12,000 laps with an estimated 4.1% collision loss, and
+that loss compounds with run length because a blinded slot stays blinded. A
+campaign 100× longer would put 256 KiB near 38% occupancy and ~21% loss, and
+1 MiB near 9.5% and ~5%. **That is a model, not a measurement, and this lane
+has never run at that length.** The premium is ~5% of throughput (296.3 against
+310.7 exec/s) and ~59 µs of a 3,375 µs lap. Cheap insurance against a regime we
+have not measured, which is the honest description of it.
+
+4 MiB is **out**: 11% slower than 1 MiB for collision headroom that is already
+negligible at 1 MiB.
+
+## The finding that matters more than the map size
+
+`outlier_discovery_share` is 0.51 / 0.45 / 0.47. **About half of all discovery
+happens in 9–12 laps out of 12,000** — 0.08% of laps carrying ~48% of new code.
+Those are the connection-boundary laps that replay a guest fork+exec.
+
+Two consequences, one reassuring and one not:
+
+**The held-open-connection driver is still right, and now for a measured
+reason.** A boundary lap yields ~24 new edges in ~10 s (2.7–3.4 edges/s); a
+typical lap yields 0.023 in 3.4 ms (6.6 edges/s). Boundary laps are ~2× *less*
+efficient per second, so the driver that avoids them is not trading discovery
+for throughput. That was adopted on throughput grounds alone and could have
+been an expensive mistake; it was not.
+
+**But half the discovery is not in the target.** The code a boundary lap
+reaches is the guest's fork+exec path, not lighttpd's request handling. So the
+effective discovery rate *against the thing being fuzzed* is roughly half the
+headline — call it 11–12 new edges per 1,000 typical laps — and the headline
+figure is measuring the driver as much as the victim. That is a sharper limit
+on "~296 exec/s coverage-guided, ~7.6 new edges/s" than any of the three
+already recorded next to it.

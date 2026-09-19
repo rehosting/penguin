@@ -546,16 +546,65 @@ cost nothing in discovery.
 > predictions, including the effect size this design can and cannot resolve,
 > were written down first in `PREDICTION-mapsize.md`.
 
-| map | cost/lap | exec/s | collision loss | ~~new edges/s~~ |
-|---|---|---|---|---|
-| 256 KiB | 163.0 µs | 309.6 | 4.32% | ~~55.1~~ |
-| **1 MiB** | **255.5 µs** | 296.5 | 1.20% | ~~103.2~~ |
-| 4 MiB | 464.6 µs | 286.0 | 0.30% | ~~100.8~~ |
+### Re-measured: runs 126/127/128, `cov_ab: 0`
 
-~~**1 MiB is the smallest map that does not lose discoveries.** 4 MiB finds
-code at the same rate (2% apart) and pays 82% more per lap for it; 256 KiB is
-cheaper *and* faster and finds half as much, because a 4.3% static edge loss
-compounds into a 49% loss of discoveries — a blinded slot stays blinded.~~
+| | 256 KiB | 1 MiB | 4 MiB |
+|---|---|---|---|
+| **new edges / 1k typical laps** | **22.06** | **23.61** | **22.55** |
+| new edges, total | 553 | 527 | 517 |
+| new edges/s (measured denom.) | 5.50 | 7.34 | 6.06 |
+| scan µs | 75 | 134 | 372 |
+| exec/s | 310.7 | 296.3 | 275.8 |
+| occupancy | 8.02% | 2.04% | 0.73% |
+| est. collision loss | 4.06% | 1.02% | 0.36% |
+| boundary laps | 12 | 9 | 10 |
+
+**The ranking does not exist.** A 1.9× difference was published; the measured
+difference on an exposure-corrected, correctly-denominated metric is **1.07×**
+across a 16× change in map size, with the sign unstable between metrics. Cost
+is real; benefit is not.
+
+**And no version of this design could have found out.** `novel_laps` makes the
+sample size visible for the first time:
+
+- **Only ~69 laps in 12,000 discover anything** — 69, 69, 68 across the arms.
+  Twelve thousand laps is a sample of sixty-nine.
+- **Two laps carry ~43% of each run's total** (128+97, 135+89, 121+108 — and
+  all three arms land within 5 of each other, so these are structural events
+  rather than configuration responding).
+- **The arms did not execute the same code.** `tbs_instrumented` is 20,330 /
+  20,311 / **26,959**; run 128's guest translated 33% more blocks, which is
+  also why its `total_edges` reads 30,488 against ~21,000.
+
+So the published ranking was noise with a mechanism available to explain it —
+which is the harder version of this mistake, because the explanation was
+correct in principle and the effect it explained was not there.
+
+**1 MiB stays, for a completely different reason than before.** Not because it
+discovers more; it does not. Because 256 KiB is already 8.0% full at 12,000
+laps with ~4.1% estimated loss, and that compounds with run length. A campaign
+100× longer puts 256 KiB near 38% occupancy and ~21% loss against 1 MiB's 9.5%
+and ~5%. **That is a model, and this lane has never run at that length.** The
+premium is ~5% of throughput and ~59 µs of a 3,375 µs lap — cheap insurance
+against an unmeasured regime, which is the honest description. 4 MiB is out:
+11% slower than 1 MiB for headroom that is already negligible at 1 MiB.
+
+### Half the discovery is not in the target
+
+`outlier_discovery_share` is 0.51 / 0.45 / 0.47 — **about half of all discovery
+happens in 9–12 laps out of 12,000**, the connection-boundary laps that replay
+a guest fork+exec.
+
+The held-open-connection driver is still right, and now for a measured reason:
+a boundary lap yields ~24 new edges in ~10 s (~3 edges/s) against a typical
+lap's 0.023 in 3.4 ms (6.6 edges/s), so avoiding boundaries costs no discovery
+per second. That design was adopted on throughput grounds alone and could have
+been an expensive mistake; it was not.
+
+But the code a boundary lap reaches is the guest's fork+exec path, not
+lighttpd's request handling. **The effective discovery rate against the thing
+being fuzzed is roughly half the headline** — ~11–12 new edges per 1,000
+typical laps — and the headline measures the driver as much as the victim.
 
 Two things went wrong reaching that, both worth keeping.
 
@@ -678,10 +727,15 @@ instrument and remains valid for cost — but "discovering N new edges per
 second" was never a thing `cov_ab` could measure, and running it as though it
 were is the mistake.
 
-Four honest limits on that sentence. The map should be 1 MiB, not AFL's
-default 64 KiB, or roughly a quarter of the cumulative edges go unreported —
-though the *measured* case for 1 MiB over 256 KiB is withdrawn above and being
-re-run. Nothing *consumes* the map yet — there is no corpus, scheduler or
+Five honest limits on that sentence. **About half of that discovery is not in
+the victim**: 9-12 laps per 12,000 replay a connection boundary and reach the
+guest's fork+exec path rather than lighttpd's request handling, and those laps
+carry ~48% of all new edges (runs 126/127/128). Against the thing actually
+being fuzzed the rate is roughly half the figure quoted. The map should be
+1 MiB, not AFL's default 64 KiB, or roughly a quarter of the cumulative edges
+go unreported — but the *measured* case for 1 MiB over 256 KiB does not exist
+(1.07× across a 16× map range, see above); 1 MiB is kept on modelled collision
+headroom for longer campaigns. Nothing *consumes* the map yet — there is no corpus, scheduler or
 mutation feedback reading it, so coverage is measured and not yet guiding. And
 the rate itself is a median over a bimodal workload: a few laps per thousand
 replay a connection boundary at ~10 s, so `exec_per_s_median` runs 5-6x the
