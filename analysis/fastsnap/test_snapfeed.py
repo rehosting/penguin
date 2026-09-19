@@ -1062,14 +1062,14 @@ def corpus_tests(tmp):
     assert out["corpus_lift"] is None, out["corpus_lift"]
 
     p, _, _ = make(tmp, corpus=1)
-    p.n_corpus_draw, p.n_seed_draw = 100, 100
+    p.n_corpus_input, p.n_seed_input = 100, 100
     p.edges_from_corpus, p.edges_from_seed = 300, 100
     p.uninit()
     out = json.load(open(pathlib.Path(tmp) / "snapfeed.json"))
     assert out["corpus_lift"] == 3.0, out["corpus_lift"]
     # A corpus that was never drawn from cannot have a lift either.
     p, _, _ = make(tmp, corpus=1)
-    p.n_seed_draw, p.edges_from_seed = 100, 100
+    p.n_seed_input, p.edges_from_seed = 100, 100
     p.uninit()
     out = json.load(open(pathlib.Path(tmp) / "snapfeed.json"))
     assert out["corpus_lift"] is None, out["corpus_lift"]
@@ -1081,12 +1081,49 @@ def corpus_tests(tmp):
     p, _, _ = make(tmp, corpus=1)
     p._corpus_lap([(b"a", "corpus"), (b"b", "seed")], 40, 2800)
     assert p.n_multi_fed_laps == 1
-    assert p.edges_from_corpus == 0 and p.edges_from_seed == 0, (
-        "a two-payload lap credited its edges to a payload that may not have "
-        "caused them")
-    assert p.n_new_from_corpus == 1 and p.n_new_from_seed == 1
-    print("ok  snapfeed: a lap that fed two inputs contributes to neither "
-          "arm's edge count, and says how often that happened")
+    assert p.corpus == [], "a lap that fed two payloads banked one of them"
+    assert p.edges_from_corpus == 0 and p.edges_from_seed == 0
+    assert p.n_new_from_corpus == 0 and p.n_new_from_seed == 0
+    assert p.n_corpus_input == 0 and p.n_seed_input == 0
+    print("ok  snapfeed: a lap that fed two inputs attributes to neither arm "
+          "and banks nothing, and says how often that happened")
+
+    # THE WARMUP BATCH, which is the same rule doing its real job.
+    # `_lap_fed` starts accumulating when the plugin does, so the first lap
+    # after arming carries every feed made during warmup -- ~150 on this
+    # target. Banking that batch on one lap's novelty would put a run's worth
+    # of warmup traffic into the corpus in a single step.
+    p, _, _ = make(tmp, corpus=1)
+    p.fds.add(4)
+    for _ in range(150):                 # warmup: fed, but no lap yet
+        feed(p, 4, 0x1000, 4096)
+    assert len(p._lap_fed) == 150, len(p._lap_fed)
+    p.on_lap(1, "hit", 400, 2800)        # first lap, and it found plenty
+    assert p.corpus == [], (
+        f"the warmup batch was banked: {len(p.corpus)} entries")
+    assert p.n_multi_fed_laps == 1
+    print("ok  snapfeed: the first lap's backlog of warmup feeds is refused "
+          "rather than banked wholesale on one lap's novelty")
+
+    # ---- THE DENOMINATOR COUNTS EVERY ATTRIBUTABLE LAP -----------------
+    # Not only the ones that discovered something. Counting inputs where they
+    # are DRAWN would count warmup feeds -- all seed-derived, none with a lap
+    # to earn edges in -- which deflates the seed arm and inflates the lift.
+    # That is the one direction a bias here must not run.
+    p, _, _ = make(tmp, corpus=1)
+    p.fds.add(4)
+    for _ in range(20):                  # warmup draws, never in a lap
+        feed(p, 4, 0x1000, 4096)
+    p._lap_fed = []
+    for i in range(10):                  # ten laps, one input each, no news
+        p._corpus_lap([(b"s%d" % i, "seed")], 0, 2800)
+    assert p.n_seed_input == 10, p.n_seed_input
+    assert p.n_seed_draw == 20, p.n_seed_draw
+    assert p.n_seed_input < p.n_seed_draw, (
+        "inputs are being counted where they are drawn, so warmup feeds are "
+        "in the denominator")
+    print("ok  snapfeed: the lift's denominator counts inputs at the lap "
+          "boundary, so warmup feeds cannot inflate it")
 
     # ---- THE SIGNATURE MATCHES WHAT fastloop ACTUALLY PUBLISHES --------
     # plugin_manager's publish() calls cb(*args) with the publisher's own

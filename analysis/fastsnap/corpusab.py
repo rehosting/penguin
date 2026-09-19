@@ -31,7 +31,7 @@ rather than folded into the verdict:
   * corpus never drawn from           -> collected and ignored
   * corpus empty                      -> nothing to draw
   * one arm has no inputs             -> no ratio exists
-  * many multi-fed laps               -> edge attribution was skipped often
+  * many multi-fed laps               -> attribution was skipped often
                                          enough that the ratio rests on a
                                          minority of laps
 
@@ -81,7 +81,10 @@ def judge(sf):
         refusals.append("the corpus stayed empty")
     if not sf.get("n_corpus_draw"):
         refusals.append("the corpus was never drawn from (corpus_p=0?)")
-    if not sf.get("n_seed_draw"):
+    if not sf.get("n_corpus_input"):
+        refusals.append("no corpus-derived input ever landed in a lap that "
+                        "could attribute")
+    if not sf.get("n_seed_input"):
         refusals.append("no seed-derived inputs, so there is nothing to "
                         "compare the corpus against")
 
@@ -123,16 +126,19 @@ def main():
     print(f"  banked       add={sf.get('n_corpus_add')} "
           f"dup={sf.get('n_corpus_dup')} evict={sf.get('n_corpus_evict')} "
           f"boundary-rejected={sf.get('n_corpus_reject_boundary')}")
-    print(f"  inputs       corpus={sf.get('n_corpus_draw')} "
+    print(f"  draws        corpus={sf.get('n_corpus_draw')} "
           f"seed={sf.get('n_seed_draw')}")
+    print(f"  attributable corpus={sf.get('n_corpus_input')} "
+          f"seed={sf.get('n_seed_input')}  "
+          f"(multi-fed laps refused: {sf.get('n_multi_fed_laps')})")
     print(f"  discoveries  laps corpus={sf.get('n_new_from_corpus')} "
           f"seed={sf.get('n_new_from_seed')}   "
           f"edges corpus={sf.get('edges_from_corpus')} "
           f"seed={sf.get('edges_from_seed')}")
-    if sf.get("n_corpus_draw") and sf.get("n_seed_draw"):
+    if sf.get("n_corpus_input") and sf.get("n_seed_input"):
         print(f"  per input    corpus="
-              f"{sf['edges_from_corpus'] / sf['n_corpus_draw']:.4f} "
-              f"seed={sf['edges_from_seed'] / sf['n_seed_draw']:.4f} "
+              f"{sf['edges_from_corpus'] / sf['n_corpus_input']:.4f} "
+              f"seed={sf['edges_from_seed'] / sf['n_seed_input']:.4f} "
               f"new edges")
     print(f"  run          laps={cov.get('laps')} "
           f"new_edges_total={cov.get('new_edges_total')} "

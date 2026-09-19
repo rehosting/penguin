@@ -172,6 +172,10 @@ class SnapFeed(Plugin):
         # and splitting or double-counting would both invent a number.
         self.edges_from_corpus = 0
         self.edges_from_seed = 0
+        # Inputs counted AT THE LAP BOUNDARY, not where they are drawn. See
+        # _corpus_lap on why the difference decides the sign of the bias.
+        self.n_corpus_input = 0
+        self.n_seed_input = 0
         self.n_multi_fed_laps = 0
         self._cov_absent_laps = 0    # laps that arrived with no coverage
         self._warned_cov_absent = False
@@ -481,7 +485,28 @@ class SnapFeed(Plugin):
             self._corpus_lap(fed, new_edges, lap_edges)
 
     def _corpus_lap(self, fed, new_edges, lap_edges):
-        """Decide whether the lap that just closed earned a corpus entry."""
+        """Decide whether the lap that just closed earned a corpus entry.
+
+        ONLY A LAP THAT FED EXACTLY ONE PAYLOAD CAN ATTRIBUTE ANYTHING, and
+        that rule governs both halves of the ratio rather than just the top.
+
+        Two laps break it, for different reasons. A lap that fed several
+        cannot say which payload reached the new edges -- splitting the credit
+        or giving it to both would invent a number. And the FIRST lap after
+        arming carries every feed made during warmup, because `_lap_fed`
+        starts accumulating when the plugin does: about 150 of them on this
+        target. Banking that whole batch on one lap's novelty would put a
+        run's worth of warmup traffic into the corpus in a single step and
+        credit it all to one discovery.
+
+        The same rule has to apply to the DENOMINATOR, which is the part that
+        is easy to get wrong. Counting inputs where they are drawn -- in
+        _mutation_base -- counts every warmup feed too, and every one of those
+        is seed-derived and had no lap to earn edges in. That deflates the
+        seed arm's edges-per-input and INFLATES the lift, which is the one
+        direction a bias here must never run. So inputs are counted at the lap
+        boundary, from the same laps the edges are counted in.
+        """
         if new_edges is None:
             # Coverage is off, or this lap had none to summarise. An empty
             # corpus at the end of such a run means the loop never offered
@@ -503,13 +528,26 @@ class SnapFeed(Plugin):
             if len(self._lap_edges) > 512:
                 del self._lap_edges[0]
 
-        if not new_edges or not fed:
+        # THE DENOMINATORS, counted on every attributable lap and not only on
+        # the ones that discovered something. Counting them only where a
+        # discovery happened would make the ratio edges-per-DISCOVERY rather
+        # than edges-per-INPUT, and those differ by exactly the thing being
+        # measured.
+        if len(fed) == 1:
+            if fed[0][1] == "corpus":
+                self.n_corpus_input += 1
+            else:
+                self.n_seed_input += 1
+        elif len(fed) > 1:
+            self.n_multi_fed_laps += 1
+
+        if not new_edges or len(fed) != 1:
             return
 
-        # The boundary guard. Computed only on the laps that would otherwise
-        # contribute -- about one in ten -- because a median over 512 samples
-        # every lap would be real work inside the loop for an answer almost
-        # never used.
+        # The boundary guard, before anything is credited. Computed only on
+        # the laps that would otherwise contribute -- about one in ten --
+        # because a median over 512 samples every lap would be real work
+        # inside the loop for an answer almost never used.
         if self.corpus_boundary_mult and len(self._lap_edges) >= 64:
             ordered = sorted(self._lap_edges)
             median = ordered[len(ordered) // 2]
@@ -517,35 +555,31 @@ class SnapFeed(Plugin):
                 self.n_corpus_reject_boundary += 1
                 return
 
-        if len(fed) > 1:
-            self.n_multi_fed_laps += 1
-        for payload, provenance in fed:
-            if provenance == "corpus":
-                self.n_new_from_corpus += 1
-                if len(fed) == 1:
-                    self.edges_from_corpus += new_edges
-            else:
-                self.n_new_from_seed += 1
-                if len(fed) == 1:
-                    self.edges_from_seed += new_edges
-            if payload in self._corpus_seen:
-                self.n_corpus_dup += 1
-                continue
-            self._corpus_seen.add(payload)
-            if len(self.corpus) < self.corpus_max:
-                self.corpus.append(payload)
-            else:
-                # Random replacement, not a favoured set. AFL ranks entries by
-                # size and speed for the same slot pressure; doing that here
-                # would be inventing a scheduler in a plugin whose job is to
-                # feed bytes. What this must not do is silently REFUSE at the
-                # cap, which freezes the corpus at whatever the first 256 laps
-                # happened to find.
-                i = self.rng.randrange(len(self.corpus))
-                self._corpus_seen.discard(self.corpus[i])
-                self.corpus[i] = payload
-                self.n_corpus_evict += 1
-            self.n_corpus_add += 1
+        payload, provenance = fed[0]
+        if provenance == "corpus":
+            self.n_new_from_corpus += 1
+            self.edges_from_corpus += new_edges
+        else:
+            self.n_new_from_seed += 1
+            self.edges_from_seed += new_edges
+
+        if payload in self._corpus_seen:
+            self.n_corpus_dup += 1
+            return
+        self._corpus_seen.add(payload)
+        if len(self.corpus) < self.corpus_max:
+            self.corpus.append(payload)
+        else:
+            # Random replacement, not a favoured set. AFL ranks entries by
+            # size and speed for the same slot pressure; doing that here would
+            # be inventing a scheduler in a plugin whose job is to feed bytes.
+            # What this must not do is silently REFUSE at the cap, which
+            # freezes the corpus at whatever the first laps happened to find.
+            i = self.rng.randrange(len(self.corpus))
+            self._corpus_seen.discard(self.corpus[i])
+            self.corpus[i] = payload
+            self.n_corpus_evict += 1
+        self.n_corpus_add += 1
 
     def _census(self, name):
         """One counting hook. Returns a generator function, because penguin's
@@ -1105,6 +1139,11 @@ class SnapFeed(Plugin):
             "n_corpus_reject_boundary": self.n_corpus_reject_boundary,
             "n_corpus_draw": self.n_corpus_draw,
             "n_seed_draw": self.n_seed_draw,
+            # Draws that landed in a lap that could attribute. The gap between
+            # these and the draw counts above is the warmup traffic plus the
+            # multi-fed laps, and it is entirely seed-derived.
+            "n_corpus_input": self.n_corpus_input,
+            "n_seed_input": self.n_seed_input,
             # The figure that says whether the corpus is doing anything.
             # Corpus SIZE does not: it can grow steadily while every
             # discovery still comes from a seed.
@@ -1124,9 +1163,9 @@ class SnapFeed(Plugin):
             # edges per seed-derived input. Above 1, the corpus is finding
             # things the seeds were not.
             "corpus_lift": (
-                round((self.edges_from_corpus / self.n_corpus_draw) /
-                      (self.edges_from_seed / self.n_seed_draw), 3)
-                if (self.n_corpus_draw and self.n_seed_draw
+                round((self.edges_from_corpus / self.n_corpus_input) /
+                      (self.edges_from_seed / self.n_seed_input), 3)
+                if (self.n_corpus_input and self.n_seed_input
                     and self.edges_from_seed) else None),
             "cov_absent_laps": self._cov_absent_laps,
             "feed_wall_s": round(dur, 4) if dur else None,
