@@ -358,6 +358,9 @@ class FastLoop(Plugin):
         self.cov_map_size = int(self._num("cov_map_size", 0))
         self._cov_armed = False
         self.cov_edges = []         # distinct edges, per lap
+        # Whether the lap now closing had its coverage summarised. Consumed
+        # by _lap_event(); see the append site for why it cannot be assumed.
+        self._cov_fresh = False
         self.cov_new = []           # edges never seen before, per lap
         self.cov_new_buckets = []   # new hit-count buckets -- the AFL signal
         # Block executions per lap. Recorded because it is the DENOMINATOR the
@@ -1615,6 +1618,12 @@ class FastLoop(Plugin):
                         self.cov_edges.append(self.panda.fastsnap_cov_edges())
                         self.cov_new.append(
                             self.panda.fastsnap_cov_new_edges())
+                        # This lap, and only this lap, has fresh coverage to
+                        # announce. Not every _mark() arrives here -- the
+                        # first lap has no outstanding reset to read -- and a
+                        # subscriber handed the PREVIOUS lap's novelty would
+                        # credit it to the wrong input, silently and forever.
+                        self._cov_fresh = True
                         self.cov_new_buckets.append(
                             self.panda.fastsnap_cov_new_buckets())
                         self.cov_hits.append(self.panda.fastsnap_cov_hits())
@@ -2845,10 +2854,22 @@ class FastLoop(Plugin):
         are not independent executions and announcing them as such would
         invite exactly the mis-scoping this is meant to fix.
         """
+        # The lap's coverage, or (None, None) when there is none to give.
+        # THE NONE IS LOAD-BEARING. A subscriber building a corpus needs to
+        # tell "coverage is on and this input found nothing" from "coverage
+        # is off, so nothing here can ever be new" -- the two produce an
+        # identical empty corpus, and only the second is a misconfiguration.
+        # Reporting 0 for both would make that indistinguishable.
+        new_edges = lap_edges = None
+        if self._cov_fresh:
+            new_edges = self.cov_new[-1] if self.cov_new else None
+            lap_edges = self.cov_edges[-1] if self.cov_edges else None
+            self._cov_fresh = False
         try:
             plugins.publish(self, "on_lap", self.n_iters,
                             "signal" if was_crash
-                            else ("verify" if was_verify else "hit"))
+                            else ("verify" if was_verify else "hit"),
+                            new_edges, lap_edges)
             self._lap_ever = True
         except Exception as e:                              # noqa: BLE001
             # Disabled after the first failure rather than retried. This runs
@@ -2881,7 +2902,7 @@ class FastLoop(Plugin):
             return
         self._publish_lap = False
         try:
-            plugins.publish(self, "on_lap", None, "end")
+            plugins.publish(self, "on_lap", None, "end", None, None)
         except Exception as e:                              # noqa: BLE001
             self.logger.warning(f"fastloop: on_lap end publish failed ({e!r})")
 

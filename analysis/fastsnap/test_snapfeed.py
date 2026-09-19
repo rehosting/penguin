@@ -873,7 +873,236 @@ def main():
     print("ok  snapfeed: complete_request terminates a truncated request and "
           "corrects a lying Content-Length, and changes nothing else")
 
+    corpus_tests(tmp)
+
     print("\nPASS")
+
+
+def corpus_tests(tmp):
+    """The coverage-guided corpus.
+
+    Ordered so the negative controls carry the weight. A corpus is the
+    easiest thing in this plugin to fake: any list that grows looks like
+    guidance working, and a list that stays empty looks like an honest
+    negative result. Both of those are wrong more often than they are right,
+    so most of what follows asserts that something does NOT happen.
+    """
+    # ---- OFF BY DEFAULT, and off means off -----------------------------
+    p, _, _ = make(tmp)
+    assert p.corpus_on is False
+    feed(p, 4, 0x1000, 4096)
+    p.on_lap(1, "hit", 99, 2800)
+    assert p.corpus == [], p.corpus
+    assert p.n_corpus_draw == 0
+    # Nothing is even recorded per lap when it is off: the feed path must not
+    # start accumulating a list that nothing ever drains.
+    assert p._lap_fed == [], p._lap_fed
+    print("ok  snapfeed: the corpus is off by default, and off means it "
+          "neither collects nor is drawn from")
+
+    # ---- A LAP THAT REACHED SOMEWHERE NEW BANKS ITS INPUT --------------
+    p, _, _ = make(tmp, corpus=1)
+    p.fds.add(4)
+    sc = feed(p, 4, 0x1000, 4096)
+    fed_bytes = p._lap_fed[0][0]
+    assert fed_bytes, "nothing was recorded as fed"
+    p.on_lap(1, "hit", 3, 2800)
+    assert p.corpus == [fed_bytes], (p.corpus, fed_bytes)
+    assert p.n_corpus_add == 1
+    print("ok  snapfeed: an input whose lap found new edges goes into the "
+          "corpus, as the bytes the victim actually read")
+
+    # ---- AND A LAP THAT FOUND NOTHING BANKS NOTHING --------------------
+    # The control for the line above: a corpus that grew on every lap would
+    # pass that assertion and be worthless.
+    p, _, _ = make(tmp, corpus=1)
+    p.fds.add(4)
+    feed(p, 4, 0x1000, 4096)
+    p.on_lap(1, "hit", 0, 2800)
+    assert p.corpus == [], p.corpus
+    print("ok  snapfeed: a lap that found no new edges banks nothing")
+
+    # ---- ATTRIBUTION IS PER LAP ----------------------------------------
+    # An input fed during lap N must not be banked by lap N+1's coverage.
+    # Without the clear this passes silently and the corpus fills with inputs
+    # credited for the NEXT lap's discoveries -- off by one, forever.
+    p, _, _ = make(tmp, corpus=1)
+    p.fds.add(4)
+    feed(p, 4, 0x1000, 4096)
+    p.on_lap(1, "hit", 0, 2800)        # lap 1 found nothing
+    p.on_lap(2, "hit", 7, 2800)        # lap 2 found something, but fed nothing
+    assert p.corpus == [], (
+        "lap 2's novelty was credited to lap 1's input: " + str(p.corpus))
+    print("ok  snapfeed: an input is only eligible for the lap it was fed "
+          "into, so novelty is never credited to the previous lap's input")
+
+    # ---- THE BOUNDARY GUARD --------------------------------------------
+    # This workload's laps are bimodal. A connection-boundary lap replays a
+    # guest fork+exec worth ~29,000 edges against a typical ~2,800, and it
+    # reports enormous novelty that the input had nothing to do with. Those
+    # are the laps a corpus rates highest, which is why the guard exists.
+    p, _, _ = make(tmp, corpus=1)
+    p.fds.add(4)
+    for i in range(64):                       # establish the median
+        p.on_lap(i, "hit", 0, 2800)
+    feed(p, 4, 0x1000, 4096)
+    p.on_lap(99, "hit", 26000, 29000)         # a boundary lap
+    assert p.corpus == [], (
+        "a 29,000-edge boundary lap was allowed into the corpus: " +
+        str(p.corpus))
+    assert p.n_corpus_reject_boundary == 1, p.n_corpus_reject_boundary
+    print("ok  snapfeed: a connection-boundary lap is refused however new it "
+          "looks, and the refusal is counted")
+
+    # ...AND THE GUARD IS NOT SIMPLY REFUSING EVERYTHING.
+    # A guard that rejected every lap would pass the assertion above and
+    # silently disable the whole feature.
+    p, _, _ = make(tmp, corpus=1)
+    p.fds.add(4)
+    for i in range(64):
+        p.on_lap(i, "hit", 0, 2800)
+    feed(p, 4, 0x1000, 4096)
+    p.on_lap(99, "hit", 4, 3100)              # an ordinary lap
+    assert len(p.corpus) == 1, (p.corpus, p.n_corpus_reject_boundary)
+    assert p.n_corpus_reject_boundary == 0
+    print("ok  snapfeed: an ordinary lap still gets through the boundary "
+          "guard, so the guard is a filter and not an off switch")
+
+    # ---- COVERAGE OFF READS AS 'FOUND NOTHING' UNLESS IT IS NAMED ------
+    # The failure this lane keeps meeting, in its newest costume: with
+    # fastloop's coverage off, new_edges arrives as None on every lap, the
+    # corpus stays empty, and the run looks like a clean negative result
+    # about guidance. It is a wiring fault.
+    p, _, _ = make(tmp, corpus=1)
+    p.fds.add(4)
+    for i in range(600):
+        feed(p, 4, 0x1000, 4096)
+        p.on_lap(i, "hit", None, None)
+    assert p.corpus == []
+    assert p._cov_absent_laps == 600, p._cov_absent_laps
+    p.uninit()
+    out = json.load(open(pathlib.Path(tmp) / "snapfeed.json"))
+    assert out["corpus_verdict"].startswith("CORPUS NEVER OFFERED"), \
+        out.get("corpus_verdict")
+    assert "coverage: 0" in out["corpus_verdict"], out["corpus_verdict"]
+    print("ok  snapfeed: a corpus run with coverage off says so in the file, "
+          "instead of reporting an empty corpus as a negative result")
+
+    # ---- DEDUP ----------------------------------------------------------
+    # Driven through _corpus_lap rather than through feed(). `mutate=0` does
+    # NOT make consecutive feeds identical -- the base is still drawn at
+    # random from the five seeds -- and an earlier version of this test
+    # assumed it did, then "failed" on correct behaviour.
+    p, _, _ = make(tmp, corpus=1)
+    for i in range(5):
+        p._corpus_lap([(b"GET /same HTTP/1.1\r\n\r\n", "seed")], 1, 2800)
+    assert len(p.corpus) == 1, p.corpus
+    assert p.n_corpus_dup == 4, p.n_corpus_dup
+    assert p.n_corpus_add == 1, p.n_corpus_add
+    print("ok  snapfeed: the same bytes discovered twice are one entry")
+
+    # ---- THE CAP, AND THAT EVICTION KEEPS THE DEDUP SET HONEST ---------
+    # The bug worth testing for: evicting from the list without removing the
+    # entry from the dedup set. The corpus then refuses to re-admit a payload
+    # it no longer holds, and quietly shrinks its reachable variety over a
+    # long run while every counter still looks healthy.
+    p, _, _ = make(tmp, corpus=1, corpus_max=8)
+    for i in range(200):
+        p._corpus_lap([(b"GET /%d HTTP/1.1\r\n\r\n" % i, "seed")], 1, 2800)
+    assert len(p.corpus) == 8, len(p.corpus)
+    assert p.n_corpus_evict > 0, p.n_corpus_evict
+    assert set(p.corpus) <= p._corpus_seen, "corpus holds bytes not in the set"
+    assert len(p._corpus_seen) == len(set(p._corpus_seen))
+    # Every payload still held must be re-findable; nothing in the list may
+    # have been dropped from the set by an eviction of a DIFFERENT entry.
+    for held in p.corpus:
+        assert held in p._corpus_seen
+    print("ok  snapfeed: the corpus stays at its cap by replacement, and "
+          "eviction keeps the dedup set consistent with what is held")
+
+    # ---- IT IS ACTUALLY DRAWN FROM -------------------------------------
+    p, _, _ = make(tmp, corpus=1, corpus_p=1.0)
+    p.corpus.append(b"GET /banked HTTP/1.1\r\nHost: x\r\n\r\n")
+    base, prov = p._mutation_base()
+    assert prov == "corpus", prov
+    assert base == b"GET /banked HTTP/1.1\r\nHost: x\r\n\r\n"
+    assert p.n_corpus_draw == 1
+    # ...and at corpus_p=0 it is collected and never used, which the report
+    # calls out rather than leaving as a silently inert run.
+    q, _, _ = make(tmp, corpus=1, corpus_p=0.0)
+    q.corpus.append(b"x")
+    _, prov = q._mutation_base()
+    assert prov == "seed", prov
+    print("ok  snapfeed: mutation draws from the corpus at corpus_p=1 and "
+          "never at corpus_p=0")
+
+    # ---- PROVENANCE SURVIVES TO THE LAP BOUNDARY -----------------------
+    # Corpus SIZE cannot say whether guidance is working -- it grows just as
+    # happily when every discovery still comes from a seed. The split does.
+    p, _, _ = make(tmp, corpus=1, corpus_p=1.0)
+    p.fds.add(4)
+    p.corpus.append(b"GET /banked HTTP/1.1\r\nHost: x\r\n\r\n")
+    feed(p, 4, 0x1000, 4096)
+    assert p._lap_fed[0][1] == "corpus", p._lap_fed
+    p.on_lap(1, "hit", 2, 2800)
+    assert p.n_new_from_corpus == 1, p.n_new_from_corpus
+    assert p.n_new_from_seed == 0, p.n_new_from_seed
+    print("ok  snapfeed: a discovery made from a corpus entry is counted "
+          "separately from one made from a seed")
+
+    # ---- THE LIFT RATIO, AND WHAT IT REFUSES TO REPORT -----------------
+    # corpus_lift is the primary result: new edges per corpus-derived input
+    # against new edges per seed-derived input, both from the same run. It
+    # must be None -- not 0, not 1 -- whenever it cannot be computed, because
+    # a lift of 1.0 reads as "the corpus makes no difference" and that is a
+    # finding, whereas "nothing was measured" is not.
+    p, _, _ = make(tmp, corpus=1)
+    p.uninit()
+    out = json.load(open(pathlib.Path(tmp) / "snapfeed.json"))
+    assert out["corpus_lift"] is None, out["corpus_lift"]
+
+    p, _, _ = make(tmp, corpus=1)
+    p.n_corpus_draw, p.n_seed_draw = 100, 100
+    p.edges_from_corpus, p.edges_from_seed = 300, 100
+    p.uninit()
+    out = json.load(open(pathlib.Path(tmp) / "snapfeed.json"))
+    assert out["corpus_lift"] == 3.0, out["corpus_lift"]
+    # A corpus that was never drawn from cannot have a lift either.
+    p, _, _ = make(tmp, corpus=1)
+    p.n_seed_draw, p.edges_from_seed = 100, 100
+    p.uninit()
+    out = json.load(open(pathlib.Path(tmp) / "snapfeed.json"))
+    assert out["corpus_lift"] is None, out["corpus_lift"]
+    print("ok  snapfeed: corpus_lift reports a ratio when both arms have "
+          "inputs, and None -- never 1.0 -- when it has nothing to compare")
+
+    # Edge attribution is skipped, but LAP attribution is kept, when a lap fed
+    # more than one payload: neither can be said to have caused the coverage.
+    p, _, _ = make(tmp, corpus=1)
+    p._corpus_lap([(b"a", "corpus"), (b"b", "seed")], 40, 2800)
+    assert p.n_multi_fed_laps == 1
+    assert p.edges_from_corpus == 0 and p.edges_from_seed == 0, (
+        "a two-payload lap credited its edges to a payload that may not have "
+        "caused them")
+    assert p.n_new_from_corpus == 1 and p.n_new_from_seed == 1
+    print("ok  snapfeed: a lap that fed two inputs contributes to neither "
+          "arm's edge count, and says how often that happened")
+
+    # ---- THE SIGNATURE MATCHES WHAT fastloop ACTUALLY PUBLISHES --------
+    # plugin_manager's publish() calls cb(*args) with the publisher's own
+    # arguments only -- no (plugin, event) prefix. This method used to name
+    # its first two parameters `plugin` and `event`, which was wrong and
+    # harmless only because nothing read them. Asserted positionally so the
+    # names cannot drift back.
+    p, _, _ = make(tmp, corpus=1)
+    p.fds.add(4)
+    feed(p, 4, 0x1000, 4096)
+    p.on_lap(7, "signal", 5, 2900)
+    assert len(p.corpus) == 1, (
+        "on_lap did not read (lap, closed_by, new_edges, lap_edges) from its "
+        "positional arguments")
+    print("ok  snapfeed: on_lap reads the arguments fastloop actually "
+          "publishes, positionally")
 
 
 if __name__ == "__main__":

@@ -103,6 +103,78 @@ class SnapFeed(Plugin):
         # it, and it is reported so a loop run cannot use it without saying so.
         self.passthrough = float(self._arg("passthrough", 0.0))
         self.mutate_on = bool(int(self._arg("mutate", 1)))
+
+        # ---- the coverage-guided corpus ----------------------------------
+        #
+        # OFF BY DEFAULT, and that is a control rather than caution. Every
+        # rate and every coverage figure this lane has published was measured
+        # with mutation drawing from the five fixed SEEDS and nothing else, so
+        # a run with this on is not comparable to them unless the pairing is
+        # deliberate. It also makes the A/B possible at all: one run 0, one
+        # run 1, same seed, same draw axis.
+        #
+        # WHAT IT DOES. fastloop announces each lap's new-edge count with the
+        # lap boundary. A lap that reached somewhere new had its input fed by
+        # this plugin, so that input goes into a corpus, and later mutations
+        # draw their base from the corpus instead of always from a seed. That
+        # is the only thing standing between "coverage is measured" and
+        # "coverage is guiding", which is the honest limitation on every
+        # number this lane reports.
+        self.corpus_on = bool(int(self._arg("corpus", 0)))
+        # Bounded on purpose. An unbounded corpus on a 12,000-lap run is a
+        # slow memory leak whose symptom is a run that gets gradually worse,
+        # and random replacement at the cap is both cheap and honest about
+        # not being AFL's favoured-set logic.
+        self.corpus_max = int(self._arg("corpus_max", 256))
+        # How often a mutation starts from something discovered rather than
+        # from a seed. Not 1.0: the seeds are the only inputs known to reach
+        # the victim's normal paths, and a corpus that has drifted into
+        # malformed requests would otherwise never find its way back.
+        self.corpus_p = float(self._arg("corpus_p", 0.5))
+        # THE BOUNDARY GUARD, and this run cannot have a corpus without it.
+        #
+        # This workload's laps are bimodal: a few per thousand replay a
+        # connection boundary -- a guest fork+exec -- worth ~29,000 edges
+        # against a typical lap's ~2,800. Those laps report enormous novelty
+        # that the INPUT had nothing to do with, and they are exactly the laps
+        # a corpus would rate highest. Unguarded, the corpus fills with
+        # whatever request happened to be in flight when the guest forked, and
+        # every one of those entries is credited for coverage it did not
+        # cause.
+        #
+        # So a lap whose TOTAL edge count is more than this multiple of the
+        # running median is not allowed to contribute, however new it looks.
+        # Measured separation is ~4.8x (median 4,849, max 23,188), so 3.0 is
+        # clear of both sides. Set 0 to disable the guard, which is only
+        # sensible on a target whose laps are not bimodal.
+        self.corpus_boundary_mult = float(self._arg("corpus_boundary_mult", 3.0))
+
+        self.corpus = []             # payloads that reached somewhere new
+        self._corpus_seen = set()    # exact-bytes dedup
+        self._lap_fed = []           # (payload, provenance) fed this lap
+        self._lap_edges = []         # recent per-lap totals, for the median
+        self.n_corpus_add = 0
+        self.n_corpus_dup = 0        # new coverage, payload already held
+        self.n_corpus_evict = 0      # added at the cap, so something left
+        self.n_corpus_reject_boundary = 0
+        self.n_corpus_draw = 0       # mutations based on a corpus entry
+        self.n_seed_draw = 0         # ...and on a seed
+        # Laps that found new coverage, split by where their input came from.
+        # THIS IS THE FIGURE THAT SAYS WHETHER THE CORPUS WORKS. Corpus size
+        # does not: a corpus can grow steadily while contributing nothing,
+        # because the seeds are still finding everything.
+        self.n_new_from_corpus = 0
+        self.n_new_from_seed = 0
+        # The same split weighted by how MUCH was found, not just by how
+        # often. Only credited when the lap fed exactly one payload, which is
+        # almost all of them here -- measured at 1.012 feeds per lap on run
+        # 116 -- because a lap that fed two cannot say which of them did it,
+        # and splitting or double-counting would both invent a number.
+        self.edges_from_corpus = 0
+        self.edges_from_seed = 0
+        self.n_multi_fed_laps = 0
+        self._cov_absent_laps = 0    # laps that arrived with no coverage
+        self._warned_cov_absent = False
         # OFF by default, and that default is a correction. It shipped as ON
         # because exclusive mode needs it -- a frozen peer never drains the
         # socket, so the victim wedges in writev the first time a send buffer
@@ -368,8 +440,17 @@ class SnapFeed(Plugin):
 
     # ---- learning the connection fds --------------------------------------
 
-    def on_lap(self, plugin=None, event=None, *a):
-        """The loop rewound the guest; rewind what this plugin knows too.
+    def on_lap(self, lap=None, closed_by=None, new_edges=None,
+               lap_edges=None, *a):
+        """The loop rewound the guest; rewind what this plugin knows too, and
+        bank the input if the lap it just closed reached somewhere new.
+
+        THE PARAMETERS ARE THE PUBLISHED ARGS, NOT (plugin, event). This was
+        written as `on_lap(self, plugin=None, event=None, *a)` and the names
+        were wrong: plugin_manager's publish() calls `cb(*args)` with only the
+        publisher's own arguments, so the first two have always been `lap` and
+        `closed_by`. Nothing broke because nothing read them -- but the next
+        parameter added would have been read, and would have been off by two.
 
         `fd_feeds` lives in host Python and the guest's fd state does not --
         the reset restores the guest to before the read, but the feed count
@@ -382,7 +463,13 @@ class SnapFeed(Plugin):
         there, guest-side state was rewound when the reader assumed it was
         not; here, host-side state is NOT rewound when the guest assumes it
         is. Anything a replay depends on has to be rewound with it.
+
+        THE CORPUS IS THE EXCEPTION, and deliberately so. It is campaign
+        state, like the cumulative edge map in QEMU: it accumulates ACROSS
+        laps because that is the whole point of it. `_lap_fed` is the per-lap
+        half and is cleared here with everything else.
         """
+        fed, self._lap_fed = self._lap_fed, []
         self.fd_feeds.clear()
         self.n_lap_resets += 1
         # The guest was rewound to before the request was fed, so the victim
@@ -390,6 +477,75 @@ class SnapFeed(Plugin):
         # would withhold the replayed span's very first feed and stall the
         # lap -- the same class of bug as feeds_per_conn not being rewound.
         self.pending.clear()
+        if self.corpus_on:
+            self._corpus_lap(fed, new_edges, lap_edges)
+
+    def _corpus_lap(self, fed, new_edges, lap_edges):
+        """Decide whether the lap that just closed earned a corpus entry."""
+        if new_edges is None:
+            # Coverage is off, or this lap had none to summarise. An empty
+            # corpus at the end of such a run means the loop never offered
+            # anything, NOT that nothing was worth keeping -- and those two
+            # look identical from the corpus itself, which is why this is
+            # counted and shouted about rather than passed over.
+            self._cov_absent_laps += 1
+            if not self._warned_cov_absent and self._cov_absent_laps > 50:
+                self._warned_cov_absent = True
+                self.logger.warning(
+                    "snapfeed: corpus is on but the loop is announcing laps "
+                    "with no coverage. Set fastloop's `coverage: 1`, or turn "
+                    "`corpus` off. As it stands the corpus can never grow and "
+                    "the run will read as 'the corpus found nothing'.")
+            return
+
+        if lap_edges:
+            self._lap_edges.append(lap_edges)
+            if len(self._lap_edges) > 512:
+                del self._lap_edges[0]
+
+        if not new_edges or not fed:
+            return
+
+        # The boundary guard. Computed only on the laps that would otherwise
+        # contribute -- about one in ten -- because a median over 512 samples
+        # every lap would be real work inside the loop for an answer almost
+        # never used.
+        if self.corpus_boundary_mult and len(self._lap_edges) >= 64:
+            ordered = sorted(self._lap_edges)
+            median = ordered[len(ordered) // 2]
+            if median and lap_edges > self.corpus_boundary_mult * median:
+                self.n_corpus_reject_boundary += 1
+                return
+
+        if len(fed) > 1:
+            self.n_multi_fed_laps += 1
+        for payload, provenance in fed:
+            if provenance == "corpus":
+                self.n_new_from_corpus += 1
+                if len(fed) == 1:
+                    self.edges_from_corpus += new_edges
+            else:
+                self.n_new_from_seed += 1
+                if len(fed) == 1:
+                    self.edges_from_seed += new_edges
+            if payload in self._corpus_seen:
+                self.n_corpus_dup += 1
+                continue
+            self._corpus_seen.add(payload)
+            if len(self.corpus) < self.corpus_max:
+                self.corpus.append(payload)
+            else:
+                # Random replacement, not a favoured set. AFL ranks entries by
+                # size and speed for the same slot pressure; doing that here
+                # would be inventing a scheduler in a plugin whose job is to
+                # feed bytes. What this must not do is silently REFUSE at the
+                # cap, which freezes the corpus at whatever the first 256 laps
+                # happened to find.
+                i = self.rng.randrange(len(self.corpus))
+                self._corpus_seen.discard(self.corpus[i])
+                self.corpus[i] = payload
+                self.n_corpus_evict += 1
+            self.n_corpus_add += 1
 
     def _census(self, name):
         """One counting hook. Returns a generator function, because penguin's
@@ -412,6 +568,20 @@ class SnapFeed(Plugin):
             self.n_accept += 1
 
     # ---- mutation ---------------------------------------------------------
+
+    def _mutation_base(self):
+        """Where this mutation starts: a discovered input, or a seed.
+
+        Returns (payload, provenance). The provenance is carried all the way
+        to the lap boundary so that "did the corpus find this" can be
+        answered with a count instead of an argument.
+        """
+        if (self.corpus_on and self.corpus
+                and self.rng.random() < self.corpus_p):
+            self.n_corpus_draw += 1
+            return self.rng.choice(self.corpus), "corpus"
+        self.n_seed_draw += 1
+        return self.rng.choice(SEEDS), "seed"
 
     def mutate(self, base, limit):
         if not self.mutate_on:
@@ -576,13 +746,20 @@ class SnapFeed(Plugin):
                 return
             self.fd_feeds[int(fd)] = n + 1
 
-        payload = self.mutate(self.rng.choice(SEEDS), limit)
+        base, provenance = self._mutation_base()
+        payload = self.mutate(base, limit)
         if self.keepalive:
             payload = self._keep_alive(payload, limit)
         if self.complete_request:
             payload = self._complete(payload, limit)
         if not payload:
             return
+        if self.corpus_on:
+            # The FINAL bytes, after _keep_alive and _complete, because those
+            # are what the victim actually read and therefore what the
+            # coverage belongs to. Storing the pre-rewrite mutant would put
+            # something in the corpus that was never executed.
+            self._lap_fed.append((payload, provenance))
         yield from plugins.mem.write_bytes(buf, payload)
         syscall.retval = len(payload)
         # THE POINT. Without this the real read() still runs, the guest still
@@ -917,10 +1094,68 @@ class SnapFeed(Plugin):
             "swallow_writes": self.swallow_writes,
             "passthrough": self.passthrough,
             "mutate": self.mutate_on,
+            "corpus_on": self.corpus_on,
+            "corpus_size": len(self.corpus),
+            "corpus_max": self.corpus_max,
+            "corpus_p": self.corpus_p,
+            "corpus_boundary_mult": self.corpus_boundary_mult,
+            "n_corpus_add": self.n_corpus_add,
+            "n_corpus_dup": self.n_corpus_dup,
+            "n_corpus_evict": self.n_corpus_evict,
+            "n_corpus_reject_boundary": self.n_corpus_reject_boundary,
+            "n_corpus_draw": self.n_corpus_draw,
+            "n_seed_draw": self.n_seed_draw,
+            # The figure that says whether the corpus is doing anything.
+            # Corpus SIZE does not: it can grow steadily while every
+            # discovery still comes from a seed.
+            "n_new_from_corpus": self.n_new_from_corpus,
+            "n_new_from_seed": self.n_new_from_seed,
+            "edges_from_corpus": self.edges_from_corpus,
+            "edges_from_seed": self.edges_from_seed,
+            "n_multi_fed_laps": self.n_multi_fed_laps,
+            # THE PRIMARY RESULT, and it is an IN-RUN one.
+            #
+            # Cross-run coverage comparisons on this target are confounded by
+            # the draw -- two runs of the same config replay different spans,
+            # and that difference has swamped real effects before. This ratio
+            # does not have that problem: both numerator and denominator are
+            # measured in the same run, on the same snapshot, from the same
+            # draw. It is new edges per corpus-derived input divided by new
+            # edges per seed-derived input. Above 1, the corpus is finding
+            # things the seeds were not.
+            "corpus_lift": (
+                round((self.edges_from_corpus / self.n_corpus_draw) /
+                      (self.edges_from_seed / self.n_seed_draw), 3)
+                if (self.n_corpus_draw and self.n_seed_draw
+                    and self.edges_from_seed) else None),
+            "cov_absent_laps": self._cov_absent_laps,
             "feed_wall_s": round(dur, 4) if dur else None,
             "sent_per_s": (round(self.n_sent / dur, 2)
                            if dur and dur > 0 else None),
         }
+        # The corpus has its own way of reading as healthy while inert, and
+        # it is the reverse of the usual one: an empty corpus looks like a
+        # clean negative result ("guidance did not help here") when it is
+        # usually a wiring fault. Both are named.
+        if self.corpus_on and self._cov_absent_laps > 50 and not self.corpus:
+            out["corpus_verdict"] = (
+                f"CORPUS NEVER OFFERED ANYTHING: {self._cov_absent_laps} laps "
+                f"arrived with no coverage attached, so nothing could ever be "
+                f"banked. This is fastloop `coverage: 0`, not a corpus that "
+                f"found nothing. Any claim about guidance from this run is "
+                f"unsupported.")
+        elif self.corpus_on and not self.corpus and self.n_lap_resets > 500:
+            out["corpus_verdict"] = (
+                f"CORPUS STAYED EMPTY over {self.n_lap_resets} laps with "
+                f"coverage attached. Either no input reached anywhere new, or "
+                f"the boundary guard rejected everything "
+                f"({self.n_corpus_reject_boundary} rejected).")
+        elif self.corpus_on and self.corpus and not self.n_corpus_draw:
+            out["corpus_verdict"] = (
+                f"CORPUS HELD {len(self.corpus)} ENTRIES AND WAS NEVER DRAWN "
+                f"FROM. corpus_p={self.corpus_p} -- at 0 the corpus is "
+                f"collected and ignored, which measures nothing.")
+
         # The one thing this file must never do quietly.
         if not self.n_sent:
             out["verdict"] = (

@@ -2602,6 +2602,35 @@ def lap_tests(tmp):
     assert idx[-1] == p.n_iters, (idx, p.n_iters)
     print("ok  every lap announces the iteration now starting, exactly once")
 
+    # ---- AND CARRIES THE LAP'S COVERAGE -------------------------------
+    # A subscriber building a corpus has to know what the input it fed
+    # reached. The lap event is the only seam that can say so: the scan has
+    # already run as part of the reset, in the same bottom half.
+    #
+    # The None is the load-bearing part. With coverage OFF every lap must
+    # announce None rather than 0 -- "nothing was new" and "nothing could be
+    # new" produce an identical empty corpus, and only the second is a
+    # misconfiguration. Above, with no coverage configured, every lap carried
+    # (None, None); here it carries real numbers.
+    assert all(e[3] is None and e[4] is None for e in laps), (
+        "coverage is off, yet laps announced numbers: " + str(laps))
+
+    p, q = make("loop", tmp, coverage=1, verify_every=1000)
+    to_loop(p, q)
+    p._test_events["published"].clear()
+    for _ in range(3):
+        q.run_bottom_half()
+        hit(p)
+    covlaps = [e for e in p._test_events["published"] if e[0] == "on_lap"]
+    assert covlaps, "no laps announced with coverage on"
+    assert all(e[3] is not None and e[4] is not None for e in covlaps), (
+        "coverage is on, yet a lap announced None: " + str(covlaps))
+    assert all(e[3] <= e[4] for e in covlaps), (
+        "a lap reported more NEW edges than edges: " + str(covlaps))
+    print("ok  a lap carries its own new-edge and edge counts, and carries "
+          "None when there is no coverage rather than a zero that reads the "
+          "same as 'found nothing'")
+
     # ---- WHY THE LAST ONE ENDED ---------------------------------------
     # A lap that closed on a fault and a lap that carried the oracle's ~48 ms
     # are different measurements; a subscriber attributing per input needs to
@@ -2642,7 +2671,7 @@ def lap_tests(tmp):
         hit(p)
     laps = [e for e in p._test_events["published"] if e[0] == "on_lap"]
     assert p.state == "done", p.state
-    assert laps[-1] == ("on_lap", None, "end"), laps[-3:]
+    assert laps[-1] == ("on_lap", None, "end", None, None), laps[-3:]
     assert sum(1 for e in laps if e[1] is None) == 1, "announced the end twice"
     print("ok  the loop announces that laps have stopped, exactly once")
 

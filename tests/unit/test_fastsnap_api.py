@@ -391,3 +391,63 @@ def test_fastloop_exempts_every_coverage_name_it_reaches_for():
     assert not stale, (
         f"API_COVERAGE lists {stale}, which fastloop no longer uses; a stale "
         f"exemption widens what the preflight lets through")
+
+def test_on_lap_publisher_and_subscriber_agree_on_their_arguments():
+    """fastloop publishes the lap event; snapfeed consumes it. Nothing checks
+    that the two agree, and the failure mode is silent.
+
+    plugin_manager's publish() calls `cb(*args)` with the PUBLISHER's own
+    arguments and no (plugin, event) prefix. snapfeed's handler was written as
+    `on_lap(self, plugin=None, event=None, *a)` -- names that describe a
+    prefix that is never sent. It worked only because nothing read those two
+    parameters. The moment one was read it would have held the lap index while
+    claiming to hold a plugin, and the corpus built on it would have credited
+    coverage to the wrong input while every counter still looked plausible.
+
+    So this asserts the contract from BOTH files' source: every on_lap publish
+    in fastloop sends exactly as many arguments as snapfeed's handler can
+    accept in named positions.
+    """
+    import ast
+
+    here = REPO_ROOT / "analysis" / "fastsnap"
+    if not (here / "fastloop.py").exists():
+        pytest.skip("analysis/fastsnap is not in this checkout")
+    floop = ast.parse((here / "fastloop.py").read_text())
+    sfeed = ast.parse((here / "snapfeed.py").read_text())
+
+    published = []
+    for node in ast.walk(floop):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        if not (isinstance(fn, ast.Attribute) and fn.attr == "publish"):
+            continue
+        # plugins.publish(self, "on_lap", *args)
+        if len(node.args) < 2:
+            continue
+        ev = node.args[1]
+        if isinstance(ev, ast.Constant) and ev.value == "on_lap":
+            published.append(len(node.args) - 2)
+
+    assert published, "no on_lap publish found in fastloop.py"
+    assert len(set(published)) == 1, (
+        f"fastloop publishes on_lap with differing arities {sorted(set(published))}; "
+        "a subscriber cannot be right for both")
+
+    handler = next(
+        (n for n in ast.walk(sfeed)
+         if isinstance(n, ast.FunctionDef) and n.name == "on_lap"), None)
+    assert handler is not None, "snapfeed has no on_lap handler"
+
+    named = [a.arg for a in handler.args.args if a.arg != "self"]
+    n_pub = published[0]
+    assert len(named) == n_pub, (
+        f"fastloop publishes {n_pub} arguments to on_lap; snapfeed names "
+        f"{len(named)} ({named}). Extra published arguments land in *args and "
+        f"are silently dropped; missing ones take their default and read as "
+        f"'no coverage'.")
+    assert named[0] == "lap" and named[1] == "closed_by", (
+        f"snapfeed's on_lap names its first two parameters {named[:2]}. "
+        "publish() sends no (plugin, event) prefix, so those positions are "
+        "the lap index and the reason the previous lap ended.")
