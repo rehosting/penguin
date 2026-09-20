@@ -91,6 +91,20 @@ failure has already happened once in this lane: 200,000 laps at 0.294 ms and
                 all rejected at byte one is reaching none of the parser, and a
                 run that cannot tell that apart from "no crashes" is not a
                 measurement.
+
+TWO DIFFERENT BARS, AND CONFLATING THEM WOULD BE A MISTAKE
+----------------------------------------------------------
+A lap CLOSES on any write/writev, so a victim that answers every request with
+a 404 or a 500 still produces a perfectly sound loop: the rate is real, the
+reset is real, the coverage is real. That is what makes this portable to a
+half-configured victim -- a bring-up does not need the application working,
+only serving.
+
+It does NOT make the run worth doing. `responses` is the control that tells
+those apart: all-404 means the payloads are dying at byte one and the run is
+measuring the accept-and-reject path rather than the parser. Both readings are
+legitimate and they answer different questions, so a bring-up run and a fuzzing
+run should not quote each other's numbers.
 """
 
 import json
