@@ -167,3 +167,151 @@ depends on the draw. That is worse than a warning that always fires, because
 three clean runs in a row taught me to read past it. Whatever else run 130
 decides, `deny: auto` is not sufficient for every arm and the device scope
 needs revisiting on its own account.
+
+---
+
+# The switch-driver input path, and a claim I had to withdraw
+
+Looking for module-facing surface turned up `iface_ioctl.log`, which records
+every interface ioctl the firmware issues. I first read it as *"the management
+stack hits the switch ports with SIOCETHTOOL and SIOCGMIIPHY"* and said so to
+the session building the BYOK board. **That was wrong** — I took the ioctl
+counts and the interface names from the same file and assumed they lined up.
+Split by target they do not:
+
+    SIOCGIFINDEX  0x8933  ->  cpu, lan1 .. lan63          ret -19  ENODEV
+    SIOCGIFFLAGS  0x8913  ->  cpu, lan1 .. lan5           ret -19  ENODEV
+    SIOCSIFHWADDR 0x8924  ->  lan1 .. lan5                ret -19  ENODEV
+    SIOCETHTOOL   0x8946  ->  eth1-5, ens*, enp0s25,      ret -95  EOPNOTSUPP
+    SIOCGMIIPHY   0x8947      wlan0-5, lo, gre0, dummy0
+
+**No `lanN` appears in the ethtool/MII set at all**, and the return codes
+prove the two groups are different actors: the port-directed ioctls get
+**ENODEV** (the netdev does not exist) and the ethtool sweep gets
+**EOPNOTSUPP** (the interface exists — `lo`, penguin's own netdevs — but does
+not support the op). The second group is a generic enumerator walking
+well-known names, with nothing to do with the switch.
+
+The return code was the discriminator and it was in the file the whole time.
+Reading the names without the codes is what produced the wrong claim.
+
+## What the port-directed ioctls actually reach
+
+- `SIOCGIFINDEX`, `SIOCGIFFLAGS` — handled in `dev_ioctl()`. Never reach the
+  driver.
+- `SIOCSIFHWADDR` — **does** reach it, as `ndo_set_mac_address`. Five calls,
+  at boot.
+
+So the evidenced driver surface is one op, not a rich ioctl attack surface.
+
+## Why the reframing still stands anyway
+
+**The log is a lower bound, not a measurement.** Every port-directed ioctl
+returned ENODEV, so the daemons aborted at the first failure —
+`configurePortMACs` failed on port 1 and the console shows it got no further.
+Everything the management stack would do *after* successfully setting a MAC —
+port enable (`ndo_open`), link configuration, VLAN setup, whatever the web
+UI's port and VLAN CGI drive — is absent from the log because it never ran.
+
+So "enough MDIO to pass probe unlocks a live ioctl surface" survives, with
+`ndo_set_mac_address` as a concrete instance of a driver op the firmware
+already tries to reach. What cannot be said is how large that surface is.
+
+## Topology, at the confidence each piece deserves
+
+- **5 user ports, `lan1`–`lan5`.** Strong — these are the ports the daemon set
+  MAC addresses on, so they are *configured* ports rather than probed names.
+- **1 CPU port, named `cpu`.** Strong — appears in the `SIOCGIFFLAGS` set
+  beside lan1–5, so six interfaces the daemon treats as real.
+- **The driver must survive a `lan1`..`lan63` existence sweep.** A fixed-range
+  probe, NOT a topology claim. Modelling from the `SIOCGIFINDEX` set would
+  give 63 ports, which is the error this distinction exists to prevent.
+
+---
+
+# RESULT — run 130, the clean replicate
+
+Identical configuration to run 129. The two differ only in the draw.
+
+| | user (126/127/128) | kernel 129 | kernel 130 |
+|---|---|---|---|
+| `dev_diff_clean` | 120/120 ×3 | **73/120** | **120/120** |
+| `tbs_instrumented` | ~20,300 | 29,968 | 29,832 |
+| edges/lap median | 1,422 | 2,927 | 3,332 |
+| `cov_scan_us` | 134 | 181 | 215 |
+| novel laps | 69 / 69 / 68 | 15 | 21 |
+| largest typical lap | 40 | **675** | **22** |
+| outlier discovery share | .51 / .45 / .47 | .330 | **.917** |
+| **new edges / 1k typical laps** | 22.06 / 23.61 / 22.55 | *64.6* | **3.12** |
+
+## Run 129's number is retracted, and the replicate says why
+
+Both things I flagged about run 129 failed to recur:
+
+- **The device restore came back clean, 120/120.** So the 47 unrestored
+  `virtio-net` verifications were draw-dependent, not a property of the kernel
+  scope.
+- **The 675-edge lap did not happen.** Run 130's largest typical lap is 22, in
+  line with the userspace runs' 40. Run 129's was thirty times that.
+
+Both anomalies in the same run, neither in the replicate. The 64.6 was the
+instrument, and it is withdrawn.
+
+## Scored
+
+**K1 — HELD, twice.** 29,968 and 29,832 instrumented, against a predicted
+25,000–45,000, and both partition the ~50,300-block set the userspace runs
+measure from the other side.
+
+**K2 — HELD, twice.** 2,927 and 3,332 edges per lap against a predicted
+1,800–4,000.
+
+**K4 — HELD, twice.** 181 and 215 µs against a predicted 150–300.
+
+**K3 — direction HELD emphatically, magnitude just outside.** I predicted
+kernel discovery per typical lap would be *lower* than userspace's ~23 per
+1,000, and said 5–20. The clean run gives **3.12** — lower than userspace by
+**7.6×**, and a little below the band I named. Direction right, number slightly
+over-generous.
+
+So the answer to the question this run existed to ask is a clear no: **the
+kernel is not a better fuzzing target than the application under this
+workload.** The userspace-filter default is correct, and now for a measured
+reason rather than a cost argument.
+
+## The finding I deliberately declined to predict
+
+`outlier_discovery_share` was left unpredicted because I had no basis for a
+number. It is **0.917** — against userspace's 0.45–0.51.
+
+**92% of all kernel novelty in this run came from 13 laps out of 12,000.**
+Across the other 12,187 laps — every ordinary HTTP request — the kernel
+yielded **38 new edges in total.**
+
+That is the whole result in one line. Boundary laps replay a guest fork+exec,
+which is overwhelmingly kernel work, so they light up process creation, ELF
+loading, page-fault and scheduler paths. Steady-state request serving drives
+the *same* socket/TCP/VFS path every lap and saturates almost immediately.
+
+**So kernel coverage through this web interface is process creation, not
+request handling.** Which means the limitation is the workload, not the
+kernel: fuzzing the kernel through an HTTP victim can only reach the syscall
+path that victim repeats. A target worth the kernel scope would need a
+workload that varies its syscalls, not one that varies its request bytes.
+
+## Honest limits on the comparison
+
+Two kernel runs reported 64.6 and 3.12 — a 20× spread. Run 129 is explained,
+but the noise floor is still bad: 15 and 21 novel laps, and 3.12 rests on
+**38 new edges spread across 12,187 laps**. The direction (kernel discovers
+much less per typical lap) is supported by the mechanism and by the size of
+the gap. The *magnitude* — 7.6× — should not be quoted as if it were
+measured to two figures.
+
+## Still open
+
+`DEVICE SCOPE TOO NARROW` on `virtio-net` is confirmed **intermittent on the
+draw**: same config, one run lost 47 verifications and the next lost none.
+That makes it worse than a warning that always fires, because it trains a
+reader to skip it. `deny: auto` needs revisiting independently of anything
+here.
