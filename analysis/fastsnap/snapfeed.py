@@ -46,6 +46,36 @@ correct rather than a bug: the guest's fd table IS rewound, so after a restore
 the guest re-reads the same fd it held at the armed instant, and a set that is
 a superset of the live fds still matches it.
 
+WHAT THIS REQUIRES OF THE HOOKING LAYER
+---------------------------------------
+Written down because a port is live: igloo's sys_call_table backup hooks a
+vendor kernel that has no kprobes and no built-in hooks, and "which syscalls
+are hooked" turned out not to be the question. Four capabilities, and three of
+them are invisible to a check that only asks whether a hook fires.
+
+  1. An ENTER hook with readable arguments.
+  2. `skip_syscall` -- the real handler must NOT run. This is not a
+     convenience. If the real read() still executes, the guest's state depends
+     on host-side data the snapshot cannot rewind, and the reset premise
+     collapses. A trampoline that calls the original and lets the host edit the
+     result is NOT equivalent, and would pass a check that only watches the
+     hook fire.
+  3. `write_bytes` into a guest pointer argument, and a `retval` assignment
+     that survives to userspace.
+  4. A RETURN hook on accept/accept4. THIS ONE IS LOAD-BEARING AND EASY TO
+     MISS: `self.fds` is populated in exactly one place, the accept return
+     handler, and every feed path -- read, recv, writev, the epoll answer --
+     gates on membership. There is no manual fd override. No accept hook means
+     no learned fd, nothing fed, and no lap ever closing.
+
+(4) is also the one whose syscall number is ambiguous on ARM EABI: accept
+arrives either through the socketcall(102) demux or as direct nr 285,
+depending on libc. penguin's own hook accounting cannot settle which -- it
+aliases the names, so `accept:return` and `accept4:return` report identical
+firing counts, as do access/faccessat and readlink/readlinkat. Hook both
+numbers; a hook that never fires costs nothing, and the alternative is
+debugging a silent feed failure through a composition.
+
 CONTROLS
 --------
 A feeder that silently feeds nothing looks exactly like a fast loop, and that
