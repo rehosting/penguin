@@ -819,6 +819,14 @@ def run_config(
     if _console is not None:
         append = append.replace(_console[0], _console[1])
 
+    # core.kernel_cmdline: full verbatim override of the -append, for a board
+    # that boots a vendor rootfs from its own storage (it sets root=/console=/
+    # init= itself; keep init=/igloo/boot/preinit to retain the penguin
+    # userspace). Bypasses the /dev/vda + console-replacement defaults above.
+    # Unset (default) = the constructed append, unchanged.
+    if conf["core"].get("kernel_cmdline"):
+        append = conf["core"]["kernel_cmdline"]
+
     telnet_port = find_free_port()
     if telnet_port is None:
         raise OSError("No available port found in the specified range")
@@ -915,10 +923,23 @@ def run_config(
     else:
         machine_args = q_config["qemu_machine"]
 
-    if q_config["arch"] == "arm" and pkversion <= (4, 19):
+    # The highmem tuning is specific to the 'virt' machine; skip it when a
+    # custom board machine is configured.
+    if q_config["arch"] == "arm" and pkversion <= (4, 19) \
+            and not conf["core"].get("machine"):
         machine_args += ",highmem=off,highmem-ecam=off,highmem-mmio=off"
 
-    if q_config["arch"] in ["arm", "aarch64"]:
+    # core.disk_transport: 'auto' (default, or when no custom machine) keeps the
+    # per-arch virtio-blk drive; 'none' attaches no drive (a board that boots its
+    # own rootfs from its own storage). A custom machine defaults to 'none' since
+    # it has no virtio bus to attach the drive to.
+    disk_transport = conf["core"].get("disk_transport")
+    if disk_transport is None:
+        disk_transport = "none" if conf["core"].get("machine") else "auto"
+
+    if disk_transport == "none":
+        drive_args = []
+    elif q_config["arch"] in ["arm", "aarch64"]:
         drive += ",if=none"
         drive_args = [
             "-device", "virtio-blk-device,drive=hd0",
@@ -1246,14 +1267,26 @@ def run_config(
     # the firmware-expected env, then the rest of the original append. Penguin's
     # internal knobs are stripped here and delivered over the portal instead
     # (LiveImage serves igloo_env.sh; preinit.sh sources it).
-    append_parts = panda.panda_args[append_idx].split()
-    rendered_append = render_kernel_append(
-        append_parts, conf["env"], conf["core"].get("kernel_cmdline_append") or ""
-    )
+    if conf["core"].get("kernel_cmdline"):
+        # Full verbatim override (BYO-rootfs board): keep the configured cmdline
+        # as-is -- do NOT re-render with the /dev/vda + preinit critical args,
+        # since the board sets root=/console=/init= itself.
+        rendered_append = panda.panda_args[append_idx]
+    else:
+        append_parts = panda.panda_args[append_idx].split()
+        rendered_append = render_kernel_append(
+            append_parts, conf["env"], conf["core"].get("kernel_cmdline_append") or ""
+        )
     # Never let the kernel silently truncate an over-long cmdline (MIPS caps it
     # at 256B); warn near the limit and fail loudly past it.
     check_cmdline_size(rendered_append, archend, logger)
     panda.panda_args[append_idx] = rendered_append
+
+    # core.qemu_env: export environment for the in-process QEMU (a board that
+    # reads a path via getenv, e.g. the AT91SAM9260 board's AT91_NAND_IMAGE ->
+    # the repacked rootfs image). Unset (default) = nothing exported.
+    for _k, _v in (conf["core"].get("qemu_env") or {}).items():
+        os.environ[str(_k)] = str(_v)
 
     @panda.cb_pre_shutdown
     def pre_shutdown():

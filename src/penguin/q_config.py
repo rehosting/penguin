@@ -39,7 +39,10 @@ def load_q_config(conf: dict) -> dict[str, str]:
 
     # Return a fresh dict each call (the old code mutated a shared module dict).
     q_config = {
-        "qemu_machine": s.qemu_machine,
+        # core.machine (optional) overrides the arch registry's default machine,
+        # e.g. a faithful vendor board instead of donor-kernel 'virt'. Unset =
+        # the registry default, unchanged.
+        "qemu_machine": conf["core"].get("machine") or s.qemu_machine,
         "arch": s.panda_arch,
         "kconf_group": s.kconf_group,
         "kernel_fmt": s.kernel_fmt,

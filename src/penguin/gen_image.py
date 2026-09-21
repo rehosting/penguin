@@ -221,6 +221,33 @@ def make_image(fs: str, out: str, artifacts: str | None, config: dict) -> None:
         # Bake the debugging-tool closure into the base image (cached, reused
         # across configs) so live_image no longer re-ships ~300MB every boot.
         tar_add_tool_closure(uncompressed_tar, config)
+
+        # core.rootfs_format=jffs2: repack the SAME assembled tree (firmware +
+        # igloo overlay + preinit + tools) into a JFFS2 image, for a faithful
+        # NAND board to mount as its own rootfs instead of ext4-in-qcow on
+        # /dev/vda. The board picks the image up via core.qemu_env (e.g.
+        # AT91_NAND_IMAGE). Unset/'qcow_ext4' (default) falls through to the
+        # ext4/qcow path below, unchanged. Extensible to ubifs/squashfs.
+        _fmt = (config.get("core") or {}).get("rootfs_format")
+        if _fmt == "jffs2":
+            import shlex
+            _opts = (config.get("core") or {}).get("rootfs_format_opts") or {}
+            _root = Path(TMP_DIR, "jffs2_root")
+            _root.mkdir(exist_ok=True)
+            check_output(["tar", "-xf", str(uncompressed_tar), "-C", str(_root)])
+            _cmd = ["mkfs.jffs2", "-r", str(_root), "-o", str(QCOW),
+                    "-e", str(_opts.get("eraseblock", "0x4000")),
+                    "-p", "-n"]  # pad; no cleanmarkers (NAND)
+            _cmd.append("-b" if str(_opts.get("endian", "le")).lower() == "be"
+                        else "-l")
+            if _opts.get("pagesize"):
+                _cmd += ["-s", str(_opts["pagesize"])]
+            if _opts.get("extra"):
+                _cmd += shlex.split(str(_opts["extra"]))
+            logger.info("Repacking rootfs as JFFS2: %s", " ".join(_cmd))
+            check_output(_cmd, stderr=subprocess.STDOUT)
+            return
+
         check_output(f"pigz -c '{uncompressed_tar}' > '{MODIFIED_TARBALL}'", shell=True)
         TARBALL = MODIFIED_TARBALL
         # 1GB of padding. XXX is this a good amount - does it slow things down if it's too much?
