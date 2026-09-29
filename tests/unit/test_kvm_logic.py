@@ -14,7 +14,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../s
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from penguin import plugins  # noqa: E402
-from pyplugins.compat.qemu_compat import KVMArch, KVMQemu, MINIMAL_CDEF  # noqa: E402
+from pyplugins.compat.qemu_compat import (  # noqa: E402
+    KVMArch, KVMQemu, MINIMAL_CDEF, QemuCompat,
+)
 
 _hypercall_spec = importlib.util.spec_from_file_location(
     "penguin_test_hypercall",
@@ -516,6 +518,202 @@ class TestQmpRegistry(unittest.TestCase):
         qmp.command("gen")(gen_handler)
         with self.assertRaises(RuntimeError):
             qmp.dispatch("gen", {})
+
+
+class TestQmpEmitEvent(unittest.TestCase):
+    """Coverage for the outbound QMP event path.
+
+    Split across the two layers it actually spans: QemuCompat.emit_qmp_event()
+    marshals name/payload into the C call, and Qmp.emit_event() fans out to the
+    bound compats. End-to-end delivery to a real monitor is exercised by
+    tests/integration/qmp_hook/.
+    """
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.lib_path = Path(self.tmpdir.name) / "libqemu-kvm-x86_64.so"
+        self.header_path = Path(self.tmpdir.name) / "qemu_cffi_kvm_x86_64.h"
+        self.lib_path.write_text("fake")
+        self.header_path.write_text(MINIMAL_CDEF)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _make_qemu(self, mock_dlopen):
+        lib = MagicMock()
+        lib.set_kvm_penguin_hypercall_callback = MagicMock()
+        lib.set_penguin_guest_hypercall_callback = MagicMock()
+        lib.set_kvm_penguin_after_guest_init_callback = MagicMock()
+        lib.set_penguin_qmp_callback = MagicMock()
+        self.emitted = []
+
+        def fake_emit(name_ptr, data_ptr):
+            # Decode here: the buffers are only guaranteed alive during the
+            # call, which is exactly the contract emit_qmp_event relies on.
+            self.emitted.append((
+                ffi_mod.string(name_ptr).decode(),
+                ffi_mod.string(data_ptr).decode(),
+            ))
+
+        lib.penguin_qmp_emit_event = fake_emit
+        mock_dlopen.return_value = lib
+        qemu = KVMQemu(str(self.lib_path), "x86_64", header_path=str(self.header_path))
+        global ffi_mod
+        ffi_mod = qemu.ffi
+        return qemu
+
+    @patch.object(cffi.FFI, "dlopen")
+    def test_emit_with_payload(self, mock_dlopen):
+        qemu = self._make_qemu(mock_dlopen)
+        qemu.emit_qmp_event("exec", {"pid": 1234})
+        self.assertEqual(len(self.emitted), 1)
+        name, payload = self.emitted[0]
+        self.assertEqual(name, "exec")
+        self.assertEqual(json.loads(payload), {"pid": 1234})
+
+    @patch.object(cffi.FFI, "dlopen")
+    def test_emit_without_payload_sends_empty_string(self, mock_dlopen):
+        # None must become "" (which QEMU reads as "no payload"), not the JSON
+        # literal "null", which would reach the client as data: null.
+        qemu = self._make_qemu(mock_dlopen)
+        qemu.emit_qmp_event("ping")
+        self.assertEqual(self.emitted, [("ping", "")])
+
+    @patch.object(cffi.FFI, "dlopen")
+    def test_emit_passes_arbitrary_names_verbatim(self, mock_dlopen):
+        # The name is the QMP "event" member itself, not a payload field, so
+        # it must reach QEMU unmodified -- including names that look like
+        # built-in QEMU events.
+        qemu = self._make_qemu(mock_dlopen)
+        for name in ("MY_CUSTOM_EVENT", "lower-case-name", "STOP", "a.b:c_1"):
+            self.emitted.clear()
+            qemu.emit_qmp_event(name)
+            self.assertEqual(self.emitted[0][0], name)
+
+    @patch.object(cffi.FFI, "dlopen")
+    def test_emit_non_ascii_name_and_payload(self, mock_dlopen):
+        qemu = self._make_qemu(mock_dlopen)
+        qemu.emit_qmp_event("exec", {"path": "/tmp/\u00e9"})
+        name, payload = self.emitted[0]
+        self.assertEqual(name, "exec")
+        self.assertEqual(json.loads(payload), {"path": "/tmp/\u00e9"})
+
+    @patch.object(cffi.FFI, "dlopen")
+    def test_emit_empty_dict_is_not_treated_as_absent(self, mock_dlopen):
+        # {} is a legitimate payload; only None means "no payload".
+        qemu = self._make_qemu(mock_dlopen)
+        qemu.emit_qmp_event("ev", {})
+        self.assertEqual(self.emitted[0][1], "{}")
+
+    @patch.object(cffi.FFI, "dlopen")
+    def test_emit_rejects_non_dict_payload(self, mock_dlopen):
+        # The QMP spec defines an event's data member as a json-object. QEMU
+        # drops a scalar/array to stderr, so reject it host-side where the
+        # traceback points at the buggy plugin.
+        qemu = self._make_qemu(mock_dlopen)
+        for bad in (0, False, [], [1, 2], "str", 1.5):
+            with self.assertRaises(TypeError):
+                qemu.emit_qmp_event("ev", bad)
+        self.assertEqual(self.emitted, [])
+
+    @patch.object(cffi.FFI, "dlopen")
+    def test_emit_non_serializable_raises_in_caller(self, mock_dlopen):
+        # Serializing host-side means the traceback points at the buggy plugin
+        # rather than surfacing as a dropped event on QEMU's stderr.
+        qemu = self._make_qemu(mock_dlopen)
+        with self.assertRaises(TypeError):
+            qemu.emit_qmp_event("bad", {"sock": object()})
+        self.assertEqual(self.emitted, [])
+
+    @patch.object(cffi.FFI, "dlopen")
+    def test_emit_passes_name_and_payload_separately(self, mock_dlopen):
+        # The ABI takes the name and the payload as two arguments, so the
+        # payload JSON is the plain data object with no "event" member wrapped
+        # around it.
+        qemu = self._make_qemu(mock_dlopen)
+        captured = []
+        qemu.lib.penguin_qmp_emit_event = lambda *a, **kw: captured.append(
+            (len(a), len(kw)))
+        qemu.emit_qmp_event("ev", {"a": 1})
+        self.assertEqual(captured, [(2, 0)])
+
+    @patch.object(cffi.FFI, "dlopen")
+    def test_emit_payload_is_the_bare_data_object(self, mock_dlopen):
+        # The payload argument is the event's "data" member itself. Guard
+        # against wrapping it in an envelope, which would nest the caller's
+        # keys one level too deep on the wire.
+        qemu = self._make_qemu(mock_dlopen)
+        qemu.emit_qmp_event("ev", {"a": 1})
+        self.assertEqual(json.loads(self.emitted[0][1]), {"a": 1})
+
+    @patch.object(cffi.FFI, "dlopen")
+    def test_emit_payload_keys_named_event_are_not_special(self, mock_dlopen):
+        # With name and payload separate, a payload key called "event" is just
+        # data and cannot influence the emitted event name.
+        qemu = self._make_qemu(mock_dlopen)
+        qemu.emit_qmp_event("REAL", {"event": "HIJACKED"})
+        name, payload = self.emitted[0]
+        self.assertEqual(name, "REAL")
+        self.assertEqual(json.loads(payload), {"event": "HIJACKED"})
+
+    @patch.object(cffi.FFI, "dlopen")
+    def test_plugin_emit_event_fans_out_to_bound_compat(self, mock_dlopen):
+        qemu = self._make_qemu(mock_dlopen)
+        qmp = Qmp()
+        qmp.bind_qemu_compat(qemu)
+        qmp.emit_event("exec", {"pid": 7})
+        self.assertEqual(self.emitted[0][0], "exec")
+        self.assertEqual(json.loads(self.emitted[0][1]), {"pid": 7})
+
+    @patch.object(cffi.FFI, "dlopen")
+    def test_plugin_emit_event_does_not_need_a_registered_command(self, mock_dlopen):
+        # Events are independent of the command registry: emitting must work
+        # without any command registered, and must not install the inbound
+        # trampoline as a side effect.
+        qemu = self._make_qemu(mock_dlopen)
+        qmp = Qmp()
+        qmp.bind_qemu_compat(qemu)
+        self.assertEqual(qmp.handlers, {})
+        qmp.emit_event("ev")
+        self.assertFalse(qemu.lib.set_penguin_qmp_callback.called)
+
+    def test_plugin_emit_event_without_compat_is_a_no_op(self):
+        # QemuCompat._active_instances is class-level and never pruned, so a
+        # bare Qmp() would auto-bind compats leaked by earlier tests in this
+        # process. Patch it empty to genuinely exercise the no-compat path
+        # (which is also the real pre-launch state): emitting must not raise.
+        with patch.object(QemuCompat, "_active_instances", []):
+            qmp = Qmp()
+            self.assertEqual(qmp.qemu_compats, [])
+            qmp.emit_event("exec", {"pid": 1})
+
+    def test_plugin_emit_event_rejects_empty_name(self):
+        qmp = Qmp()
+        for bad in ("", None):
+            with self.assertRaises(ValueError):
+                qmp.emit_event(bad)
+
+    def test_plugin_emit_event_rejects_non_dict_payload(self):
+        qmp = Qmp()
+        for bad in (0, False, [], "str", 1.5):
+            with self.assertRaises(TypeError):
+                qmp.emit_event("ev", bad)
+
+    @patch.object(cffi.FFI, "dlopen")
+    def test_plugin_emit_event_uses_name_as_qmp_event(self, mock_dlopen):
+        qemu = self._make_qemu(mock_dlopen)
+        qmp = Qmp()
+        qmp.bind_qemu_compat(qemu)
+        qmp.emit_event("MY_CUSTOM_EVENT", {"k": "v"})
+        self.assertEqual(self.emitted[0][0], "MY_CUSTOM_EVENT")
+
+    def test_plugin_emit_event_validates_payload_before_compat(self):
+        # Validation happens in the plugin, so a bad payload raises even with
+        # no compat bound (rather than being silently swallowed by the
+        # "nothing emitted" path).
+        qmp = Qmp()
+        with self.assertRaises(TypeError):
+            qmp.emit_event("bad", {"sock": object()})
 
 
 if __name__ == "__main__":

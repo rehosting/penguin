@@ -1,10 +1,16 @@
 """
-QMP command API plugin.
+QMP command and event API plugin.
 
-Owns the mapping of custom QMP command names to Python handlers, mirroring
-:class:`apis.hypercall.Hypercall`. ``qemu_compat`` installs a single C-level
-QMP trampoline and forwards each unrecognized QMP command here; this plugin
-resolves the command name to a registered handler and marshals the result.
+Provides both directions of the QMP control plane:
+
+* **Inbound** (``command``): owns the mapping of custom QMP command names to
+  Python handlers, mirroring :class:`apis.hypercall.Hypercall`.
+  ``qemu_compat`` installs a single C-level QMP trampoline and forwards each
+  unrecognized QMP command here; this plugin resolves the command name to a
+  registered handler and marshals the result.
+* **Outbound** (``emit_event``): pushes an unsolicited QMP event of any name
+  to every connected QMP monitor, for notifying a host-side consumer of
+  something that happened in the guest.
 
 The C trampoline is installed **lazily**: it is wired up only when the first
 command is registered (usually in a consumer plugin's ``__init__``), so a
@@ -35,6 +41,28 @@ of:
   * ``True`` -- handled, empty ``{"return": {}}`` response.
   * any JSON-serializable object -- used as the QMP ``return`` value.
 
+Emitting an event is the other direction, and needs no registration::
+
+    plugins.qmp.emit_event("MY_EVENT", {"pid": pid, "path": path})
+
+Every connected client receives::
+
+    {"event": "MY_EVENT",
+     "data": {"pid": 1234, "path": "/bin/sh"},
+     "timestamp": {"seconds": ..., "microseconds": ...}}
+
+The name is used as the QMP ``event`` member verbatim, so any event name can
+be emitted without a QAPI schema entry -- and, having no schema entry, these
+events are never rate-limited or coalesced by QEMU. The payload must be a
+dict, since the QMP spec defines an event's ``data`` member as a JSON object.
+
+Unlike command handlers, ``emit_event`` is safe to call from guest context --
+the QEMU side defers the work to a main-loop bottom half. It is
+fire-and-forget: there is no delivery confirmation, and an event emitted
+before a client connects is not buffered for it. An arbitrary name can
+collide with a built-in QEMU event (``STOP``, ``RESET``, ...), so picking a
+distinctive name is the caller's responsibility.
+
 Handler contract / caveats
 --------------------------
 
@@ -53,9 +81,10 @@ Handler contract / caveats
   (``char **error``) would let a handler surface a real ``GenericError``; that
   ABI change is intentionally deferred so nothing depends on it yet.
 """
+import json
 import os
 from collections.abc import Iterator
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Optional
 
 from penguin import Plugin, PluginArgs
 from pydantic import Field
@@ -172,6 +201,56 @@ class Qmp(Plugin):
 
     def __call__(self, name: str) -> Callable[[Callable], Callable]:
         return self.command(name)
+
+    def emit_event(self, name: str,
+                   data: Optional[Dict[str, Any]] = None) -> None:
+        """Emit an arbitrary QMP event to every connected QMP monitor.
+
+        The outbound counterpart to :meth:`command`. Where a command handler
+        answers a client's request, this pushes an unsolicited notification::
+
+            plugins.qmp.emit_event("MY_EVENT", {"pid": pid, "path": path})
+
+        arrives at every connected client as::
+
+            {"event": "MY_EVENT",
+             "data": {"pid": 1234, "path": "/bin/sh"},
+             "timestamp": {...}}
+
+        ``name`` becomes the QMP ``event`` member verbatim, so any event name
+        can be emitted without a QAPI schema entry. Because there is no schema
+        entry there is no QAPIEvent ordinal, so these events bypass QEMU's
+        per-event rate limiting and are never throttled or coalesced.
+
+        ``data`` is an optional payload. The QMP spec defines an event's
+        ``data`` member as a JSON *object*, so it must be a dict; pass None
+        for no payload. A timestamp is added automatically.
+
+        Unlike command handlers, this is safe to call from guest context: the
+        QEMU side defers to a main-loop bottom half, so it does not take the
+        BQL and does not block the calling vCPU on the monitor write. It is
+        fire-and-forget -- there is no delivery confirmation, and events
+        emitted before a client connects are not buffered for it.
+
+        Note that an arbitrary name can collide with a built-in QEMU event
+        (e.g. ``STOP``, ``RESET``). Picking a distinctive name is the caller's
+        responsibility.
+        """
+        if not name:
+            raise ValueError("QMP event name must be a non-empty string")
+
+        # Validate once here rather than per-compat, so the error surfaces in
+        # the caller's context even when nothing is bound yet.
+        if data is not None:
+            if not isinstance(data, dict):
+                raise TypeError(
+                    "QMP event data must be a dict (the QMP spec defines the "
+                    f"event data member as a JSON object), got "
+                    f"{type(data).__name__}")
+            json.dumps(data)
+
+        for qemu_compat in self.qemu_compats:
+            qemu_compat.emit_qmp_event(name, data)
 
     def _run_result(self, command: str, result: Any) -> Any:
         """Reject generator handlers with a clear error.
