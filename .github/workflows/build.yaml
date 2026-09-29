@@ -402,10 +402,12 @@ jobs:
 
   run_qmp_hook:
     # The QMP command hook (custom penguin_handle_qmp weak symbol wired into
-    # qemu's qmp_dispatch) is guest- and arch-independent: it boots
-    # libqemu-system-intel64 with -machine none -S and drives a custom QMP
-    # command through the real dispatcher. So it runs once, outside the
-    # per-arch matrix, like run_compose.
+    # qemu's qmp_dispatch) and the QMP event hook (penguin_qmp_emit_event ->
+    # penguin_monitor_broadcast_event) are guest- and arch-independent: it
+    # boots libqemu-system-intel64 with -machine none -S and drives a custom
+    # QMP command through the real dispatcher, then asserts arbitrary-named
+    # events emitted by the plugin arrive on the same connection. So it runs
+    # once, outside the per-arch matrix, like run_compose.
     needs: [changes, build_container]
     runs-on: rehosting-arc
     if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}

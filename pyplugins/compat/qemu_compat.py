@@ -85,6 +85,7 @@ typedef bool (*penguin_qmp_cb_t)(const char *command, const char *args,
                                  char **result, void *opaque);
 void set_penguin_qmp_callback(penguin_qmp_cb_t cb, void *opaque);
 bool penguin_handle_qmp(const char *command, const char *args, char **result);
+void penguin_qmp_emit_event(const char *name, const char *data_json);
 char *strdup(const char *s);
 """
 
@@ -609,6 +610,11 @@ class QemuCompat:
                 "\nvoid set_penguin_qmp_callback("
                 "penguin_qmp_cb_t cb, void *opaque);\n"
             )
+        if "penguin_qmp_emit_event" not in cdef_source:
+            cdef_source += (
+                "\nvoid penguin_qmp_emit_event("
+                "const char *name, const char *data_json);\n"
+            )
         if "char *strdup" not in cdef_source:
             cdef_source += "\nchar *strdup(const char *s);\n"
         self.ffi.cdef(cdef_source)
@@ -951,6 +957,40 @@ class QemuCompat:
             # cffi-managed ffi.new() buffer would be GC-freed underneath QEMU.
             result_ptr[0] = self.lib.strdup(payload)
         return True
+
+    def emit_qmp_event(self, name: str, data=None) -> None:
+        """Emit an arbitrary QMP event to every connected QMP monitor.
+
+        The outbound counterpart to _dispatch_qmp(). ``name`` becomes the QMP
+        ``event`` member verbatim. ``data`` is an optional payload; the QMP
+        spec defines the event ``data`` member as a JSON *object*, so it must
+        be a dict (or None for no payload).
+
+        Safe to call from a vCPU thread: the fork defers the work to a
+        main-loop bottom half, so this neither needs the BQL nor blocks on
+        serialization or the monitor write.
+        """
+        if data is None:
+            payload = b""
+        else:
+            # The QMP spec requires the data member to be a json-object. QEMU
+            # would drop a scalar/array to stderr; rejecting here instead
+            # raises in the caller's context where the traceback is useful.
+            if not isinstance(data, dict):
+                raise TypeError(
+                    "QMP event data must be a dict (the QMP spec defines the "
+                    f"event data member as a JSON object), got "
+                    f"{type(data).__name__}")
+            # Serialize here too, so a non-serializable payload also raises in
+            # the caller's context rather than on QEMU's stderr.
+            payload = json.dumps(data).encode("utf-8")
+
+        # ffi.new() copies into buffers kept alive for the duration of the
+        # call; the fork g_strdup()s both before returning, so it is safe for
+        # them to be GC'd afterwards.
+        cname = self.ffi.new("char[]", str(name).encode("utf-8"))
+        cdata = self.ffi.new("char[]", payload)
+        self.lib.penguin_qmp_emit_event(cname, cdata)
 
     def _guest_addr(self, addr):
         mask = (1 << self.bits) - 1
