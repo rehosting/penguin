@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end integration test for the Penguin QMP command hook.
+"""End-to-end integration test for the Penguin QMP command + event hooks.
 
 This drives the feature through a real ``penguin run`` (init -> run), the same
 way the other integration tests do, rather than hand-building a KVMQemu. That
@@ -8,13 +8,20 @@ knob and a plugin, then something user-facing is missing.
 
 The project loads the ``qmp`` plugin (which opens a QMP socket at
 ``<results>/qmp.sock`` by appending to the QEMU argv, and installs the command
-trampoline) plus a project-local ``qmp_probe`` plugin. ``qmp_probe`` registers a
-custom QMP command via
-``plugins.qmp.command`` and, from a host thread, connects to that socket and
-sends the command -- exercising the full path:
+trampoline) plus a project-local ``qmp_probe`` plugin. ``qmp_probe`` registers
+custom QMP commands via ``plugins.qmp.command`` and, from a host thread,
+connects to that socket and drives both directions.
+
+Inbound (command):
 
     client -> qemu qmp_dispatch -> weak penguin_handle_qmp -> CFFI trampoline
       -> Qmp plugin -> handler -> strdup'd JSON -> qemu decode/g_free -> client
+
+Outbound (event):
+
+    Qmp plugin emit_event -> CFFI -> penguin_qmp_emit_event -> main-loop
+      bottom half -> qobject_from_json -> qmp_event_build_dict
+      -> penguin_monitor_broadcast_event -> monitor write -> client
 
 On success it writes a marker file that the ``verifier`` plugin checks; the run
 ends when the condition passes (``continuous_eval``). The test then asserts the
