@@ -1,0 +1,65 @@
+# Per-iteration dirty set on real firmware.
+#
+# Named patch_zzz_* on purpose: patches merge in filename order, and
+# patch_fuzzcal.yaml already re-enabled notrap once after an earlier patch
+# disabled it ("conflict: plugins.notrap.enabled: `false` -> `true`"), whose 25
+# loadvm restores then landed inside another plugin's measurement windows. This
+# has to win, so it sorts last.
+#
+# EVERY OTHER INSTRUMENT IS OFF, and that is a requirement rather than tidiness:
+#
+#  - vpn: the dirty log cannot arm while the vhost-user-vsock backend is
+#    attached ("vhost: Failed to start logging: Protocol error"), and
+#    base.yaml's `vpn: {}` reads as ENABLED.
+#  - notrap: it does savevm/loadvm, and the migration code takes, walks and
+#    clears the SAME dirty bitmap this measures. A restore also rewrites RAM
+#    wholesale, which is not an iteration's working set.
+#  - ram_term: it arms the identical global dirty log and clears the identical
+#    bits. Two consumers of one bitmap means each sees a fraction of the truth,
+#    and neither would report an error.
+#  - devblock/hookcost/parsecost/fuzzdrive: extra probes on the same request
+#    path change what an iteration does.
+#
+# core.mem stays at patch_fuzzcal.yaml's 256M, which is the size RESET.md's
+# host-side restore-cost table was taken at, so the page count converts to a
+# cost without a size correction.
+plugins:
+  vpn:
+    enabled: false
+  notrap:
+    enabled: false
+  ram_term:
+    enabled: false
+  devblock:
+    enabled: false
+  fuzzcal:
+    enabled: false
+  persist:
+    enabled: false
+  hookcost:
+    enabled: false
+  parsecost:
+    enabled: false
+  fuzzdrive:
+    enabled: false
+  syscalls: {}
+  dirtyiter:
+    path: /usr/sbin/lighttpd
+    symbol: http_request_parse
+    # laps: the persistent-mode rewind from persist.py. At entry LR still
+    # holds the caller's return address, so overwriting it with the function's
+    # own entry makes the ARM epilogue return into the function. Consecutive
+    # probe entries then bracket ONE PARSE and nothing else -- no socket read,
+    # no response writev, no trip round the event loop. That is the iteration
+    # the fast-reset design is shaped for; laps: 0 measures a whole request
+    # instead, which is the iteration a naive snapshot fuzzer would reset.
+    laps: 0
+    warmup: 10
+    samples: 400
+    tag: req_xcheck
+    # Phase 2: the same interval measured by the in-QEMU op
+    # (penguin_fastsnap DIRTY_ARM/DIRTY_COUNT, vCPUs stopped in a
+    # bottom half) rather than by the host-side ctypes path. Runs
+    # only after phase 1 finishes: they consume the same bitmap.
+    cops_iters: 10
+    cops_rounds: 6

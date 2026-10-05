@@ -1,0 +1,21 @@
+netdevs:
+- eth0
+- eth1
+- eth2
+- eth3
+- eth4
+- eth5
+- wlan0
+- wlan1
+- wlan2
+- wlan3
+- wlan4
+- wlan5
+- eno0
+- eno1
+- eno2
+- ens33
+- ens192
+- enx0
+- enp0s25
+- wlp2s0

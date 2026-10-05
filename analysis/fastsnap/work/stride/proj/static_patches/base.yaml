@@ -1,0 +1,144 @@
+core:
+  arch: armel
+  kernel: '4.10'
+env:
+  igloo_init: /sbin/init
+plugins:
+  core: {}
+  core_pattern_guard: {}
+  crashes: {}
+  health: {}
+  indiv_debug: {}
+  interfaces: {}
+  lifeguard: {}
+  mount: {}
+  netbinds: {}
+  nvram2: {}
+  pseudofiles: {}
+  readiness: {}
+  scope: {}
+  send_hypercall: {}
+  shell: {}
+  snapshot: {}
+  vpn: {}
+pseudofiles:
+  /dev/ttyAMA1:
+    ioctl:
+      '*':
+        model: return_const
+        val: 0
+    read:
+      model: zero
+    write:
+      model: discard
+  /dev/ttyS1:
+    ioctl:
+      '*':
+        model: return_const
+        val: 0
+    read:
+      model: zero
+    write:
+      model: discard
+static_files:
+  /dev/fd:
+    target: /proc/self/fd
+    type: symlink
+  /dev/pts:
+    mode: 493
+    type: dir
+  /dev/shm:
+    mode: 1023
+    type: dir
+  /igloo/dylibs/*:
+    host_path: /igloo_static/dylibs/{{ dylib_dir }}/*
+    mode: 493
+    type: host_file
+  /igloo/init:
+    contents: "#!/igloo/utils/sh\n\n# First, source all the scripts in /igloo/source.d\n\
+      for f in /igloo/source.d/*; do\n  source $f\ndone\n\n# Run user-supplied scripts\
+      \ in /igloo/init.d\nif [ -d /igloo/init.d ]; then\n  for f in /igloo/init.d/*;\
+      \ do\n    if [ -x $f ]; then\n      echo \"[IGLOO] user init dispatched $f\"\
+      \n      $f\n    fi\n  done\nfi\n\nif [ ! -z \"${igloo_init}\" ]; then\n  /igloo/utils/send_hypercall\
+      \ readiness igloo_init \"${igloo_init}\" >/dev/null 2>&1 || true\n  echo \"\
+      [IGLOO] user init dispatched ${igloo_init}\";\n  # Scrub penguin's internal\
+      \ env before handing off, so the firmware-under-\n  # analysis (and its children)\
+      \ don't inherit tooling-only values:\n  #   * IGLOO_NO_SHELL_COV -- shell-coverage\
+      \ infrastructure marker (exported in\n  #     preinit.sh, NOT in the boot env\
+      \ blob); clearing it lets the firmware\n  #     subtree report coverage while\
+      \ Penguin's boot machinery stays silent.\n  #   * The boot env blob (/igloo/boot/igloo_env.sh)\
+      \ -- scrubbing from the blob\n  #     keeps this in lockstep with boot_env's\
+      \ partition rule and picks up new\n  #     IGLOO_* knobs automatically.\n  #\
+      \ igloo_init is saved into a non-exported shell var first since we exec it.\n\
+      \  # A few knobs are deliberately KEPT because guest tooling reads them from\n\
+      \  # inside the firmware process tree:\n  #   IGLOO_LTRACE / IGLOO_LTRACE_EXCLUDED\
+      \ -- ltrace LD_PRELOAD constructor\n  #   PROJ_NAME                        \
+      \    -- injected guest test tooling\n  real_init=\"${igloo_init}\"\n  unset\
+      \ IGLOO_NO_SHELL_COV\n  if [ -f /igloo/boot/igloo_env.sh ]; then\n    igloo_keep=\"\
+      \ IGLOO_LTRACE IGLOO_LTRACE_EXCLUDED PROJ_NAME \"\n    for igloo_v in $(/igloo/utils/busybox\
+      \ sed -n 's/^export \\([A-Za-z_][A-Za-z0-9_]*\\)=.*/\\1/p' /igloo/boot/igloo_env.sh);\
+      \ do\n      case \"$igloo_keep\" in *\" $igloo_v \"*) continue ;; esac\n   \
+      \   unset \"$igloo_v\"\n    done\n    unset igloo_keep igloo_v\n  fi\n  unset\
+      \ igloo_init\n  # Run the real guest init in a fresh UTS namespace. This marks\
+      \ the\n  # firmware-under-analysis process subtree (which inherits the namespace)\
+      \ as\n  # distinct from Penguin's own infrastructure, which stays in the initial\n\
+      \  # namespace; syscall/exec analysis loggers are scoped on that distinction.\
+      \ If\n  # the kernel lacks CONFIG_UTS_NS, fall back to a plain exec so boot\
+      \ still works.\n  if /igloo/utils/busybox unshare -u /igloo/utils/busybox true\
+      \ >/dev/null 2>&1; then\n    exec /igloo/utils/busybox unshare -u \"${real_init}\"\
+      \n  fi\n  exec \"${real_init}\"\nfi\necho \"[IGLOO INIT] Fatal: no igloo_init\
+      \ specified in env. Abort\"\nexit 1\n"
+    mode: 73
+    type: inline_file
+  /igloo/ltrace/*:
+    host_path: /igloo_static/ltrace/*
+    mode: 292
+    type: host_file
+  /igloo/serial:
+    devtype: char
+    major: 204
+    minor: 65
+    mode: 438
+    type: dev
+  /igloo/source.d/*:
+    host_path: /pkg/resources/source.d/*
+    mode: 493
+    type: host_file
+  /igloo/utils/*:
+    host_path: /igloo_static//{{ arch_dir }}/*
+    mode: 493
+    type: host_file
+  /igloo/utils/bash:
+    host_path: /igloo_static/guest-utils/scripts/bash
+    mode: 493
+    type: host_file
+  /igloo/utils/exit0.sh:
+    host_path: /igloo_static/guest-utils/scripts/exit0.sh
+    mode: 493
+    type: host_file
+  /igloo/utils/fw_printenv:
+    host_path: /igloo_static/guest-utils/scripts/fw_printenv
+    mode: 493
+    type: host_file
+  /igloo/utils/igloo_profile:
+    host_path: /igloo_static/guest-utils/scripts/igloo_profile
+    mode: 493
+    type: host_file
+  /igloo/utils/openssl:
+    host_path: /igloo_static/guest-utils/scripts/openssl
+    mode: 493
+    type: host_file
+  /igloo/utils/random_seed:
+    host_path: /igloo_static/guest-utils/scripts/random_seed
+    mode: 493
+    type: host_file
+  /igloo/utils/sh:
+    target: /igloo/utils/busybox
+    type: symlink
+  /igloo/utils/sleep:
+    target: /igloo/utils/busybox
+    type: symlink
+  /igloo/utils/ssh-keygen:
+    host_path: /igloo_static/guest-utils/scripts/ssh-keygen
+    mode: 493
+    type: host_file

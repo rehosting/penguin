@@ -1,0 +1,142 @@
+core:
+  fs: ./base/fs.tar.gz
+  plugin_path: /pyplugins
+  root_shell: false
+  analysis_scope: firmware
+  strace: false
+  ltrace: false
+  force_www: false
+  show_output: false
+  immutable: true
+  network: false
+  version: 2
+  auto_patching: true
+  guest_cmd: false
+  execution_mode: qemu
+  mem: 2G
+  kernel_quiet: true
+  smp: 1
+  graphics: false
+  allow_reboot: false
+  timeout: 420
+patches:
+- static_patches/base.yaml
+- static_patches/manual.yaml
+- static_patches/netdevs.default.yaml
+- static_patches/netdevs.dynamic.yaml
+- static_patches/pseudofiles.expert_knowledge.yaml
+- static_patches/pseudofiles.dynamic.yaml
+- static_patches/lib_inject.core.yaml
+- static_patches/lib_inject.string_introspection.yaml
+- static_patches/static.missing_dirs.yaml
+- static_patches/static.missing_files.yaml
+- static_patches/static.kernel_modules.yaml
+- static_patches/static.shims.stop_bins.yaml
+- static_patches/static.shims.no_modules.yaml
+- static_patches/nvram.04_defaults.yaml
+- patch_fastsnap.yaml
+- patch_fuzzcal.yaml
+env:
+  sxid: 0150_5MS-MDM-1
+pseudofiles:
+  /dev/dsa:
+    ioctl:
+      '*':
+        model: return_const
+        val: 0
+nvram: {}
+netdevs: []
+blocked_signals: []
+lib_inject:
+  enabled: true
+static_files: {}
+plugins:
+  ram_term:
+    windows_ms:
+    - 1
+    - 5
+    - 25
+    - 100
+    - 500
+    samples_per_window: 12
+  vpn:
+    enabled: false
+init_plugins:
+  ArchId:
+    enabled: true
+  BasePatch:
+    enabled: true
+  ClusterCollector:
+    enabled: true
+  DeleteFiles:
+    enabled: true
+  DynamicExploration:
+    enabled: true
+  EnvFinder:
+    enabled: true
+  ForceWWW:
+    enabled: true
+  GenerateMissingDirs:
+    enabled: true
+  GenerateMissingFiles:
+    enabled: true
+  GenerateReferencedDirs:
+    enabled: true
+  GenerateShellMounts:
+    enabled: true
+  InitFinder:
+    enabled: true
+  InterfaceFinder:
+    enabled: true
+  KernelModules:
+    enabled: true
+  KernelVersionFinder:
+    enabled: true
+  LibInjectFixedAliases:
+    enabled: true
+  LibInjectStringIntrospection:
+    enabled: true
+  LibInjectSymlinks:
+    enabled: true
+  LibInjectTailoredAliases:
+    enabled: true
+  LibrarySymbols:
+    enabled: true
+  LinksysHack:
+    enabled: true
+  ManualInteract:
+    enabled: true
+  NetdevsDefault:
+    enabled: true
+  NetdevsTailored:
+    enabled: true
+  NvramConfigRecovery:
+    enabled: true
+  NvramConfigRecoveryWild:
+    enabled: true
+  NvramDefaults:
+    enabled: true
+  NvramFirmAEFileSpecific:
+    enabled: true
+  NvramLibraryRecovery:
+    enabled: true
+  PseudofileFinder:
+    enabled: true
+  PseudofilesExpert:
+    enabled: true
+  PseudofilesTailored:
+    enabled: true
+  RootShell:
+    enabled: true
+  ShimBusybox:
+    enabled: true
+  ShimCrypto:
+    enabled: true
+  ShimNoModules:
+    enabled: true
+  ShimStopBins:
+    enabled: true
+  SingleShot:
+    enabled: true
+  SingleShotFICD:
+    enabled: true

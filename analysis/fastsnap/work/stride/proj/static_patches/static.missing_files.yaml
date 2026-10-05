@@ -1,0 +1,13 @@
+static_files:
+  /etc/TZ:
+    contents: EST5EDT
+    mode: 493
+    type: inline_file
+  /etc/hosts:
+    contents: "127.0.0.1\tlocalhost.localdomain\tlocalhost\n127.0.0.1 localhost\n"
+    mode: 493
+    type: inline_file
+  /var/run/nvramd.pid:
+    contents: ''
+    mode: 420
+    type: inline_file

@@ -1,0 +1,38 @@
+# The device block on real firmware.
+#
+# vpn MUST be off. base.yaml's `vpn: {}` reads as ENABLED (penguin_run.py
+# defaults a present key to True), so this patch has to come after it in the
+# patches list.
+#
+# NAMED patch_zz_* ON PURPOSE. Patches merge in filename order, so
+# patch_devblock.yaml lost to patch_fuzzcal.yaml and notrap came back on --
+# its 25 loadvm restores then landed inside the throughput windows this plugin
+# measures, which is exactly the contamination the disable was for. The log
+# says so plainly and is easy to miss:
+#   conflict: plugins.notrap.enabled: `false` -> `true`
+#             (patch_devblock.yaml -> patch_fuzzcal.yaml)
+#
+# writev is the detector because the server only makes it while actively
+# serving a request. A block taken while lighttpd idles in epoll_wait would
+# resume every restore into a blocking wait, and the measured interval would be
+# the idle timeout rather than the restore.
+plugins:
+  vpn:
+    enabled: false
+  syscalls: {}
+  notrap:
+    enabled: false
+  ram_term:
+    enabled: false
+  devblock:
+    mode: fast
+    deny: auto
+    deny_extra: cpu,cpu_common
+    comm: lighttpd
+    detector: writev
+    warmup: 40
+    # Sized to FINISH inside the run. The first attempt asked for
+    # 20 x (40 + 40) = 1600 detector hits and the run supplied 600, so it ended
+    # mid-loop with 7 restores and a partial last window.
+    window: 20
+    restores: 8

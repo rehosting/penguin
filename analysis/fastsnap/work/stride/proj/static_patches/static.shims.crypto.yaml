@@ -1,0 +1,11 @@
+static_files:
+  /igloo/keys/*:
+    host_path: /pkg/resources/static_keys/*
+    mode: 292
+    type: host_file
+  /usr/bin/openssl:
+    target: /igloo/utils/openssl
+    type: shim
+  /usr/bin/ssh-keygen:
+    target: /igloo/utils/ssh-keygen
+    type: shim

@@ -1,0 +1,10 @@
+core:
+  root_shell: true
+plugins:
+  netbinds:
+    enabled: true
+    shutdown_on_www: false
+  nmap:
+    enabled: false
+  vpn:
+    enabled: true

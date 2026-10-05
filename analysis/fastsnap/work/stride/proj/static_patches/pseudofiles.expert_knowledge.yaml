@@ -1,0 +1,196 @@
+pseudofiles:
+  /dev/acos_nat_cli:
+    ioctl:
+      '*':
+        model: return_const
+        val: 0
+      1074029617:
+        model: return_const
+        val: 1
+      2147771441:
+        model: return_const
+        val: 1
+      1074029618:
+        model: return_const
+        val: 1
+      2147771442:
+        model: return_const
+        val: 1
+    read:
+      model: zero
+    write:
+      model: discard
+  /dev/brcmboard:
+    ioctl:
+      '*':
+        model: return_const
+        val: 0
+    read:
+      model: zero
+    write:
+      model: discard
+  /dev/dsl_cpe_api:
+    ioctl:
+      '*':
+        model: return_const
+        val: 0
+    read:
+      model: zero
+    write:
+      model: discard
+  /dev/gpio:
+    ioctl:
+      '*':
+        model: return_const
+        val: 0
+    read:
+      model: zero
+    write:
+      model: discard
+  /dev/nvram:
+    ioctl:
+      '*':
+        model: return_const
+        val: 0
+    read:
+      model: zero
+    write:
+      model: discard
+  /dev/pib:
+    ioctl:
+      '*':
+        model: return_const
+        val: 0
+    read:
+      model: zero
+    write:
+      model: discard
+  /dev/sc_led:
+    ioctl:
+      '*':
+        model: return_const
+        val: 0
+    read:
+      model: zero
+    write:
+      model: discard
+  /dev/tca0:
+    ioctl:
+      '*':
+        model: return_const
+        val: 0
+    read:
+      model: zero
+    write:
+      model: discard
+  /dev/ticfg:
+    ioctl:
+      '*':
+        model: return_const
+        val: 0
+    read:
+      model: zero
+    write:
+      model: discard
+  /dev/watchdog:
+    ioctl:
+      '*':
+        model: return_const
+        val: 0
+    read:
+      model: zero
+    write:
+      model: discard
+  /dev/wdt:
+    ioctl:
+      '*':
+        model: return_const
+        val: 0
+    read:
+      model: zero
+    write:
+      model: discard
+  /dev/zybtnio:
+    ioctl:
+      '*':
+        model: return_const
+        val: 0
+    read:
+      model: zero
+    write:
+      model: discard
+  /proc/BtnMode:
+    read:
+      model: zero
+    write:
+      model: discard
+  /proc/RstBtnCnt:
+    read:
+      model: zero
+    write:
+      model: discard
+  /proc/blankstatus:
+    read:
+      model: zero
+    write:
+      model: discard
+  /proc/br_igmpProxy:
+    read:
+      model: zero
+    write:
+      model: discard
+  /proc/btnCnt:
+    read:
+      model: zero
+    write:
+      model: discard
+  /proc/gpio:
+    read:
+      model: zero
+    write:
+      model: discard
+  /proc/led:
+    read:
+      model: zero
+    write:
+      model: discard
+  /proc/push_button:
+    read:
+      model: zero
+    write:
+      model: discard
+  /proc/quantum/drv_ctl:
+    read:
+      model: zero
+    write:
+      model: discard
+  /proc/rt3052/mii/ctrl:
+    read:
+      model: zero
+    write:
+      model: discard
+  /proc/rt3052/mii/data:
+    read:
+      model: zero
+    write:
+      model: discard
+  /proc/rtk_promiscuous:
+    read:
+      model: zero
+    write:
+      model: discard
+  /proc/rtk_vlan_support:
+    read:
+      model: zero
+    write:
+      model: discard
+  /proc/simple_config/reset_button_s:
+    read:
+      model: zero
+    write:
+      model: discard
+  /proc/sw_nat:
+    read:
+      model: zero
+    write:
+      model: discard

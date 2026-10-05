@@ -1,0 +1,96 @@
+core:
+  # 2G -> 256M. If restore cost is dominated by rewriting the whole RAM image,
+  # it should fall ~8x. If it barely moves, the cost is elsewhere and the RAM
+  # hypothesis is wrong -- which is the point of changing only this.
+  mem: 256M
+  # save_at:'manual' is a PREREQUISITE, not a convenience: snapshotting is
+  # active only when save_at or boot_from is set, and only then does the guest
+  # run on a persistent qcow2 overlay. With core.immutable:true and snapshots
+  # inactive the drive gets `snapshot=on` (penguin_run.py:657-660), a throwaway
+  # overlay whose internal snapshots are discarded -- savevm would have had
+  # nowhere to persist and the failure would have looked like a loop bug.
+  snapshot:
+    save_at: manual
+    tag: notrap
+  root_shell: true
+  core_dumps: true
+  timeout: 300
+static_files:
+  /igloo/init.d/zz_fastsnap_drive:
+    type: inline_file
+    mode: 493
+    contents: "#!/igloo/utils/sh\n# Self-timing in-guest load driver. No host involvement:\
+      \ waits for lighttpd,\n# then issues a fixed number of pipelined requests and\
+      \ prints epoch seconds\n# either side, so R can be compared across plugin profiles\
+      \ using only\n# guest-side timing (no host probe in the measurement path).\n\
+      BB=/igloo/utils/busybox\n$BB setsid /igloo/utils/sh -c '\nBB=/igloo/utils/busybox\n\
+      n=0\nwhile [ $n -lt 400 ]; do\n  if printf \"GET / HTTP/1.0\\r\\n\\r\\n\" |\
+      \ $BB nc -w 2 127.0.0.1 80 2>/dev/null | $BB grep -q HTTP; then break; fi\n\
+      \  $BB sleep 1\n  n=$((n+1))\ndone\necho \"FASTSNAP_DRIVE_START $($BB date +%s)\
+      \ waited=${n}s\"\ni=0\nwhile [ $i -lt 100 ]; do\n  { j=0; while [ $j -lt 20\
+      \ ]; do\n      printf \"GET / HTTP/1.1\\r\\nHost: x\\r\\nConnection: keep-alive\\\
+      r\\n\\r\\n\"\n      j=$((j+1))\n    done; } | $BB nc -w 3 127.0.0.1 80 >/dev/null\
+      \ 2>&1\n  i=$((i+1))\ndone\necho \"FASTSNAP_DRIVE_END $($BB date +%s) conns=100\
+      \ depth=20 requests=2000\"\n' > /dev/console 2>&1 &\nexit 0\n"
+plugins:
+  uprobes:
+    # A/B lever for the dwarffi marshalling cut. Verify cross-checks the fast
+    # path against kffi on the first 500 events so a silently-wrong register
+    # read cannot masquerade as a speedup.
+    fast_ptregs: true
+    fast_ptregs_verify: 500
+  ram_term:
+    enabled: false
+  fuzzcal:
+    enabled: false
+  persist:
+    # Persistent-mode rewind at the parser. laps: 0 is the CONTROL -- the same
+    # probe is installed and timed, but nothing is rewound, so the difference
+    # between the two modes is attributable to the rewind rather than to the
+    # instrumentation both modes carry.
+    enabled: false
+    path: /usr/sbin/lighttpd
+    symbol: http_request_parse
+    laps: 20
+    max_total: 100000
+  notrap:
+    enabled: true
+    comm: lighttpd
+    detector: writev
+    warmup: 40
+    restores: 25
+  hookcost:
+    # Same run as parsecost on purpose: the uprobe and syscall numbers must
+    # come from one run, since a cross-run comparison is swamped by variance
+    # (identical configs gave 41.21 s and 34.69 s drive windows).
+    enabled: false
+    comm: lighttpd
+  parsecost:
+    enabled: false
+    # OVERHEAD RUN. Two near-empty functions that are both on the request
+    # path: connection_set_state is 12 bytes, get_http_method_key is 16. Their
+    # measured enter->return interval IS the probe round trip, since their own
+    # bodies are a handful of instructions. Two of them rather than one so the
+    # estimate has an internal consistency check.
+    #
+    # http_request_parse is deliberately ABSENT here: get_http_method_key is
+    # called from inside it, so probing both in one run would inflate the
+    # target interval by the very overhead being measured. Run 16 timed the
+    # target with nothing else armed; this run times the overhead alone.
+    symbols:
+    - connection_set_state
+    - get_http_method_key
+    target: connection_set_state
+    # Exact path, not a glob: symbols.lookup() disables its nm and ELF
+    # resolvers when the path contains '*', leaving only the prebuilt JSON
+    # DB -- which indexes 2 libraries and not this executable.
+    path: /usr/sbin/lighttpd
+  fuzzdrive:
+    # OFF for the G measurement. A fuzzed request and a well-formed one take
+    # different paths through the parser, so mixing them makes the median
+    # meaningless. Well-formed is the conservative choice: mutants usually
+    # bail earlier, so this G is an upper bound.
+    enabled: false
+    comm: lighttpd
+    passthrough: 0.1
+    seed: 1337

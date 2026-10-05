@@ -1,0 +1,6 @@
+env:
+  LD_PRELOAD: lib_inject.so
+static_files:
+  /lib/lib_inject.so:
+    target: /igloo/lib_inject_soft_float.so
+    type: symlink

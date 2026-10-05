@@ -1,0 +1,7 @@
+static_files:
+  /sbin/halt:
+    target: /igloo/utils/exit0.sh
+    type: shim
+  /sbin/reboot:
+    target: /igloo/utils/exit0.sh
+    type: shim

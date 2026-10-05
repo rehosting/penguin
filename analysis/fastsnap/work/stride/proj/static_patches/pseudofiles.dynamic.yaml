@@ -1,0 +1,225 @@
+pseudofiles:
+  /dev/boot:
+    ioctl:
+      '*':
+        model: return_const
+        provenance: default
+        val: 0
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /dev/cdrom:
+    ioctl:
+      '*':
+        model: return_const
+        provenance: default
+        val: 0
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /dev/config:
+    ioctl:
+      '*':
+        model: return_const
+        provenance: default
+        val: 0
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /dev/dsa:
+    ioctl:
+      '*':
+        model: return_const
+        provenance: default
+        val: 0
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /dev/egd:
+    ioctl:
+      '*':
+        model: return_const
+        provenance: default
+        val: 0
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /dev/loop:
+    ioctl:
+      '*':
+        model: return_const
+        provenance: default
+        val: 0
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /dev/net/tun:
+    ioctl:
+      '*':
+        model: return_const
+        provenance: default
+        val: 0
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /dev/poll:
+    ioctl:
+      '*':
+        model: return_const
+        provenance: default
+        val: 0
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /dev/pty:
+    ioctl:
+      '*':
+        model: return_const
+        provenance: default
+        val: 0
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /dev/shm/sem:
+    ioctl:
+      '*':
+        model: return_const
+        provenance: default
+        val: 0
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /dev/srandom:
+    ioctl:
+      '*':
+        model: return_const
+        provenance: default
+        val: 0
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /dev/sys:
+    ioctl:
+      '*':
+        model: return_const
+        provenance: default
+        val: 0
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /dev/temperature:
+    ioctl:
+      '*':
+        model: return_const
+        provenance: default
+        val: 0
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /dev/usbmon:
+    ioctl:
+      '*':
+        model: return_const
+        provenance: default
+        val: 0
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /proc/bus/usb:
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /proc/evms/volumes:
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /proc/ide:
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /proc/lvm/VGs:
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /proc/statread:
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /proc/sys/kernel/rtsig:
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /proc/sys/net/ipv:
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+  /proc/vmstatread:
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default

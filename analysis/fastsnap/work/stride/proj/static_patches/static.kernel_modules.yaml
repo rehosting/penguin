@@ -1,0 +1,4 @@
+static_files:
+  /lib/modules/4.10.0:
+    target: /lib/modules/3.4.96
+    type: symlink

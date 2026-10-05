@@ -1,0 +1,22 @@
+# fastsnap RAM-term probe.
+#
+# vpn MUST be off: the fast path's RAM half cannot arm while the
+# vhost-user-vsock backend is attached -- memory_global_dirty_log_start()
+# fails with "vhost: Failed to start logging: Protocol error". base.yaml's
+# `vpn: {}` reads as ENABLED (penguin_run.py:511 defaults a present key to
+# True), so this patch must come after it in the patches list.
+#
+# syscalls is enabled only to give the probe a sampling clock that runs on a
+# thread where taking the BQL is safe.
+plugins:
+  vpn:
+    enabled: false
+  syscalls: {}
+  ram_term:
+    windows_ms:
+    - 1
+    - 5
+    - 25
+    - 100
+    - 500
+    samples_per_window: 10

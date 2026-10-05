@@ -1,0 +1,437 @@
+core:
+  # The stock driver stops after 100 connections, ~31 s of serving, and the
+  # loop needs the workload to still be running when it arms. Extended to run
+  # until the timeout so the arming point can be chosen rather than raced for.
+  timeout: 900
+static_files:
+  /igloo/init.d/zz_fastsnap_drive:
+    type: inline_file
+    mode: 493          # 0o755 -- a FILE MODE, not the plugin's
+    contents: |
+      #!/igloo/utils/sh
+      BB=/igloo/utils/busybox
+      # ONE CONNECTION, HELD OPEN FOREVER. Every request after the first is
+      # manufactured by snapfeed inside the guest; this script exists only to
+      # get a single accepted fd into lighttpd and then stay out of the way.
+      #
+      # It used to open a fresh connection per 20 pipelined requests, and that
+      # shape is what made the lap bimodal:
+      #   run 88  arm landed INSIDE a burst   lap    2.896 ms   303.3 exec/s
+      #   run 99  arm landed at a connection  lap 1058.635 ms     0.9 exec/s
+      #           boundary, so every lap replayed a guest fork+exec of nc
+      # 1,537 accepts in run 99, and 1549/2370 epoll_waits (65%) were on the
+      # LISTENING socket. snapfeed feeds accepted fds and cannot synthesise
+      # accept(), so a connection boundary inside the replayed span is a wait
+      # for something only the guest can produce -- under emulation, ~1.05 s.
+      # With no boundary in the span there is no such wait to replay.
+      #
+      # Raising the connector count to 8 was the wrong lever: it did remove
+      # the wait (forward traversal 1050 ms -> 14.8 ms, disjoint 65% -> 29%)
+      # but run 102 then produced ONE lap in twelve minutes. I attributed that
+      # to dirty pages; that attribution was wrong and is retracted here. The
+      # run dirtied 949 pages instead of 380 and the reset cost 1364 us
+      # instead of 787 -- 0.9 ms against a 348 ms lap, nowhere near enough to
+      # explain it. snapfeed's own record says what actually happened:
+      # feed_wall_s 71.9 on a 720 s run, i.e. the guest stopped reading long
+      # before the end, which is a starved guest, not an expensive reset.
+      #
+      # And the starvation has a named cause. The old probe loop waited for
+      # `nc | grep -q HTTP` to see a response -- but swallow_writes is on, so
+      # lighttpd's reply is skipped at the syscall and NEVER reaches nc. The
+      # probe could not succeed by construction. Every connector burned all
+      # 400 iterations (the console says `waited=400s` on all eight) as a
+      # fork+exec storm of nc and sleep, straight through the arming window.
+      # A readiness check that cannot observe readiness is not a slow check,
+      # it is a fixed cost pretending to be a check. Removed.
+      #
+      # EVERYTHING BELOW RUNS IN THE BACKGROUND, and the wait for lighttpd is
+      # INSIDE it. /igloo/init runs every /igloo/init.d/* entry in the
+      # FOREGROUND and to completion BEFORE igloo_init, so a drop-in that
+      # blocks here does not delay the firmware, it prevents it: the sleep
+      # would be waiting for a lighttpd that cannot start until the sleep
+      # returns. Two runs have already been lost to exactly this (console.log
+      # came back 512 bytes instead of 8264). The whole body is backgrounded
+      # and this script exits immediately.
+      $BB setsid /igloo/utils/sh -c '
+      BB=/igloo/utils/busybox
+      $BB sleep 90                     # lighttpd comes up around 55-60 s
+      echo "FASTSNAP_DRIVE_START $($BB date +%s)"
+      while true; do
+        # One request to make lighttpd accept and read; then hold the write
+        # end of the pipe open so the connection never EOFs. snapfeed answers
+        # every subsequent read() on that fd.
+        #
+        # The holder WRITES every 2 s rather than sleeping, and that is the
+        # whole point of it. A holder that only sleeps cannot notice the far
+        # end going away: run 103 held the pipe with `sleep 3600`, lighttpd
+        # closed the connection after one feed, and the guest sat with a
+        # single socket in CLOSE_WAIT and the emulator at 2% CPU until the
+        # run was killed -- the outer loop below never got a turn, because a
+        # pipeline does not end until BOTH halves do. Writing means the next
+        # write takes SIGPIPE, the subshell dies, the pipeline ends, and this
+        # loop reconnects within about two seconds.
+        #
+        # The bytes are inert: `\r\n` before a request line is ignored by
+        # HTTP/1.1, and snapfeed skips the real read on a learned fd anyway,
+        # so lighttpd never consumes them.
+        { printf "GET / HTTP/1.1\r\nHost: x\r\nConnection: keep-alive\r\n\r\n"
+          while $BB sleep 2; do printf "\r\n"; done
+        } | $BB nc 127.0.0.1 80 >/dev/null 2>&1
+      done
+      ' > /dev/console 2>&1 &
+      exit 0
+# The complete reset, closed into a loop on real firmware.
+#
+# NAMED patch_zzz_* ON PURPOSE. Patches merge in filename order and the later
+# file wins, so a patch named patch_fastloop.yaml would lose every conflicting
+# key to patch_fuzzcal.yaml -- which is how notrap came back on in an earlier
+# run and dropped 25 loadvm restores into the windows being measured. The log
+# says so plainly and is easy to miss:
+#   conflict: plugins.notrap.enabled: `false` -> `true`
+#
+# EVERYTHING ELSE THAT TOUCHES THE SAME MACHINERY MUST BE OFF, and each for its
+# own reason rather than as a blanket precaution:
+#
+#   vpn        the dirty log cannot arm while the vhost-user-vsock backend is
+#              attached -- memory_global_dirty_log_start() fails with
+#              "vhost: Failed to start logging: Protocol error".
+#   notrap     savevm/loadvm walk and CLEAR the same migration bitmap this
+#              uses, and a restore rewrites RAM wholesale. Its restores would
+#              also land inside the intervals being timed.
+#   ram_term   arms the identical dirty log and clears the identical bits, so
+#              each would see a fraction of the truth and neither would report
+#              an error.
+#   devblock   takes and restores its own device block on its own schedule.
+#   dirtyiter  same bitmap again.
+#
+# writev is the detector because lighttpd only makes that call while actively
+# serving. A snapshot armed while it idles in epoll_wait would resume every
+# reset into a blocking wait, and the measured interval would be the idle
+# timeout rather than the loop.
+plugins:
+  vpn:
+    enabled: false
+  notrap:
+    enabled: false
+  ram_term:
+    enabled: false
+  devblock:
+    enabled: false
+  dirtyiter:
+    enabled: false
+  # hook_budget: count every syscall-hook firing and write hook_budget.json.
+  # A hooked syscall is 95.880 us against an unhooked one's 1.161 (measured by
+  # speedscheme.py, three controls passing), and 98.8% of that is the portal
+  # round trip -- so the only lever on hook cost is how many fire, and nothing
+  # in a run could see that until now.
+  syscalls:
+    hook_budget: 1
+  snapfeed:
+    # census: 1 ON PURPOSE for this run, though the default is now off. The
+    # point is to PRICE it: with the budget counting, one run gives the exact
+    # per-lap firing count of all fifteen census hooks, which is what the cut
+    # is worth. Measuring it costs a run; asserting it costs nothing and is
+    # how the "cheap: one counter increment" comment survived this long.
+    census: 0
+    comm: lighttpd
+    seed: 1337
+    answer_select: 1
+    swallow_writes: 1
+    # Do not feed requests that ask lighttpd to hang up. SEEDS[4] is
+    # `GET /../../etc/passwd HTTP/1.0` with no Connection header -- one of
+    # five, so a held-open connection dies within a handful of feeds. Off by
+    # default in the plugin because those are real inputs; on here because
+    # this loop's whole shape depends on the connection outliving the input.
+    # It does not cover mutation damage, which is what the guest-side
+    # reconnect above is for.
+    keepalive: 1
+    # MUTATION OFF, and this is an experiment control rather than a setting.
+    #
+    # mutate() truncates the request outright on one op in five
+    # (`out[:randrange(4, len(out))]`). A truncated request is one lighttpd
+    # cannot answer: it waits for the rest, `one_outstanding` withholds the
+    # next feed until it sees a response, the real read returns EAGAIN, the
+    # epoll answer excludes the pending fd -- and the connection sits until
+    # lighttpd's read-idle timeout. Under the old connection-per-request
+    # driver that cost one connection out of 1,537 and was invisible. Against
+    # a held-open connection it is the run: observed on run 105 as a socket
+    # pair cycling CLOSE_WAIT/FIN_WAIT2 with the guest at 1.8% CPU between
+    # brief 17% bursts.
+    #
+    # The question this configuration exists to answer is whether a lap can be
+    # fast AND faithful once the armed span contains no wait for an accept.
+    # Mutation is orthogonal to that and confounds it, so it comes back after
+    # the baseline exists, not before -- at which point what it costs is
+    # itself a measurement rather than a mystery.
+    # MUTATION ON, paired with run 114. Run 114 is the identical config with
+    # mutate: 0 -- same 1 MiB map, same 2200 laps, same driver, same arm axis
+    # -- so the difference in coverage growth between them is attributable to
+    # mutation and to nothing else. Every coverage figure recorded before this
+    # was taken with mutation off, which makes "1,408 new edges over 12,000
+    # laps" the right reading for a FIXED input set and no evidence at all
+    # about what a mutating fuzzer reaches.
+    mutate: 1
+    # THE COVERAGE-GUIDED CORPUS, ON. Run 119 against run 116's identical
+    # config with corpus: 0 -- but the cross-run pair is the WEAK half of this
+    # experiment, because two runs of this config draw different spans and
+    # that difference has swamped real effects before (runs 109-112).
+    #
+    # The strong half is in-run: corpus_lift in snapfeed.json is new edges per
+    # corpus-derived input over new edges per seed-derived input, both from
+    # this run, this snapshot, this draw. corpus_p 0.5 means the two arms get
+    # about the same number of inputs, which is what makes the ratio readable.
+    corpus: 0
+    # AND THE THING THAT MAKES MUTATION SURVIVABLE HERE. mutate() truncates
+    # the request on one op in five, and a truncated request is one lighttpd
+    # cannot answer: it waits for the rest, one_outstanding withholds the next
+    # feed, and the held-open connection sits until the read-idle timeout.
+    # That cost run 105 the entire run. complete_request terminates the
+    # payload so the victim can answer it -- a 400 is an answer and a
+    # perfectly good fuzzing outcome. It does not make the request valid, it
+    # makes it COMPLETE, which is the property the alternation depends on.
+    complete_request: 1
+  fastloop:
+    mode: loop
+    comm: lighttpd
+    detector: writev
+    warmup: 40
+    # Not before this many seconds. The hit count alone armed 72 s into boot,
+    # mid SSH-host-key generation, and every lap then replayed that: 20 SECONDS
+    # per iteration, from a reset that was working correctly. lighttpd comes up
+    # around 55-60 s and key generation is done well before 150.
+    arm_after_s: 150
+    iters: 12000
+    # The oracle reads all of guest RAM back and costs ~80x the reset, so it
+    # runs on a schedule. Every 25 laps is often enough that a reset which
+    # starts leaking pages is caught inside a few seconds, and rare enough
+    # that it does not become the thing being measured.
+    verify_every: 100
+    # virtio only. NOT cpu/cpu_common -- devblock denied those because a
+    # device-only restore rewinds the MMU page-table base into RAM that was
+    # never rewound. The RAM half is restored here, so the cpu section is both
+    # safe and necessary: it is what rewinds the guest to the armed instant.
+    deny: auto
+
+    arm_cost_mult: 3.0
+    # arm_retries: the default 3 is too few for a BIMODAL target, and this
+    # one is bimodal by a factor of ~300. The warmup gap distribution says so
+    # independently of any arming decision: p10 around 2.4-3.7 ms against a
+    # median around 1050 ms. The victim is connection-per-request, so inside a
+    # connection it serves a pipelined request in ~3 ms, and at a connection
+    # boundary it waits ~1050 ms for a guest fork+exec that snapfeed cannot
+    # synthesise. Which of the two the arm lands on IS the rate:
+    #
+    #   run 88  attempt 1        armed span fwd    2.39 ms, lap 3.297 ms
+    #                            lap/fwd 1.377 faithful      303.3 exec/s
+    #   run 90  attempt 3        armed span fwd    3.67 ms, lap 4.430 ms
+    #                            lap/fwd 1.207 faithful      225.7 exec/s
+    #   run 99  attempt 1        armed span fwd 1051.59 ms, lap 1058.6 ms
+    #                            lap/fwd 1.007 faithful        0.94 exec/s
+    #
+    # All three are honest measurements; run 99 simply had no cheap mode to
+    # arm on (its warmup p10 is 1051 ms -- every span that run was a boundary).
+    # An earlier version of this comment retracted the 303.3 as "not a rate".
+    # That retraction was wrong and is withdrawn: it came from scoring against
+    # the MEDIAN of the draw's five forward samples, and those five are five
+    # consecutive DIFFERENT spans, only the first of which starts where the
+    # replayed laps start.
+    #
+    # Retries are not sufficient on their own, which is the other half:
+    #
+    #   run 91  attempt 4        armed span fwd 1052.01 ms, lap 4.973 ms
+    #                            lap/fwd 0.005 -- NOT A RATE
+    #   run 106 attempt 1        armed span fwd 10189.66 ms, lap 3.346 ms
+    #                            lap/fwd 0.0003 -- NOT A RATE
+    #
+    # The ladder kept drawing until a draw replayed cheaply, and found one
+    # that replayed cheaply for the wrong reason -- a boundary span whose wait
+    # had already been waited by the forward pass, so the replay never pays
+    # it. `arm_fidelity_mult` (new, default 3.0) is what rejects that: it
+    # scores the probe lap against the armed span's OWN forward traversal and
+    # re-draws when the replay is more than 3x faster. Retries find the cheap
+    # mode; the fidelity axis makes sure it is the cheap mode and not a
+    # queued wait wearing its clothes.
+    arm_retries: 12
+    arm_progress: snapfeed.n_sent
+    # EDGE COVERAGE -- left OFF here on purpose, and turning it on is a
+    # deliberate experiment rather than an upgrade.
+    #
+    # Every rate this project has recorded (88, 90, 99, 107) was measured
+    # without it, and the instrumentation is real work inside the lap: eight
+    # TCG ops per translated block, plus a 64 KiB scan folded into each reset
+    # (12-27 us on the selftest guest; MEASURED at 160-163 us on this target,
+    # because the scan is O(map occupancy) and the zero-word skip collapses
+    # once the map is half full -- it reached 48.7%). A run with
+    # it on is not comparable to those, which is why `coverage_on` goes into
+    # every result and loopcmp prints "off" rather than a blank.
+    #
+    # ON, WITH THE IN-RUN A/B. The cross-run A/B was tried (runs 109-112) and
+    # could not answer: the two controls differed by 23% in the guest half
+    # because each run draws its own span, and both coverage runs landed BELOW
+    # both controls. cov_ab alternates armed/disarmed inside ONE run, on one
+    # draw against one snapshot, so the draw subtracts out.
+    coverage: 1
+    # cov_ab: the in-run A/B. OFF in the resting configuration because it is
+    # a COST instrument, not a coverage one: it disarms for half the run, and
+    # an edge first reached while disarmed is never logged, so total_edges
+    # comes back undercounted by an unknown amount. Set it to 300 to re-measure
+    # what coverage costs; leave it 0 to measure coverage itself.
+    #
+    # It answered the question it was built for in run 113 (12,000 laps, 35
+    # alternations, one draw, one snapshot):
+    #
+    #   lap total                261.2 us   31/35 pairs +  p=3.5e-06  t 15.4
+    #     reset half             178.5 us   35/35 pairs +  p=5.8e-11  t  244
+    #       scan, QEMU's clock   165.0 us
+    #       unattributed          13.5 us
+    #     guest half (emission)   81.7 us   31/35 pairs +  p=3.5e-06  t  9.7
+    #   CHECK reset+guest-total   -1.0 us
+    #
+    #   armed 289.0 exec/s, disarmed 312.6 -- coverage costs 7.5% of the rate
+    #
+    # The guest half is the number the cross-run A/B (runs 109-112) could not
+    # see at all. 81.7 us over 13,674 block executions is at most 6.0 ns per
+    # block, about 18 cycles for eight TCG ops.
+    # cov_ab: the in-run A/B, a COST instrument. Off in the resting
+    # configuration because it disarms for half the run, so an edge first
+    # reached while disarmed is never logged and total_edges comes back
+    # undercounted. Set it to 300 to re-measure what coverage costs.
+    cov_ab: 0
+    # A 1 MiB MAP, and the reason is measured rather than assumed.
+    #
+    # AFL's default 65,536 is too small for this target. Run 112 saw 31,920
+    # distinct edges = 48.7% occupancy, and an AFL map has no collision
+    # handling -- two edges in one byte are one edge forever -- so inverting
+    # m(1 - e^(-n/m)) put the true count near 43,750 and the loss near 27%.
+    #
+    # That was written here as a PREDICTION before run 114 so it could fail,
+    # and run 114 tested it. The cumulative comparison turned out CONFOUNDED
+    # (run 114 drew ~4 of the expensive 10 s connection-boundary laps against
+    # run 112's ~1, and a boundary lap replays a guest fork+exec worth ~29k
+    # edges), but the per-lap figures are immune -- a median cannot be moved
+    # by four laps in two thousand -- and the estimator held on three of them:
+    #
+    #   median edges/lap   4,849 at  7.40% full -> predicted  5,038  vs  5,023
+    #   p90    edges/lap   5,166 at  7.88%      -> predicted  5,381  vs  5,356
+    #   max    edges/lap  23,188 at 35.38%      -> predicted 28,618  vs 29,702
+    #
+    # 0.29%, 0.47% and 3.65% from prediction, across occupancies from 0.5% to
+    # 35%. So the estimator is validated as a function and the 27% follows.
+    #
+    # The cost is +105 us a lap, NOT the 16x the old "scan is O(map size)"
+    # comment predicted: 163 -> 268 us for a 16x map, i.e. 1.64x. The
+    # zero-word skip means cost tracks EDGES SET PER LAP, and run 115
+    # confirmed that on the same map by setting fewer edges and costing LESS
+    # (247 us). Model: ~0.5 ns per 8-byte word skimmed, ~5.1 ns per byte of a
+    # non-zero word, 5.1% spread over three runs and two map sizes.
+    # 256 KiB, TO TEST A MECHANISM RATHER THAN TO TUNE A KNOB.
+    #
+    # Run 116 produced a number my cost model cannot explain. Emission came
+    # out at 101.4 us over 5,902 block executions = 17.2 ns per block, where
+    # run 113 measured 81.7 us over 13,674 = 6.0 ns. The same eight TCG ops
+    # cannot cost 6 ns in one run and 17 in another, so the 'guest half' is
+    # NOT purely the ops.
+    #
+    # THE CANDIDATE MECHANISM: the coverage map's own cache footprint. Every
+    # instrumented block execution writes one byte at a HASHED offset, so the
+    # accesses are scattered by construction. A 64 KiB map is L2-resident and
+    # those writes hit; a 1 MiB map is not, and every block execution pays a
+    # miss. That is a cost that scales with MAP SIZE and lands in the GUEST
+    # half, and my model had no term for it at all -- it priced the map purely
+    # through the scan, which is why 'the 1 MiB map costs +105 us' was wrong.
+    #
+    # Runs 113 and 116 differ in three variables (map size, mutate, filter),
+    # so that inference is from a confounded pair -- the same mistake made
+    # earlier with total_edges. This run changes ONE thing from 116: the map.
+    #
+    # THE PREDICTIONS, written before the run:
+    #   scan       147 -> ~78 us   (skim 65.5 -> 16.4, byte work a little
+    #                               cheaper on a warmer map)
+    #   emission   101 -> ~47 us   <- THE TEST. If the cache hypothesis is
+    #                               right this roughly halves. If emission
+    #                               does NOT move, the hypothesis is WRONG
+    #                               and 17.2 ns/block has another cause.
+    #   lap total  255 -> ~130 us
+    #   occupancy  24,984 filtered edges in 256 KiB = 9.5%, est loss ~5%
+    #              -- worse than 1 MiB's 1.2%, and that is the trade being
+    #              priced: ~5% of edges against ~125 us a lap.
+    # 1 MiB, ON MODELLED HEADROOM RATHER THAN ON MEASURED DISCOVERY.
+    #
+    # The table that used to sit here -- 55.1 / 103.2 / 100.8 new edges/s for
+    # 256 KiB / 1 MiB / 4 MiB -- is WITHDRAWN. Those were runs 116/117/118,
+    # all with cov_ab on, so a disarmed lap re-reported the previous armed
+    # lap's new_edges and fastloop summed it; and the rate was divided by
+    # iterations/median rather than by measured time. See CORRECTIONS 14+15.
+    #
+    # Re-measured with cov_ab off and both denominators fixed (runs 126/127/
+    # 128, kernel filtered, mutation on, 12,000 laps each):
+    #
+    #   map       scan us   exec/s   collision loss   NEW EDGES / 1k TYPICAL LAPS
+    #   256 KiB       75     310.7       4.06%                 22.06
+    #   1 MiB        134     296.3       1.02%                 23.61
+    #   4 MiB        372     275.8       0.36%                 22.55
+    #
+    # 7% spread across a 16x map range. THE RANKING DOES NOT EXIST. Cost is
+    # real; benefit is not.
+    #
+    # And the design could not have found one. Only ~69 laps in 12,000
+    # discover anything at all (69/69/68 across the arms), and TWO laps carry
+    # ~43% of each run's total. Twelve thousand laps is a sample of 69
+    # dominated by 2. Do not run another single-run-per-arm comparison on
+    # discovery and expect it to mean anything.
+    #
+    # So why 1 MiB. Not because it finds more -- it does not. Because 256 KiB
+    # is ALREADY 8.0% full at 12,000 laps with ~4.1% estimated collision loss,
+    # and a blinded slot stays blinded, so the loss compounds with run length.
+    # A campaign 100x longer puts 256 KiB near 38% occupancy and ~21% loss
+    # against 1 MiB's 9.5% and ~5%. That is a MODEL and this lane has never
+    # run at that length. The premium is ~5% of throughput and ~59 us of a
+    # 3,375 us lap: cheap insurance against an unmeasured regime, and that is
+    # the whole of the argument. 4 MiB is out -- 11% slower than 1 MiB for
+    # headroom already negligible at 1 MiB.
+    #
+    # THE WARNING WORTH KEEPING IS STILL TRUE AND WAS STILL NOT ENOUGH.
+    # Overhead and exec/s are COSTS, and a configuration can win on both and
+    # be the worse one. That is why the old table read as a mechanism. The
+    # mechanism was real in principle; the effect it explained was not there.
+    cov_map_size: 1048576
+    #
+    # EXCLUDE THE KERNEL. cov_filter_lo/hi restrict instrumentation to one
+    # VIRTUAL address range, and 0xC0000000 (3221225472) is ARM's standard
+    # 3G/1G PAGE_OFFSET -- so [0, 0xC0000000) is userspace and everything at
+    # or above it is kernel.
+    #
+    # WHY THIS IS MORE TARGET-AGNOSTIC THAN COVERAGE.md CLAIMED. That document
+    # said filtering "needs the victim's text range read off the guest", and
+    # that is true of filtering to lighttpd's text -- but it is not what is
+    # needed. The user/kernel split is an ARCH CONSTANT of the kernel penguin
+    # itself builds, not a property of the firmware. One number per
+    # architecture, no guest introspection, nothing device-specific.
+    #
+    # WHY IT SHOULD PAY, in economics rather than in hope: kernel blocks are
+    # executed on EVERY lap (the syscall path the victim drives) and are novel
+    # only ONCE. They charge emission and scan two thousand times over and
+    # contribute to the novelty signal a single time. That is the worst
+    # possible cost profile for a fuzzer.
+    #
+    # THE PREDICTIONS, written before the run:
+    #   * the split is what this MEASURES -- COVERAGE.md asserted "most of the
+    #     ~50,000 blocks are kernel" and never checked it. No prediction is
+    #     offered for the fraction, on purpose.
+    #   * tbs_instrumented + tbs_filtered should total ~50,000, matching the
+    #     unfiltered runs. If either comes back near zero the split address is
+    #     wrong, not the idea -- that is the self-check.
+    #   * run 115's config unfiltered would cost ~330 us a lap (247 scan +
+    #     13.5 unattributed + ~69 emission, the last scaled from run 113's
+    #     81.7 us by hits/lap 11,560/13,674). With a userspace execution share
+    #     of (1-k), the filtered cost should be about
+    #        65.5  (skim, UNCHANGED -- it walks the whole map either way)
+    #      + (1-k) * 184   (byte work, tracks edges set per lap)
+    #      + 13.5
+    #      + (1-k) * 69    (emission, tracks instrumented block executions)
+    #     so the floor even at k=1 is ~79 us. The skim is what stops this
+    #     going to zero, which is its own finding.
+    cov_filter_lo: 0
+    cov_filter_hi: 3221225472
+    pin_process: 1
+    pin_exclusive: 0

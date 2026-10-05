@@ -1,0 +1,4 @@
+static_files:
+  /sbin/insmod:
+    target: /igloo/utils/exit0.sh
+    type: shim

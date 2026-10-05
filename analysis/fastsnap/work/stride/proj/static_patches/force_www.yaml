@@ -1,0 +1,12 @@
+core:
+  force_www: true
+static_files:
+  /igloo/utils/www_cmds:
+    contents: "#!/igloo/utils/sh\n        /igloo/utils/busybox sleep 120\n\n     \
+      \   while true; do\n        \n            if ! (/igloo/utils/busybox ps | /igloo/utils/busybox\
+      \ grep -v grep | /igloo/utils/busybox grep -sqi \"/usr/sbin/lighttpd -f /etc/lighttpd/lighttpd.conf\"\
+      ); then\n                /usr/sbin/lighttpd -f /etc/lighttpd/lighttpd.conf &\n\
+      \            fi\n        \n            /igloo/utils/busybox sleep 30\n     \
+      \       done\n        "
+    mode: 493
+    type: inline_file

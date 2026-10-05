@@ -1,0 +1,6 @@
+lib_inject:
+  aliases:
+    getenv: libinject_getenv
+    strcmp: libinject_strcmp
+    strncmp: libinject_strncmp
+    strstr: libinject_strstr

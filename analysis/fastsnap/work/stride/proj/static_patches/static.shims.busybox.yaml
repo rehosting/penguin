@@ -1,0 +1,7 @@
+static_files:
+  /bin/ash:
+    target: /igloo/utils/busybox
+    type: shim
+  /bin/sh:
+    target: /igloo/utils/busybox
+    type: shim

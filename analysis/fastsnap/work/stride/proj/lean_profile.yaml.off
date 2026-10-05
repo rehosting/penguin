@@ -1,0 +1,48 @@
+core:
+  root_shell: false
+  core_dumps: false
+  timeout: 900
+static_files:
+  /igloo/init.d/zz_fastsnap_drive:
+    type: inline_file
+    mode: 493
+    contents: "#!/igloo/utils/sh\n# Self-timing in-guest load driver. No host involvement:\
+      \ waits for lighttpd,\n# then issues a fixed number of pipelined requests and\
+      \ prints epoch seconds\n# either side, so R can be compared across plugin profiles\
+      \ using only\n# guest-side timing (no host probe in the measurement path).\n\
+      BB=/igloo/utils/busybox\n$BB setsid /igloo/utils/sh -c '\nBB=/igloo/utils/busybox\n\
+      n=0\nwhile [ $n -lt 400 ]; do\n  if printf \"GET / HTTP/1.0\\r\\n\\r\\n\" |\
+      \ $BB nc -w 2 127.0.0.1 80 2>/dev/null | $BB grep -q HTTP; then break; fi\n\
+      \  $BB sleep 1\n  n=$((n+1))\ndone\necho \"FASTSNAP_DRIVE_START $($BB date +%s)\
+      \ waited=${n}s\"\ni=0\nwhile [ $i -lt 100 ]; do\n  { j=0; while [ $j -lt 20\
+      \ ]; do\n      printf \"GET / HTTP/1.1\\r\\nHost: x\\r\\nConnection: keep-alive\\\
+      r\\n\\r\\n\"\n      j=$((j+1))\n    done; } | $BB nc -w 3 127.0.0.1 80 >/dev/null\
+      \ 2>&1\n  i=$((i+1))\ndone\necho \"FASTSNAP_DRIVE_END $($BB date +%s) conns=100\
+      \ depth=20 requests=2000\"\n' > /dev/console 2>&1 &\nexit 0\n"
+plugins:
+  ram_term:
+    enabled: false
+  fuzzcal:
+    enabled: false
+  parsecost:
+    enabled: false
+  fuzzdrive:
+    enabled: false
+  health:
+    enabled: false
+  indiv_debug:
+    enabled: false
+  interfaces:
+    enabled: false
+  nmap:
+    enabled: false
+  netbinds:
+    enabled: false
+  lifeguard:
+    enabled: false
+  crashes:
+    enabled: false
+  snapshot:
+    enabled: false
+  shell:
+    enabled: false

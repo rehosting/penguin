@@ -1,0 +1,37 @@
+static_files:
+  /etc_ro:
+    mode: 493
+    type: dir
+  /root:
+    mode: 493
+    type: dir
+  /run:
+    mode: 493
+    type: dir
+  /tmp/etc:
+    mode: 493
+    type: dir
+  /tmp/home:
+    mode: 493
+    type: dir
+  /tmp/home/root:
+    mode: 493
+    type: dir
+  /tmp/media:
+    mode: 493
+    type: dir
+  /tmp/mnt:
+    mode: 493
+    type: dir
+  /tmp/opt:
+    mode: 493
+    type: dir
+  /tmp/var:
+    mode: 493
+    type: dir
+  /tmp/var/run:
+    mode: 493
+    type: dir
+  /tmp/www:
+    mode: 493
+    type: dir

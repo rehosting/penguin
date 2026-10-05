@@ -1,0 +1,13 @@
+core:
+  root_shell: false
+plugins:
+  fetch_web:
+    enabled: true
+    shutdown_after_www: true
+  netbinds:
+    enabled: true
+    shutdown_on_www: false
+  nmap:
+    enabled: false
+  vpn:
+    enabled: true
