@@ -1,0 +1,125 @@
+--- a/target/arm/kvm.c
++++ b/target/arm/kvm.c
+@@ -44,6 +44,24 @@
+ #include "migration/blocker.h"
+ #include "system/penguin.h"
+ 
++/*
++ * Penguin hypercalls under KVM. The TCG hypercall instruction
++ * (msr S0_0_c5_c0_0, xzr; x8 = number, x0..x4 = arguments, result in x0)
++ * is UNDEFINED on hardware and traps straight to the guest kernel, which
++ * re-issues it as this SMCCC call (SMC64 fast call, OEM service range).
++ * kvm_arch_init() asks KVM to forward it to us. The guest keeps the
++ * original registers in place, except that x0 must hold the function ID:
++ *
++ *   x0 = PENGUIN_SMCCC_HYPERCALL, x6 = original x0 (argument 0),
++ *   x1..x4 = arguments 1..4, x8 = penguin hypercall number.
++ *
++ * The result is returned in x0. The guest copies x1..x5 and x8 back to the
++ * caller, so handlers that write those registers behave as under TCG. As in
++ * the TCG helper, a5 is 0 and an unhandled call returns argument 0.
++ */
++#define PENGUIN_SMCCC_HYPERCALL 0xC3001337u
++#define SMCCC_RET_NOT_SUPPORTED ((uint64_t)-1)
++
+ const KVMCapabilityInfo kvm_arch_required_capabilities[] = {
+     KVM_CAP_INFO(DEVICE_CTRL),
+     KVM_CAP_LAST_INFO
+@@ -595,6 +613,32 @@
+     return fixed_ipa ? 0 : size;
+ }
+ 
++/*
++ * Ask KVM to forward PENGUIN_SMCCC_HYPERCALL to us. Needs Linux 6.4+ and
++ * must happen before any vCPU runs. arm64 KVM does not advertise
++ * KVM_CAP_VM_ATTRIBUTES, so kvm_vm_check_attr() can't probe for it; just try.
++ */
++static void kvm_arm_install_penguin_smccc_filter(KVMState *s)
++{
++    struct kvm_smccc_filter filter = {
++        .base = PENGUIN_SMCCC_HYPERCALL,
++        .nr_functions = 1,
++        .action = KVM_SMCCC_FILTER_FWD_TO_USER,
++    };
++    struct kvm_device_attr attr = {
++        .group = KVM_ARM_VM_SMCCC_CTRL,
++        .attr = KVM_ARM_VM_SMCCC_FILTER,
++        .addr = (uintptr_t)&filter,
++    };
++    int err = kvm_vm_ioctl(s, KVM_SET_DEVICE_ATTR, &attr);
++
++    if (err < 0) {
++        warn_report("kvm: failed to install penguin SMCCC filter (needs "
++                    "Linux 6.4+): %s; penguin hypercalls will not reach QEMU",
++                    strerror(-err));
++    }
++}
++
+ int kvm_arch_init(MachineState *ms, KVMState *s)
+ {
+     int ret = 0;
+@@ -632,6 +676,8 @@
+         }
+     }
+ 
++    kvm_arm_install_penguin_smccc_filter(s);
++
+     if (kvm_check_extension(s, KVM_CAP_EXIT_HYPERCALL)) {
+         ret = kvm_vm_enable_cap(s, KVM_CAP_EXIT_HYPERCALL, 0, 1);
+         if (ret < 0) {
+@@ -1553,6 +1599,39 @@
+     return false;
+ }
+ 
++/*
++ * An SMCCC call forwarded by the filter installed in kvm_arch_init(). Unlike
++ * x86, arm64 KVM only reports the function ID (run->hypercall.nr); the
++ * arguments and result live in the guest's GPRs. The PC has already been
++ * advanced past the HVC/SMC.
++ */
++static void kvm_arm_handle_smccc_hypercall(CPUState *cs, struct kvm_run *run)
++{
++    CPUARMState *env = &ARM_CPU(cs)->env;
++    uint64_t ret = 0;
++
++    kvm_cpu_synchronize_state(cs);
++
++    if (run->hypercall.nr != PENGUIN_SMCCC_HYPERCALL || !is_a64(env)) {
++        /* Not ours: answer as KVM does for calls it doesn't implement. */
++        if (is_a64(env)) {
++            env->xregs[0] = SMCCC_RET_NOT_SUPPORTED;
++        } else {
++            env->regs[0] = (uint32_t)SMCCC_RET_NOT_SUPPORTED;
++        }
++        return;
++    }
++
++    if (penguin_handle_guest_hypercall(cs, env->xregs[8],
++                                       env->xregs[6], env->xregs[1],
++                                       env->xregs[2], env->xregs[3],
++                                       env->xregs[4], 0, &ret)) {
++        env->xregs[0] = ret;
++    } else {
++        env->xregs[0] = env->xregs[6];
++    }
++}
++
+ int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
+ {
+     ARMCPU *cpu = ARM_CPU(cs);
+@@ -1560,14 +1639,7 @@
+ 
+     switch (run->exit_reason) {
+     case KVM_EXIT_HYPERCALL:
+-        penguin_handle_guest_hypercall(cs, run->hypercall.nr,
+-                                       run->hypercall.args[0],
+-                                       run->hypercall.args[1],
+-                                       run->hypercall.args[2],
+-                                       run->hypercall.args[3],
+-                                       run->hypercall.args[4],
+-                                       run->hypercall.args[5],
+-                                       &run->hypercall.ret);
++        kvm_arm_handle_smccc_hypercall(cs, run);
+         break;
+     case KVM_EXIT_DEBUG:
+         if (kvm_arm_handle_debug(cpu, &run->debug.arch)) {

@@ -379,14 +379,16 @@
               let
                 q = penguin-qemu.packages.${system}.penguin-qemu;
               in
-              # The KVM build only compiles the host arch's target, so the
-              # aarch64 KVM exit handler is never built by x86 CI and fails to
-              # compile (__u64* vs uint64_t*). Patch it only where it is built,
-              # leaving the x86_64 derivation (and its cache hit) untouched.
+              # The KVM build only compiles the host arch's target, so x86 CI
+              # never builds the aarch64 KVM hypercall path (it didn't compile,
+              # and KVM never produced the exit it handled). The patch has KVM
+              # forward penguin's SMCCC hypercall and handles it. Applied only
+              # where it is built, leaving the x86_64 derivation (and its cache
+              # hit) untouched.
               # TODO: upstream to rehosting/qemu and drop.
               if system == "aarch64-linux" then
                 q.overrideAttrs (old: {
-                  patches = (old.patches or [ ]) ++ [ ./nix/patches/qemu-arm-kvm-hypercall-ret.patch ];
+                  patches = (old.patches or [ ]) ++ [ ./nix/patches/qemu-arm-kvm-smccc-hypercall.patch ];
                 })
               else
                 q;
