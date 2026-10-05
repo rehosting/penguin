@@ -36,12 +36,23 @@ Workspace `/home/luke/workspace/igloo-dev/projects/fastsnap/`, branch
 | `work/stride/proj/` | the run project (**gitignored**). `patch_zzz_fastloop.yaml` is the config and carries long comments explaining every setting. |
 | `work/stride/proj/results/<n>/` | per-run JSON. `fastloop.json` and `snapfeed.json` are where all numbers come from. |
 
-Run with `./penguin --pydev run analysis/fastsnap/work/stride/proj` from
-`penguin/`. Image tag is `penguin:fastsnap` (`.penguin-image`) — **do not
-build over `rehosting/penguin:latest`**.
+Run from `penguin/`:
+`./penguin --pydev --extra_docker_args "--cap-add=SYS_ADMIN -u 0" run analysis/fastsnap/work/stride/proj`.
+Image tag is `penguin:fastsnap` (`.penguin-image`) — **do not build over
+`rehosting/penguin:latest`**. `--cap-add=SYS_ADMIN` is REQUIRED or the PFN
+prefilter is unavailable and the verify oracle degrades (run 99 failed for
+lack of it). On the nix image `--pydev` is a PYTHONPATH overlay, not `pip -e`
+(it works; do not chase the old pip-gap).
 
-The project's `plugins/` holds **copies** of the pyplugins. After editing a
-plugin, copy it across or the run uses the old one.
+**Plugin copies — the step that is easy to miss.** `fastloop`/`snapfeed`/etc.
+are NOT built into `penguin/pyplugins/`; the config's `plugin_path: /pyplugins`
+resolves to the worktree's `pyplugins/` under `--pydev`. So before a run you
+must stage the lane plugins there:
+`cp analysis/fastsnap/work/stride/proj/plugins/*.py penguin/pyplugins/`
+(they are the canonical copies, kept in sync with `analysis/fastsnap/*.py`).
+Remove them afterwards to keep `pyplugins/` clean and un-committable. The
+project's own `plugins/` dir is NOT auto-discovered — penguin only scans
+`<proj>/plugins.d/`, which this project does not use.
 
 ## 3. State as of this handoff
 
@@ -54,7 +65,30 @@ about 7% of the rate.
 faithful AT91SAM9260 board, from a peer session's fork off the same base.
 19/19 patches apply with strict context; both halves verified present in one
 `libqemu-system-armel.so`; `fastsnap-selftest` passes all 7 scan shapes with
-the order control intact. **This has not yet been used for a run.**
+the order control intact.
+
+**Baked and regression-tested 2026-09-24 (fastsnap-a6).** The merged qemu is now
+in a runnable image: `cd penguin && ./nix-dev.sh override penguin-qemu
+../qemu_builder` (nix; only qemu recompiles), loaded and retagged `penguin:fastsnap`
+(old kept as `penguin:fastsnap-pre-merge`). The new libqemu carries the
+AT91SAM9260 board (6 syms vs 0 pre-merge) and the coverage ABI (23 `fastsnap_cov`
+syms). Regression on stridelinx (`work/stride/proj`, resting config,
+`--cap-add=SYS_ADMIN -u 0`, results/131, prediction in `PREDICTION-mergeregress.md`):
+**VALID, 120/120 verifications byte-identical across 403,054,592 bytes, all 120
+with every device section in scope restored** (the `virtio-net#13` flag did NOT
+fire — `deny:auto` denied the 3 virtio sections up front). reset 313 µs, lap
+3.18 ms, 315 exec/s median (189 wall), coverage armed (tbs 20,434, scan 128 µs).
+`fastsnap-selftest` PASSED on the fa76418 build (`qemu_builder/result/selftest.log`).
+**Conclusion: fa76418 is inert on the armel path — the board merge broke nothing.**
+The board itself is still unexercised (needs the BYOK at91 target).
+
+**One pre-existing gap surfaced, NOT a merge regression.** The run went UNPINNED:
+`HYPER_OP_SET_FUZZ_PIN` is absent from the flake's `igloo-driver` v0.0.97, so
+fastloop's fuzz-pin op `AttributeError`s and the loop runs unpinned ("laps may
+close in a process the arm did not land in"). Tolerable here (single httpd pid,
+still 120/120 VALID), and identical on the pre-merge image — it is a driver/flake
+version property, not caused by the qemu merge. Fixing it needs a driver bump or
+the pin op vendored into the pinned driver version.
 
 **Not working / not built.** Nothing consumes the coverage map — no scheduler
 or corpus feedback. Coverage is *measured*, not *guiding*. A coverage-guided

@@ -4,3 +4,10 @@
 # those stay tracked rather than being churned out now, but nothing new joins them.
 work_speed_scheme/
 work_syscost/
+
+# BYOK stage-2 artifacts staged from kernmod's session (binaries; belong in
+# kernel-lift, not penguin). Preserved here for the merged-QEMU BYOK run.
+work_byok/
+# kernmod's Stage-2 harness, kept as a reference copy; its durable home is
+# kernel-lift, so do not commit it into penguin.
+byok_pen_stage2.py
