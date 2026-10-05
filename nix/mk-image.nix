@@ -56,13 +56,39 @@
 let
   lib = pkgs.lib;
 
+  # Per-arch facts about the ubuntu:22.04 base. The digest below is a multi-arch
+  # index, and pullImage fetches the layers for the *building* machine's arch, so
+  # each arch has its own layer hash. `multiarch` is Ubuntu's library dir and
+  # `loader` the ELF interpreter path that must survive the /lib shadowing (see
+  # `overlay`): x86_64 reaches its loader via /lib64, which Ubuntu still provides,
+  # but arm64 names /lib/ld-linux-aarch64.so.1 directly and has no /lib64.
+  ubuntuArch =
+    {
+      x86_64-linux = {
+        dockerArch = "amd64";
+        hash = "sha256-L5hEr4S/AnNswxQc0dqDf85QZtEvQtVfes4r9n4q6mc=";
+        multiarch = "x86_64-linux-gnu";
+        loader = null;
+      };
+      aarch64-linux = {
+        dockerArch = "arm64";
+        hash = "sha256-+PIvOTLH0cYQ+t593aVo3OXzQPmHc4aeeHIi57Tp6fo=";
+        multiarch = "aarch64-linux-gnu";
+        loader = "ld-linux-aarch64.so.1";
+      };
+    }
+    .${pkgs.stdenv.hostPlatform.system}
+      or (throw "nix/mk-image.nix: no ubuntu:22.04 base pinned for ${pkgs.stdenv.hostPlatform.system}");
+
   # The ubuntu:22.04 base layer (same base the Dockerfile used). Pinned by
-  # digest so the build is reproducible; refresh both fields together with
-  # `nix run nixpkgs#nix-prefetch-docker -- --image-name ubuntu --image-tag 22.04`.
+  # digest so the build is reproducible; refresh the digest and every arch's
+  # hash together with
+  # `nix run nixpkgs#nix-prefetch-docker -- --image-name ubuntu --image-tag 22.04 --arch <amd64|arm64>`.
   ubuntuBase = pkgs.dockerTools.pullImage {
     imageName = "ubuntu";
     imageDigest = "sha256:4f838adc7181d9039ac795a7d0aba05a9bd9ecd480d294483169c5def983b64d";
-    hash = "sha256-L5hEr4S/AnNswxQc0dqDf85QZtEvQtVfes4r9n4q6mc=";
+    arch = ubuntuArch.dockerArch;
+    inherit (ubuntuArch) hash;
     finalImageName = "ubuntu";
     finalImageTag = "22.04";
   };
@@ -193,11 +219,16 @@ let
     #   RUN apt-get update && apt-get install -y wget|curl
     #
     # Ubuntu's libraries themselves were never lost -- they are intact at
-    # /usr/lib/x86_64-linux-gnu -- so only the /lib route needs re-pointing. Nix
+    # /usr/lib/<multiarch> -- so only the /lib route needs re-pointing. Nix
     # binaries are unaffected either way: each names its own store-path
-    # interpreter and never resolves through /lib.
+    # interpreter and never resolves through /lib. On arm64 the interpreter
+    # itself (/lib/ld-linux-aarch64.so.1) sits directly in /lib, so it gets a
+    # link too.
     mkdir -p "$out/lib"
-    ln -s /usr/lib/x86_64-linux-gnu "$out/lib/x86_64-linux-gnu"
+    ln -s /usr/lib/${ubuntuArch.multiarch} "$out/lib/${ubuntuArch.multiarch}"
+    ${lib.optionalString (ubuntuArch.loader != null) ''
+      ln -s /usr/lib/${ubuntuArch.multiarch}/${ubuntuArch.loader} "$out/lib/${ubuntuArch.loader}"
+    ''}
 
     # clang-20: dropin_compile.py invokes it by that exact name (-fuse-ld=lld;
     # ld.lld sits next to the driver in clang20Slim, also merged onto PATH).
@@ -469,8 +500,9 @@ let
     "/usr/local/bin/fw2tar"
     # The route to Ubuntu's loader + libs. Without it the entire Ubuntu userland
     # (apt, dpkg, ...) is unexecutable -- see the `overlay` comment.
-    "/lib/x86_64-linux-gnu"
-  ];
+    "/lib/${ubuntuArch.multiarch}"
+  ]
+  ++ lib.optional (ubuntuArch.loader != null) "/lib/${ubuntuArch.loader}";
   hostToolCheck = pkgs.runCommand "penguin-host-tool-check" { } ''
     missing=""
     for b in ${pkgs.lib.concatStringsSep " " requiredHostTools}; do
