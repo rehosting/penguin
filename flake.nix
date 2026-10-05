@@ -375,7 +375,21 @@
           # the qemu runtime closure into the image.
           penguinQemu = import ./nix/mk-penguin-qemu.nix {
             inherit pkgs;
-            src = penguin-qemu.packages.${system}.penguin-qemu;
+            src =
+              let
+                q = penguin-qemu.packages.${system}.penguin-qemu;
+              in
+              # The KVM build only compiles the host arch's target, so the
+              # aarch64 KVM exit handler is never built by x86 CI and fails to
+              # compile (__u64* vs uint64_t*). Patch it only where it is built,
+              # leaving the x86_64 derivation (and its cache hit) untouched.
+              # TODO: upstream to rehosting/qemu and drop.
+              if system == "aarch64-linux" then
+                q.overrideAttrs (old: {
+                  patches = (old.patches or [ ]) ++ [ ./nix/patches/qemu-arm-kvm-hypercall-ret.patch ];
+                })
+              else
+                q;
           };
 
           muslHeaders = import ./nix/mk-musl-headers.nix {
@@ -393,10 +407,15 @@
             root = ./guest-utils/native;
             fileset = ./guest-utils/native;
           };
+          # Hosted on x86_64-linux regardless of `system`, like toolDists below:
+          # the helpers are guest binaries, so the build host doesn't matter,
+          # and the musl cross toolchains are only cached for x86_64-linux. On
+          # an aarch64 host this sends them to an x86_64 builder instead of
+          # compiling a dozen cross-gccs from source.
           mkMuslCrossPkgs =
             archSpec:
             import nixpkgs {
-              inherit system;
+              system = "x86_64-linux";
               config.allowUnsupportedSystem = true;
               crossSystem = archSpec.muslCrossSystem;
             };

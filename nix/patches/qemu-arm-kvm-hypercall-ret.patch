@@ -1,0 +1,29 @@
+--- a/target/arm/kvm.c
++++ b/target/arm/kvm.c
+@@ -1559,7 +1559,13 @@
+     int ret = 0;
+ 
+     switch (run->exit_reason) {
+-    case KVM_EXIT_HYPERCALL:
++    case KVM_EXIT_HYPERCALL: {
++        /*
++         * run->hypercall.ret is a __u64 (unsigned long long), which is not
++         * pointer-compatible with uint64_t (unsigned long) on aarch64; go
++         * through a local, as the x86 handler does.
++         */
++        uint64_t hc_ret = run->hypercall.ret;
+         penguin_handle_guest_hypercall(cs, run->hypercall.nr,
+                                        run->hypercall.args[0],
+                                        run->hypercall.args[1],
+@@ -1567,8 +1573,10 @@
+                                        run->hypercall.args[3],
+                                        run->hypercall.args[4],
+                                        run->hypercall.args[5],
+-                                       &run->hypercall.ret);
++                                       &hc_ret);
++        run->hypercall.ret = hc_ret;
+         break;
++    }
+     case KVM_EXIT_DEBUG:
+         if (kvm_arm_handle_debug(cpu, &run->debug.arch)) {
+             ret = EXCP_DEBUG;
