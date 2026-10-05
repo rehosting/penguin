@@ -57,6 +57,14 @@ set_iptables_backend() {
 
 mkdir -p "$OUT"
 
+# 32-bit userspace on an arm64 kernel (e.g. armel firmware under KVM on an
+# arm64 host): ARMv8 dropped SWP from AArch32, and old uClibc linuxthreads
+# spins on it. The kernel can emulate it (CONFIG_SWP_EMULATION) but classes it
+# obsolete and leaves it off; turn it on wherever the knob exists.
+if [ -w /proc/sys/abi/swp ]; then
+  /igloo/utils/busybox echo 1 > /proc/sys/abi/swp
+fi
+
 if [ ! -z "${IGLOO_IPTABLES_BACKEND}" ]; then
   set_iptables_backend "$IGLOO_IPTABLES_BACKEND"
 fi
@@ -66,6 +74,7 @@ fi
   echo "kernel=$(/igloo/utils/busybox uname -r)"
   echo "cgroup_mode=${IGLOO_CGROUP_MODE:-unset}"
   echo "iptables_backend=${IGLOO_IPTABLES_BACKEND:-unset}"
+  echo "abi_swp=$(/igloo/utils/busybox cat /proc/sys/abi/swp 2>/dev/null || echo unavailable)"
 } > "$OUT/compat_mode.txt"
 
 if command -v iptables >/dev/null 2>&1; then
