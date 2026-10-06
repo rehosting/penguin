@@ -83,14 +83,17 @@
   # as "igloo: disagrees about version of symbol module_layout" -- and is why
   # every 6.13 target failed here.
   #
-  # v0.0.97 is the first release built by igloo_driver's nix path, compiled
+  # v0.0.97 was the first release built by igloo_driver's nix path, compiled
   # against the kernel DERIVATIONS this flake stages rather than an unpacked
-  # kernel-devel tarball, so a mismatched pair is not expressible. Its
-  # `kernels/BUILT_AGAINST.txt` records linux_builder b87fad4 -- the v4.0.1
-  # commit pinned above -- and the same kernel store paths this flake resolves,
-  # so the pairing is verifiable by content rather than by version number.
+  # kernel-devel tarball, so a mismatched pair is not expressible.
+  #
+  # Check that by content, not by version number, whenever this line moves: the
+  # release's `kernels/BUILT_AGAINST.txt` must record the linux_builder commit
+  # pinned above and the kernel store paths this flake resolves. v0.0.99's is
+  # byte-identical to v0.0.98's -- linux_builder b87fad4, which is the v4.0.1
+  # tag -- so this bump moves the driver module and nothing about the kernels.
   inputs.igloo-driver = {
-    url = "https://github.com/rehosting/igloo_driver/releases/download/v0.0.97/igloo_driver.tar.gz";
+    url = "https://github.com/rehosting/igloo_driver/releases/download/v0.0.99/igloo_driver.tar.gz";
     flake = false;
   };
   # v0.0.25 is the slimmed penguin-tools: it no longer ships the forked guest
