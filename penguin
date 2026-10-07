@@ -188,6 +188,7 @@ penguin_run() {
     local image_is_default=false # whether image fell through to the built-in moving default
     local extra_docker_args=""
     local standalone=false
+    local tap=false # --tap: attach the guest to a tap in the container (network.tap)
     local engine_override="" # --docker/--podman/--engine; empty means auto-detect
 
     # Process each command-line argument
@@ -222,6 +223,9 @@ penguin_run() {
                 echo "  --image: Which image to run. Default: rehosting/penguin:latest"
                 echo "           May also be set via PENGUIN_IMAGE or a .penguin-image file (walked up from cwd)."
                 echo "           Precedence: --image > PENGUIN_IMAGE > .penguin-image > rehosting/penguin (built-in default)."
+                echo "  --tap: Create tap0 (10.10.10.1/24) in the container for a guest NIC (config: network.tap), and forward"
+                echo "         connections to the container's address to the guest at 10.10.10.10. Adds NET_ADMIN, /dev/net/tun"
+                echo "         and /dev/vhost-net; the container starts as root for the setup, then drops to your uid/gid."
                 echo "  --extra_docker_args: Extra arguments to pass to the container engine. For example --extra_docker_args \"-p 8000:80\" to expose container port 80 on host port 8000."
                 echo "  --docker: Force use of the docker engine."
                 echo "  --podman: Force use of the podman engine."
@@ -292,6 +296,10 @@ penguin_run() {
                 ;;
             --standalone)
                 standalone=true
+                shift
+                ;;
+            --tap)
+                tap=true
                 shift
                 ;;
             --docker)
@@ -1310,7 +1318,32 @@ penguin_run() {
     # run as root-in-container (the default) -- rootless userns maps that
     # back to the host user, and an explicit -u would map to an
     # unprivileged subuid with the wrong ownership.
-    if ! $PODMAN_ROOTLESS; then
+    #
+    # --tap instead starts as root so penguin.tap_setup can create the tap and
+    # its forwarding (needs NET_ADMIN); it then drops to the caller's uid/gid,
+    # plus the groups that own /dev/kvm and /dev/vhost-net, before exec'ing
+    # penguin. Only for penguin commands: a shell or reproduce run keeps -u.
+    local tap_setup=false
+    local tap_groups=""
+    if $tap && ! $shell_mode && ! $reproduce; then
+        if $PODMAN_ROOTLESS; then
+            echo "${BOLD}ERROR:${RESET} --tap needs root in the container to create the tap; it is not supported under rootless podman." >&2
+            exit 1
+        fi
+        tap_setup=true
+        docker_cmd+=("--cap-add=NET_ADMIN" "--device=/dev/net/tun" "--sysctl" "net.ipv4.ip_forward=1")
+        if [ -e /dev/vhost-net ]; then
+            docker_cmd+=("--device=/dev/vhost-net")
+        else
+            echo "${BOLD}WARNING:${RESET} /dev/vhost-net not found; set network.tap.vhost: false or the guest NIC will fail to start." >&2
+        fi
+        local _dev _g
+        for _dev in /dev/kvm /dev/vhost-net; do
+            [ -e "$_dev" ] || continue
+            _g="$(stat -c '%g' "$_dev" 2>/dev/null || true)"
+            [ -n "$_g" ] && tap_groups="${tap_groups:+$tap_groups,}$_g"
+        done
+    elif ! $PODMAN_ROOTLESS; then
         docker_cmd+=("-u" "$(id -u):$(id -g)")
     fi
     docker_cmd+=("--cap-add=NET_BIND_SERVICE")
@@ -1322,6 +1355,9 @@ penguin_run() {
         if $shell_mode; then
             docker_cmd+=("bash")
         else
+            if $tap_setup; then
+                docker_cmd+=("python3" "-m" "penguin.tap_setup" "--uid" "$(id -u)" "--gid" "$(id -g)" "--groups" "$tap_groups" "--")
+            fi
             docker_cmd+=("penguin")
             if [[ ${#new_cmd[@]} -gt 0 ]]; then
                 docker_cmd+=("${new_cmd[@]}")

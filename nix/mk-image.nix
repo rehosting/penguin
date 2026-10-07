@@ -345,6 +345,10 @@ let
     pkgs.ripgrep
     pkgs.vim
     pkgs.inetutils # telnet (rootshell helper)
+    # ip / iptables: the wrapper's --tap mode runs penguin.tap_setup as root to
+    # create the guest's tap and forward the container's address to the guest.
+    pkgs.iproute2
+    pkgs.iptables
     pkgs.sudo
     # CA bundle at /etc/ssl/certs/ca-bundle.crt (+ the ca-certificates.crt alias
     # in `overlay`). Required for any HTTPS fetch -- see the overlay comment.
@@ -468,6 +472,8 @@ let
     "dot" # graph rendering
     "fakeroot" # extraction / image staging
     "telnet" # rootshell helper
+    "ip" # penguin.tap_setup (--tap)
+    "iptables" # penguin.tap_setup (--tap)
   ]
   # Tools invoked by *downstream* images (`FROM rehosting/penguin`) rather than by
   # penguin's own code, so no penguin test can catch their absence. Derived from

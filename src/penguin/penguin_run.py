@@ -1144,7 +1144,24 @@ def run_config(
 
     # If we have network args
     if network := conf.get("network", None):
-        if "external" in network:
+        # Before the external NIC, so the tap NIC takes the first PCI slot (and
+        # so the first ethN name) in the guest.
+        if tap := network.get("tap", None):
+            netdev = f"tap,id=tap,ifname={tap['ifname']},script=no,downscript=no"
+            # filter-dump captures in QEMU's userspace net layer, which vhost
+            # bypasses; with pcap on, keep the datapath in QEMU.
+            vhost = tap.get("vhost", True) and not tap.get("pcap")
+            if vhost:
+                netdev += ",vhost=on"
+            arg_str = f"-netdev {netdev} -device virtio-net-pci,netdev=tap,mac={tap['mac']}"
+            if tap.get("pcap"):
+                pcap_path = os.path.join(out_dir, "tap.pcap")
+                logger.info(f"Logging tap traffic to {pcap_path}")
+                arg_str += f" -object filter-dump,id=ftap,netdev=tap,file={pcap_path}"
+            args += shlex.split(arg_str)
+            logger.info(f"Attaching guest NIC {tap['mac']} to {tap['ifname']} (vhost-net {'on' if vhost else 'off'})")
+
+        if network.get("external") is not None:
             mac = network["external"]["mac"]
             arg_str = f"-netdev user,id=ext -device virtio-net-pci,netdev=ext,mac={mac}"
             # Supported in future versions of QEMU

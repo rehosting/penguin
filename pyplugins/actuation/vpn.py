@@ -51,6 +51,7 @@ Penguin plugin system for event-driven networking.
 """
 
 import atexit
+import platform
 import re
 import socket
 import subprocess
@@ -59,7 +60,7 @@ import jc
 import threading
 from contextlib import closing
 from os import environ as env
-from os import geteuid
+from os import access, geteuid, X_OK
 from os.path import join
 
 from typing import Dict, Optional
@@ -68,6 +69,19 @@ from penguin import Plugin, plugins, PluginArgs
 from penguin.defaults import static_dir
 
 running_vpns = []
+
+
+def host_vpn_binary() -> str:
+    """
+    Path of the host-side vpn binary. On arm64 hosts, use the native aarch64
+    build when the image ships one; otherwise use the x86_64 build (run under
+    binfmt emulation on non-x86 hosts).
+    """
+    if platform.machine().lower() in ("aarch64", "arm64"):
+        native = join(static_dir, "vpn/vpn-host.aarch64")
+        if access(native, X_OK):
+            return native
+    return join(static_dir, "vpn/vpn.x86_64")
 
 
 def kill_vpn() -> None:
@@ -355,7 +369,7 @@ class VPN(Plugin):
         # Launch VPN on host as panda starts. Init in the guest will launch the VPN in the guest
         self.event_file = tempfile.NamedTemporaryFile(prefix=f"/tmp/vpn_events_{CID}_")
         host_vpn_cmd = [
-            join(static_dir, "vpn/vpn.x86_64"),
+            host_vpn_binary(),
             "host",
             "-e",
             self.event_file.name,

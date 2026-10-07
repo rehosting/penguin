@@ -3735,6 +3735,10 @@ Configuration for networks to attach to guest
 
 ### `network.external` Set up NAT for outgoing connections
 
+|||
+|-|-|
+|__Default__|`null`|
+
 Configuration for NAT for external connections
 
 #### `network.external.mac` MAC Address for external interface
@@ -3754,5 +3758,49 @@ MAC Address for external network interface
 |__Default__|`null`|
 
 Whether to capture traffic over the external net in a pcap file. The file will be called 'ext.pcap' in the output directory. Capture disabled if unset.
+
+### `network.tap` Attach the guest to a tap device
+
+|||
+|-|-|
+|__Default__|`null`|
+
+Configuration for a guest NIC backed by a tap device in the container
+
+#### `network.tap.ifname` Tap device name
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`tap0`|
+
+Name of the tap device in the container to attach the NIC to. The wrapper's --tap flag creates tap0 before penguin starts.
+
+#### `network.tap.mac` MAC Address for the tap-backed interface
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`'52:54:00:12:34:57'`|
+
+MAC Address for the guest network interface on the tap
+
+#### `network.tap.vhost` Use vhost-net
+
+|||
+|-|-|
+|__Type__|boolean or null|
+|__Default__|`true`|
+
+Whether to move the NIC's datapath into the host kernel (vhost-net). Needs /dev/vhost-net, which the wrapper's --tap flag passes in.
+
+#### `network.tap.pcap` pcap file name
+
+|||
+|-|-|
+|__Type__|boolean or null|
+|__Default__|`null`|
+
+Whether to capture traffic over the tap NIC in a pcap file. The file will be called 'tap.pcap' in the output directory. Capture disabled if unset. QEMU's packet capture runs in userspace, so it disables vhost-net.
 
 

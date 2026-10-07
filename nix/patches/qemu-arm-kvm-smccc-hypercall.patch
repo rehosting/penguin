@@ -67,7 +67,7 @@
      if (kvm_check_extension(s, KVM_CAP_EXIT_HYPERCALL)) {
          ret = kvm_vm_enable_cap(s, KVM_CAP_EXIT_HYPERCALL, 0, 1);
          if (ret < 0) {
-@@ -1553,6 +1599,39 @@
+@@ -1553,6 +1599,61 @@
      return false;
  }
  
@@ -77,10 +77,32 @@
 + * arguments and result live in the guest's GPRs. The PC has already been
 + * advanced past the HVC/SMC.
 + */
++#define PENGUIN_CORE_REG(x) (KVM_REG_ARM64 | KVM_REG_SIZE_U64 | \
++                             KVM_REG_ARM_CORE | KVM_REG_ARM_CORE_REG(x))
++
 +static void kvm_arm_handle_smccc_hypercall(CPUState *cs, struct kvm_run *run)
 +{
 +    CPUARMState *env = &ARM_CPU(cs)->env;
 +    uint64_t ret = 0;
++
++    /*
++     * Peek at the hypercall number before pulling in the whole vCPU, which
++     * on arm64 is ~330 single-register ioctls each way: a number nobody
++     * registered for is answered (a0 back in x0) from four of them. KVM's
++     * copy is only authoritative while QEMU's isn't dirty.
++     */
++    if (run->hypercall.nr == PENGUIN_SMCCC_HYPERCALL && !cs->vcpu_dirty) {
++        uint64_t pstate, nr, a0;
++
++        if (!kvm_get_one_reg(cs, PENGUIN_CORE_REG(regs.pstate), &pstate) &&
++            !(pstate & PSTATE_nRW) &&
++            !kvm_get_one_reg(cs, PENGUIN_CORE_REG(regs.regs[8]), &nr) &&
++            !penguin_guest_hypercall_wanted(nr) &&
++            !kvm_get_one_reg(cs, PENGUIN_CORE_REG(regs.regs[6]), &a0) &&
++            !kvm_set_one_reg(cs, PENGUIN_CORE_REG(regs.regs[0]), &a0)) {
++            return;
++        }
++    }
 +
 +    kvm_cpu_synchronize_state(cs);
 +
@@ -107,7 +129,7 @@
  int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
  {
      ARMCPU *cpu = ARM_CPU(cs);
-@@ -1560,14 +1639,7 @@
+@@ -1560,14 +1661,7 @@
  
      switch (run->exit_reason) {
      case KVM_EXIT_HYPERCALL:

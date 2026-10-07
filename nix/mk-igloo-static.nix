@@ -111,6 +111,13 @@ pkgs.runCommand "igloo-static"
       if [ -d "$s" ]; then mkdir -p "$d" && cp -a "$s"/. "$d"/ && rm -rf "$s"; fi
     done
 
+    # The alias below replaces vpnguin's real 64-bit aarch64 build, which is the
+    # only one that can run `vpn host` natively on an arm64 host (the armel build
+    # has no host mode). Set it aside; it's staged as vpn/vpn-host.aarch64 below.
+    if [ -f aarch64/vpn ] && [ ! -L aarch64/vpn ]; then
+      mv aarch64/vpn .vpn-host.aarch64
+    fi
+
     # --- Dockerfile 621: aarch64 vpn aliases armel's (legacy) -----------------
     # Link NAME must be relative (we're cd'd into $out/igloo_static); the target
     # is the runtime-absolute path, matching the image.
@@ -139,6 +146,13 @@ pkgs.runCommand "igloo-static"
         esac
       done
     done
+
+    # Host-side vpn endpoint for arm64 hosts (vpn.py prefers it there over
+    # running vpn.x86_64 under binfmt emulation). Staged after the loop so it
+    # doesn't shadow the guest's vpn/vpn.aarch64 link.
+    if [ -e .vpn-host.aarch64 ]; then
+      mv .vpn-host.aarch64 vpn/vpn-host.aarch64
+    fi
 
     # --- Dockerfile 444-464: drop-in sysroot header + linker-alias links ------
     # penguin-tools ships sysroots/<arch>/{lib,...} (crt objects + libc/libgcc);

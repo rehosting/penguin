@@ -1,0 +1,45 @@
+--- a/include/system/penguin.h
++++ b/include/system/penguin.h
+@@ -32,6 +32,11 @@
+ void penguin_unregister_guest_hypercall(uint64_t nr);
+ void penguin_clear_guest_hypercalls(void);
+ bool penguin_guest_hypercall_registered(uint64_t nr);
++/*
++ * Whether a KVM hypercall should be handed to the host callback: true for a
++ * registered number, and for every number until anything is registered.
++ */
++bool penguin_guest_hypercall_wanted(uint64_t nr);
+ void set_kvm_penguin_hypercall_callback(kvm_penguin_hypercall_cb_t cb);
+ 
+ bool penguin_handle_guest_hypercall(CPUState *cs, uint64_t nr,
+--- a/system/penguin.c
++++ b/system/penguin.c
+@@ -72,6 +72,13 @@
+            g_hash_table_contains(penguin_guest_hypercall_numbers, &nr);
+ }
+ 
++bool penguin_guest_hypercall_wanted(uint64_t nr)
++{
++    return !penguin_guest_hypercall_numbers ||
++           g_hash_table_size(penguin_guest_hypercall_numbers) == 0 ||
++           g_hash_table_contains(penguin_guest_hypercall_numbers, &nr);
++}
++
+ void __attribute__((visibility("default")))
+ set_penguin_guest_hypercall_callback(penguin_guest_hypercall_cb_t cb,
+                                      void *opaque)
+@@ -100,6 +107,14 @@
+     }
+ 
+     if (kvm_penguin_hypercall_cb) {
++        /*
++         * Answer unregistered numbers here rather than crossing into the
++         * (Python) callback: the guest kernel issues some hypercalls nobody
++         * listens for, at a high rate.
++         */
++        if (!penguin_guest_hypercall_wanted(nr)) {
++            return false;
++        }
+         return kvm_penguin_hypercall_cb(cs, nr, a0, a1, a2, a3, a4, a5,
+                                         ret) == 0;
+     }

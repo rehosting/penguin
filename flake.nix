@@ -384,11 +384,24 @@
               # and KVM never produced the exit it handled). The patch has KVM
               # forward penguin's SMCCC hypercall and handles it. Applied only
               # where it is built, leaving the x86_64 derivation (and its cache
-              # hit) untouched.
+              # hit) untouched. The registered-hypercalls patch (answer numbers
+              # no plugin registered for in C, not Python) goes first: the arm64
+              # handler uses its penguin_guest_hypercall_wanted().
               # TODO: upstream to rehosting/qemu and drop.
+              # It also turns on vhost-net (in-kernel virtio-net datapath, used
+              # by network.tap), which build.sh disables along with the
+              # vhost-kernel backend it needs.
               if system == "aarch64-linux" then
                 q.overrideAttrs (old: {
-                  patches = (old.patches or [ ]) ++ [ ./nix/patches/qemu-arm-kvm-smccc-hypercall.patch ];
+                  patches = (old.patches or [ ]) ++ [
+                    ./nix/patches/qemu-penguin-kvm-registered-hypercalls.patch
+                    ./nix/patches/qemu-arm-kvm-smccc-hypercall.patch
+                  ];
+                  postPatch = (old.postPatch or "") + ''
+                    substituteInPlace build.sh \
+                      --replace-fail --disable-vhost-net --enable-vhost-net \
+                      --replace-fail --disable-vhost-kernel --enable-vhost-kernel
+                  '';
                 })
               else
                 q;

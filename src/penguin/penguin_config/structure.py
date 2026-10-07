@@ -1959,12 +1959,45 @@ class ExternalNetwork(PartialModelMixin, BaseModel):
     )
 
 
+class TapNetwork(PartialModelMixin, BaseModel):
+    """Configuration for a guest NIC backed by a tap device in the container"""
+
+    model_config = ConfigDict(title="Attach the guest to a tap device", extra="forbid")
+
+    ifname: Optional[str] = Field(
+        title="Tap device name",
+        default="tap0",
+        description="Name of the tap device in the container to attach the NIC to. The wrapper's --tap flag creates tap0 before penguin starts."
+    )
+
+    mac: Optional[str] = Field(
+        title="MAC Address for the tap-backed interface",
+        default="52:54:00:12:34:57",
+        description="MAC Address for the guest network interface on the tap"
+    )
+
+    vhost: Optional[bool] = Field(
+        title="Use vhost-net",
+        default=True,
+        description="Whether to move the NIC's datapath into the host kernel (vhost-net). Needs /dev/vhost-net, which the wrapper's --tap flag passes in."
+    )
+
+    pcap: Optional[bool] = Field(
+        title="pcap file name",
+        default=None,
+        description="Whether to capture traffic over the tap NIC in a pcap file. The file will be called 'tap.pcap' in the output directory. Capture disabled if unset. QEMU's packet capture runs in userspace, so it disables vhost-net."
+    )
+
+
 class Network(PartialModelMixin, BaseModel):
     """Configuration for networks to attach to guest"""
 
     model_config = ConfigDict(title="Network Configuration", extra="forbid")
 
-    external: ExternalNetwork = Field(default_factory=ExternalNetwork)
+    # Optional so that configuring only a tap doesn't also add a user-mode NIC
+    # (with its own default route); `external: {}` still enables it with defaults.
+    external: Optional[ExternalNetwork] = None
+    tap: Optional[TapNetwork] = None
 
 
 class Main(PartialModelMixin, BaseModel):
