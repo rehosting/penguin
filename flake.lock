@@ -197,15 +197,16 @@
     "libnvram": {
       "flake": false,
       "locked": {
-        "lastModified": 1780521704,
-        "narHash": "sha256-dXLQvAfFrDLCMbKQ1tLaie4qkRRMxEN/Cd3PcsEygs8=",
+        "lastModified": 1791399227,
+        "narHash": "sha256-ns4gdVljnrAdhepzbrAYTMd+PBH0Ae6ItI/EVO97Rp8=",
         "owner": "rehosting",
         "repo": "libnvram",
-        "rev": "e013c0686facbb62df09b30d0d5b92dd75fd4d58",
+        "rev": "e15820eb6a25af55d8a4a6dea0a28ee7fbe96080",
         "type": "github"
       },
       "original": {
         "owner": "rehosting",
+        "ref": "iamspeed-portalcall",
         "repo": "libnvram",
         "type": "github"
       }

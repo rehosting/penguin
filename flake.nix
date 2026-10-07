@@ -143,8 +143,11 @@
   # libnvram: source only -- penguin compiles nvram.c into lib_inject per
   # project (clang-20), so we just need the .c/.h tree, not a build. Consumed
   # directly here rather than routed through penguin-tools.
+  # iamspeed-portalcall: master plus the shared-memory nvram store (nvram_get
+  # is a memory read, not a directory lock + file open per key), ported to
+  # portal calls. RT-AC88U under KVM: Main_Login.asp 11-15 s -> 0.5-0.8 s.
   inputs.libnvram = {
-    url = "github:rehosting/libnvram";
+    url = "github:rehosting/libnvram/iamspeed-portalcall";
     flake = false;
   };
 
