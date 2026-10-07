@@ -1172,12 +1172,26 @@ class FastLoop(Plugin):
                     f"{len(wanted)}: {wanted}")
                 return
             if self.deny == "auto":
-                # Every virtio device, by section id. A virtio device's state
-                # is split between the model and a vring in GUEST RAM. The RAM
-                # half IS restored now, but virtio_load() validates against
-                # indices the host-side backend has moved on from, and the
-                # backend is not part of the guest, so the block still cannot
-                # carry it.
+                # Every virtio device, by section id. This default predates
+                # the fix to the loop reset's restore order (qemu_builder,
+                # "fastsnap: restore RAM before devices"). virtio_load() reads
+                # used_idx from the vring in GUEST RAM; restored before RAM,
+                # it saw a post-lap ring against an arm-time device and
+                # rejected the section. An earlier version of this comment
+                # read that as the host-side backend having moved on. It had
+                # not -- the backend holds no ring index; the RAM had not
+                # been rewound yet. With RAM restored first, virtio-net and
+                # virtio-blk restore byte-identically: two runs on the armel
+                # target, 120/120 on both oracles, only virtio-9p denied.
+                #
+                # The default stays "auto" because the full block costs
+                # ~370 us more per reset and that trade is the lane owner's.
+                # `deny: 0000:00:02.0/virtio-9p` is the verified alternative.
+                # What auto still guards against is real, just narrower than
+                # it was: a backend with I/O in flight at arm time (a slirp
+                # connection, an AIO request) is not drained or rewound by
+                # anything, and a denied section that moves is reported by
+                # the device oracle rather than silently drifting.
                 chosen = [n for n in names if "virtio" in n.lower()]
             elif self.deny:
                 chosen = [x.strip() for x in self.deny.split(",") if x.strip()]
