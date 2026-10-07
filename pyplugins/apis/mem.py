@@ -109,6 +109,10 @@ class Mem(Plugin):
             self.endian_format = '>'
             self.endian_str = 'big'
         self.try_panda = True if self.panda.arch != "riscv64" else False
+        # Inside a hypercall-mailbox dispatch a direct read would need the
+        # vCPU's translation state (a full register sync under KVM), so go
+        # through the portal, which the guest executes, instead.
+        self._mb_active = getattr(self.panda, "mb_active", lambda: False)
         self.ptr_typ = f'uint{self.panda.bits}_t'
 
         # Cache specific FFI types and functions to avoid dot-lookup overhead
@@ -184,7 +188,7 @@ class Mem(Plugin):
 
         # Handle single chunk (Fast Path)
         if total_len <= rsize:
-            if self.try_panda:
+            if self.try_panda and not self._mb_active():
                 if cpu is None:
                     cpu = self._get_cpu()
                 try:
@@ -208,7 +212,7 @@ class Mem(Plugin):
             chunk_len = len(chunk_view)
 
             success = False
-            if self.try_panda:
+            if self.try_panda and not self._mb_active():
                 if cpu is None:
                     cpu = self._get_cpu()
                 try:
@@ -277,7 +281,7 @@ class Mem(Plugin):
 
         # --- FAST PATH: Single Chunk (Common Case) ---
         if size <= rsize:
-            if self.try_panda:
+            if self.try_panda and not self._mb_active():
                 # We can assume CPU is needed here, get it once
                 cpu = self._get_cpu()
                 try:
@@ -315,7 +319,7 @@ class Mem(Plugin):
                 chunk_size = rsize
 
             chunk = None
-            if self.try_panda:
+            if self.try_panda and not self._mb_active():
                 if cpu is None:
                     cpu = self._get_cpu()
                 try:
@@ -429,7 +433,7 @@ class Mem(Plugin):
                 chunk = None
 
                 # 3. Attempt PANDA direct read first
-                if self.try_panda:
+                if self.try_panda and not self._mb_active():
                     try:
                         chunk = self.read_bytes_panda(cpu, curr_addr, to_read)
                     except ValueError:

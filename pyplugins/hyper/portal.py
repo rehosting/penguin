@@ -320,6 +320,11 @@ class Portal(Plugin):
         if self.portal_interrupt:
             buf = struct.pack(f"{self.endian_format}Q", value)
             try:
+                shared_pa = plugins.hypercall.mb_shared_pa
+                if shared_pa:
+                    # Mailbox mode: the flag lives at the start of the shared page.
+                    plugins.hypercall.mb_physical_write(shared_pa, buf)
+                    return
                 plugins.mem.write_bytes_panda(
                     self._get_cpu(), self.portal_interrupt, buf)
             except ValueError as e:
@@ -349,6 +354,20 @@ class Portal(Plugin):
     This can return none
     '''
 
+    def _region_read(self, cpu: Any, cpu_memregion: int, offset: int, size: int) -> bytes:
+        """Read the portal region: by physical address in a mailbox call, else by VA."""
+        mb = plugins.hypercall.mb
+        if mb is not None and mb.region_pa:
+            return plugins.hypercall.mb_physical_read(mb.region_pa + offset, size)
+        return plugins.mem.read_bytes_panda(cpu, cpu_memregion + offset, size)
+
+    def _region_write(self, cpu: Any, cpu_memregion: int, data: bytes) -> None:
+        mb = plugins.hypercall.mb
+        if mb is not None and mb.region_pa:
+            plugins.hypercall.mb_physical_write(mb.region_pa, data)
+            return
+        plugins.mem.write_bytes_panda(cpu, cpu_memregion, data)
+
     def _read_memregion_state(self, cpum: tuple) -> tuple:
         """
         Read the state of the memory region.
@@ -361,7 +380,7 @@ class Portal(Plugin):
         """
         cpu, cpu_memregion = cpum
         try:
-            buf = plugins.mem.read_bytes_panda(cpu, cpu_memregion, self.region_header_size)
+            buf = self._region_read(cpu, cpu_memregion, 0, self.region_header_size)
             _, _, addr, size = self.region_header_struct.unpack(buf)
         except ValueError as e:
             self.logger.error(f"Failed to read memregion state: {e}")
@@ -386,8 +405,7 @@ class Portal(Plugin):
                 f"Size {size} exceeds chunk size {self.regions_size}")
             size = self.regions_size
         try:
-            mem = plugins.mem.read_bytes_panda(
-                cpu, cpu_memregion + self.region_header_size, size)
+            mem = self._region_read(cpu, cpu_memregion, self.region_header_size, size)
             return mem
         except ValueError as e:
             self.logger.error(f"Failed to read memory: {e}")
@@ -404,7 +422,7 @@ class Portal(Plugin):
         """
         cpu, cpu_memregion = cpum
         try:
-            buf = plugins.mem.read_bytes_panda(cpu, cpu_memregion, self.region_header_size + self.regions_size)
+            buf = self._region_read(cpu, cpu_memregion, 0, self.region_header_size + self.regions_size)
         except ValueError as e:
             self.logger.error(f"Failed to read memregion state and data: {e}")
             return 0, 0, None
@@ -451,7 +469,7 @@ class Portal(Plugin):
                 data = data[:self.regions_size]
             to_write += data
         try:
-            plugins.mem.write_bytes_panda(cpu, cpu_memregion, to_write)
+            self._region_write(cpu, cpu_memregion, to_write)
         except ValueError as e:
             self.logger.error(f"Failed to write memregion state: {e}")
 

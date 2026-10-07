@@ -795,8 +795,20 @@ class Syscalls(Plugin):
         """
         arg = self.panda.arch.get_arg(cpu, 1, convention="syscall")
 
-        # 1. Get Event Object (No bytes serialization yet)
-        sce = SyscallEvent(plugins.kffi.read_type_panda(cpu, arg, "syscall_event"))
+        # Hypercall mailbox: the driver put a copy of the event and the
+        # caller's pt_regs in a linear-map bounce buffer (event_pa), readable
+        # by physical address. It stays valid for every round trip of this call.
+        mb = plugins.hypercall.mb
+        event_pa = mb.event_pa if mb is not None else 0
+        bounce = None
+        if event_pa:
+            bounce = plugins.hypercall.mb_physical_read(event_pa, mb.event_len)
+            ev_size = plugins.kffi.ffi.sizeof("syscall_event")
+            sce = SyscallEvent(plugins.kffi.ffi.from_buffer(
+                "syscall_event", bytearray(bounce[:ev_size]), address=arg))
+        else:
+            # 1. Get Event Object (No bytes serialization yet)
+            sce = SyscallEvent(plugins.kffi.read_type_panda(cpu, arg, "syscall_event"))
         hook_ptr = sce.hook.address
         if hook_ptr not in self._hooks:
             return
@@ -814,7 +826,13 @@ class Syscalls(Plugin):
         # 4. Get Prototype (Optimized with Caching)
         proto = self._get_proto(cpu, sce, on_all)
 
-        pt_regs_raw = yield from plugins.kffi.read_type(sce.regs.address, "pt_regs")
+        regs_size = plugins.kffi.ffi.sizeof("pt_regs")
+        if bounce is not None and len(bounce) >= ev_size + regs_size:
+            pt_regs_raw = plugins.kffi.ffi.from_buffer(
+                "pt_regs", bytearray(bounce[ev_size:ev_size + regs_size]),
+                address=sce.regs.address)
+        else:
+            pt_regs_raw = yield from plugins.kffi.read_type(sce.regs.address, "pt_regs")
         pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
 
         if on_all or proto is None or sce.argc == 0:
@@ -841,7 +859,10 @@ class Syscalls(Plugin):
         if not read_only:
             new = bytes(sce)
             if original != new:
-                if getattr(self.panda, "direct_syscall_event_writeback", False):
+                if event_pa:
+                    # The driver copies the bounce back over the event.
+                    plugins.hypercall.mb_physical_write(event_pa, new)
+                elif getattr(self.panda, "direct_syscall_event_writeback", False):
                     try:
                         plugins.mem.write_bytes_panda(
                             cpu, arg & plugins.mem.addr_mask, new)

@@ -2,7 +2,9 @@ import json
 import os
 import re
 import shlex
+import sys
 import threading
+from collections import Counter
 from pathlib import Path
 from typing import Callable, List, Optional
 
@@ -609,6 +611,24 @@ class QemuCompat:
                 "\nvoid set_penguin_qmp_callback("
                 "penguin_qmp_cb_t cb, void *opaque);\n"
             )
+        for symbol, declaration in (
+            (
+                "cpu_physical_memory_map",
+                "void *cpu_physical_memory_map(uint64_t addr, uint64_t *plen, "
+                "bool is_write);",
+            ),
+            (
+                "penguin_kvm_mailbox_supported",
+                "bool penguin_kvm_mailbox_supported(void);",
+            ),
+            (
+                "cpu_physical_memory_unmap",
+                "void cpu_physical_memory_unmap(void *buffer, uint64_t len, "
+                "bool is_write, uint64_t access_len);",
+            ),
+        ):
+            if symbol not in cdef_source:
+                cdef_source += f"\n{declaration}\n"
         if "char *strdup" not in cdef_source:
             cdef_source += "\nchar *strdup(const char *s);\n"
         self.ffi.cdef(cdef_source)
@@ -637,6 +657,8 @@ class QemuCompat:
         self._qmp_callback = None
         self._bound_qmp_plugin = None
         self.panda_args = []
+        # Mailbox dispatch guard: what still needed live vCPU state.
+        self.mb_guard = Counter()
 
         self._active_instances.append(self)
         self.set_hypercall_callback(self._dispatch_hypercall)
@@ -971,7 +993,77 @@ class QemuCompat:
             if locked_here:
                 bql_unlock()
 
+    # --- hypercall mailbox (DESIGN-mailbox.md) -------------------------------
+    #
+    # Inside a mailbox dispatch the host is meant to touch only guest-physical
+    # memory. Anything that needs live vCPU state (a virtual-address access, a
+    # register outside the captured hypercall view, the CPU env) first syncs
+    # the vCPU once for the dispatch, then counts the site, so the fallback is
+    # correct and visible. Under TCG the sync is a no-op and only the count
+    # matters; under KVM each counted dispatch is a full register sync.
+
+    def mb_begin(self, cpu):
+        state = self._thread_state
+        state.mb_active = True
+        state.mb_synced = False
+        state.mb_cpu = cpu
+
+    def mb_end(self):
+        state = self._thread_state
+        state.mb_active = False
+        synced = getattr(state, "mb_synced", False)
+        state.mb_synced = False
+        return synced
+
+    def mb_active(self):
+        return getattr(self._thread_state, "mb_active", False)
+
+    def _mb_need_state(self, site):
+        state = self._thread_state
+        if not getattr(state, "mb_active", False):
+            return
+        frame = sys._getframe(2)
+        while frame is not None and frame.f_code.co_filename.endswith(
+                ("qemu_compat.py", "/mem.py", "/kffi.py")):
+            frame = frame.f_back
+        where = "?"
+        if frame is not None:
+            where = f"{os.path.basename(frame.f_code.co_filename)}:{frame.f_code.co_name}"
+        self.mb_guard[f"{site} <- {where}"] += 1
+        if not state.mb_synced:
+            state.mb_synced = True
+            self.mb_guard["SYNCS"] += 1
+            self.sync_cpu_state(getattr(state, "mb_cpu", None) or self.get_cpu())
+
+    def physical_map(self, addr, size, is_write=True):
+        """Map guest-physical RAM; returns (host pointer, mapped length)."""
+        plen = self.ffi.new("uint64_t *", int(size))
+        ptr = self.lib.cpu_physical_memory_map(int(addr), plen, bool(is_write))
+        return ptr, int(plen[0])
+
+    def physical_memory_read(self, addr, size):
+        ptr, plen = self.physical_map(addr, size, False)
+        if ptr == self.ffi.NULL or plen < size:
+            if ptr != self.ffi.NULL:
+                self.lib.cpu_physical_memory_unmap(ptr, plen, False, 0)
+            raise ValueError(f"Physical read failed at {addr:#x}+{size:#x}")
+        data = bytes(self.ffi.buffer(ptr, size))
+        self.lib.cpu_physical_memory_unmap(ptr, plen, False, size)
+        return data
+
+    def physical_memory_write(self, addr, data):
+        size = len(data)
+        ptr, plen = self.physical_map(addr, size, True)
+        if ptr == self.ffi.NULL or plen < size:
+            if ptr != self.ffi.NULL:
+                self.lib.cpu_physical_memory_unmap(ptr, plen, True, 0)
+            raise ValueError(f"Physical write failed at {addr:#x}+{size:#x}")
+        self.ffi.memmove(ptr, data, size)
+        self.lib.cpu_physical_memory_unmap(ptr, plen, True, size)
+        return size
+
     def _cpu_memory_rw_debug(self, cpu, addr, ptr, length, is_write):
+        self._mb_need_state("vaddr-write" if is_write else "vaddr-read")
         vaddr = self._guest_addr(addr)
         size = self.ffi.cast("size_t", int(length))
         return self._call_with_bql(
@@ -1087,6 +1179,7 @@ class QemuCompat:
             cpu = self.get_cpu()
         if cpu is None or cpu == self.ffi.NULL:
             raise ValueError("cpu_env requires a valid CPU pointer")
+        self._mb_need_state("cpu_env")
         if sync is None:
             sync = self.mode == "kvm"
         if sync:
@@ -1118,6 +1211,7 @@ class QemuCompat:
         read_reg = self._lib_symbol("penguin_read_guest_reg")
         if read_reg is None or cpu is None or cpu == self.ffi.NULL:
             return None
+        self._mb_need_state(f"reg-read {regnum}")
         buf = self.ffi.new("uint8_t[16]")
         length = read_reg(cpu, int(regnum), buf, 16)
         if length <= 0:
@@ -1134,6 +1228,7 @@ class QemuCompat:
         write_reg = self._lib_symbol("penguin_write_guest_reg")
         if write_reg is None or cpu is None or cpu == self.ffi.NULL:
             return False
+        self._mb_need_state(f"reg-write {regnum}")
         width = self.bits // 8
         data = (int(value) & ((1 << self.bits) - 1)).to_bytes(width, self.endianness)
         buf = self.ffi.new("uint8_t[]", data)

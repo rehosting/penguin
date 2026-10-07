@@ -133,6 +133,11 @@ class Events(Plugin):
                 if arg is int:
                     args.append(argval)
                 elif arg is str:
+                    mb = plugins.hypercall.mb
+                    if mb is not None and mb.str_arg == i + 1:
+                        # Mailbox call: the driver copied the string in.
+                        args.append(mb.payload_str)
+                        continue
                     try:
                         s = plugins.mem.read_str_panda(cpu, argval)
                     except ValueError:
