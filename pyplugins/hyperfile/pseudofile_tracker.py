@@ -242,6 +242,15 @@ class PseudofileTracker(Plugin):
             default=None,
             description="Which telemetry to log: 'all', 'missing', and/or 'modeled'. Defaults to 'all' when unset.",
         )
+        kernel_path_filter: bool = Field(
+            default=False,
+            description=(
+                "Filter -ENOENT path syscalls in the kernel to absolute /dev/, /proc/ and /sys/ "
+                "paths instead of sending every -ENOENT to the host. Much cheaper (every event is "
+                "a hypercall, a VM exit under KVM), but misses relative paths such as "
+                "open(\"tty0\") with a cwd of /dev."
+            ),
+        )
 
     def __init__(self):
         self.outdir = self.get_arg("outdir")
@@ -302,11 +311,19 @@ class PseudofileTracker(Plugin):
             "sys_stat64", "sys_lstat64", "sys_newstat", "sys_newlstat",
             "sys_readlink", "sys_old_stat", "sys_old_lstat", "sys_creat"
         ]
+        # With kernel_path_filter, one hook per interesting prefix: the kernel
+        # drops everything else (libnvram misses, PATH lookups, ...) itself.
+        prefixes = [None]
+        if self.get_arg_bool("kernel_path_filter"):
+            prefixes = [ValueFilter.string_startswith(p) for p in ("/dev/", "/proc/", "/sys/")]
+
         for sc in arg0_syscalls:
-            syscalls.syscall(
-                sc, on_return=True,
-                retval_filter=ValueFilter.exact(-self.ENOENT)
-            )(self._handle_enoent_arg0)
+            for prefix in prefixes:
+                syscalls.syscall(
+                    sc, on_return=True,
+                    arg_filters=[prefix] if prefix else None,
+                    retval_filter=ValueFilter.exact(-self.ENOENT)
+                )(self._handle_enoent_arg0)
 
         # ---------------------------------------------------------
         # 2. Path at Arg 1 (e.g. sys_openat, sys_statx)
@@ -317,20 +334,28 @@ class PseudofileTracker(Plugin):
             "sys_fstatat64", "sys_fstatat"
         ]
         for sc in arg1_syscalls:
-            syscalls.syscall(
-                sc, on_return=True,
-                retval_filter=ValueFilter.exact(-self.ENOENT)
-            )(self._handle_enoent_arg1)
+            for prefix in prefixes:
+                syscalls.syscall(
+                    sc, on_return=True,
+                    arg_filters=[None, prefix] if prefix else None,
+                    retval_filter=ValueFilter.exact(-self.ENOENT)
+                )(self._handle_enoent_arg1)
 
         # ---------------------------------------------------------
         # 3. sys_ioctl
         # ---------------------------------------------------------
         # Only "sys_ioctl" is needed because the C proxy's normalize_syscall_name
         # transparently folds "compat_sys_ioctl" into the same hash bucket!
-        syscalls.syscall(
-            "sys_ioctl", on_return=True,
-            retval_filter=ValueFilter.exact(-25)  # -ENOTTY
-        )(self._handle_ioctl_enotty)
+        # TTY ioctls (0x5400-0x54ff) are dropped by ignore_cmd() anyway, and
+        # they are most of the -ENOTTYs: libc's isatty() (TCGETS) on every
+        # stdio stream that isn't a tty. Keep them in the guest: one hook
+        # below the range, one above.
+        for cmd_filter in (ValueFilter.less(0x5400), ValueFilter.greater(0x54FF)):
+            syscalls.syscall(
+                "sys_ioctl", on_return=True,
+                arg_filters=[None, cmd_filter],
+                retval_filter=ValueFilter.exact(-25)  # -ENOTTY
+            )(self._handle_ioctl_enotty)
 
     # --- Handlers ---
 
