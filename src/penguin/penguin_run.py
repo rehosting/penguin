@@ -45,6 +45,23 @@ def _runtime_path(value) -> str | None:
     return str(value) if value is not None else None
 
 
+def use_virtio_console(conf: dict, q_config: dict) -> bool:
+    """Whether the guest's ``/dev/console`` goes on a virtio console (``hvc0``).
+
+    Under arm64 KVM every byte written to the PL011 UART is several MMIO
+    accesses, each an exit to QEMU userspace: about 50 us per byte on a
+    Cortex-A57, so a chatty daemon can spend most of a vCPU on its log lines.
+    A virtio console takes a whole ``write()`` per virtqueue kick. On by default
+    for aarch64 KVM; ``PENGUIN_VIRTIO_CONSOLE=0`` or ``=1`` forces it.
+    """
+    if q_config["arch"] != "aarch64" or conf["core"].get("graphics", False):
+        return False
+    forced = os.environ.get("PENGUIN_VIRTIO_CONSOLE")
+    if forced is not None:
+        return forced == "1"
+    return conf["core"].get("execution_mode") == "kvm"
+
+
 def render_kernel_append(append_parts: list[str], env: dict, extra_cmdline: str = "") -> str:
     """Assemble the kernel ``-append`` string.
 
@@ -818,6 +835,11 @@ def run_config(
     _console = arch_registry.spec(archend).console_replacement
     if _console is not None:
         append = append.replace(_console[0], _console[1])
+    # earlycon keeps the PL011 printing until hvc0 registers; the kernel then
+    # drops the boot console without replaying the log, so nothing repeats.
+    virtio_console = use_virtio_console(conf, q_config)
+    if virtio_console:
+        append = append.replace("console=ttyAMA0", "earlycon console=hvc0")
 
     telnet_port = find_free_port()
     if telnet_port is None:
@@ -1064,10 +1086,13 @@ def run_config(
     if show_output_bool and not graphics:
         logger.info("Logging console output to stdout")
         console_out = [
-                "-chardev", f"stdio,id=char1,logfile={out_dir}/console.log,signal=on",
+                "-chardev", f"stdio,id=char1,logfile={out_dir}/console.log,signal=on"
+                + (",mux=on" if virtio_console else ""),
                 "-serial", "chardev:char1",
                 "-display", "none",
                 ]
+        if virtio_console:
+            console_out += ["-device", "virtio-serial-device", "-device", "virtconsole,chardev=char1"]
     elif graphics:
         logger.info(f"Setting VNC password to {vnc_password}")
         args += [
@@ -1080,6 +1105,18 @@ def run_config(
         ]
         console_out = []
         # if we do not set show_output it breaks our logging
+    elif virtio_console:
+        # One muxed chardev feeds console.log from both the PL011 (earlycon,
+        # anything opening /dev/ttyAMA0) and hvc0 (/dev/console).
+        logger.info(f"Logging console output (hvc0 + ttyAMA0) to {out_dir}/console.log")
+        console_out = [
+            "-chardev", f"file,id=console0,path={out_dir}/console.log,mux=on",
+            "-serial", "chardev:console0",
+            "-device", "virtio-serial-device",
+            "-device", "virtconsole,chardev=console0",
+            "-monitor", "null",
+            "-display", "none",
+        ]
     else:
         logger.info(f"Logging console output to {out_dir}/console.log")
         console_out = [
