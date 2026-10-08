@@ -26,6 +26,17 @@ MB_MAGIC = b"IGLOOMB1"
 MB_PAGE = 4096
 MB_RET_OFFSET = 64
 MB_PAYLOAD_OFFSET = 112
+# The shared page's set of handled hypercall numbers (mailbox.h): the guest
+# skips the exit for a number that isn't in it.
+MB_FILTER_ON_OFFSET = 8 * 8
+MB_FILTER_OFFSET = 16 * 8
+MB_FILTER_SLOTS = 256
+MB_FILTER_MAX = 192    # past 3/4 full, turn the filter off rather than probe long chains
+_U64 = 0xFFFFFFFFFFFFFFFF
+
+
+def _mb_filter_hash(nr: int) -> int:
+    return ((nr * 0x9E3779B97F4A7C15) & _U64) >> 56
 
 
 class MailboxCall:
@@ -66,6 +77,9 @@ class Hypercall(Plugin):
         # Mailbox state: vCPU (CPUState address) -> mapped mailbox page.
         self.mailboxes = {}
         self.mb_shared_pa = None
+        self._mb_shared = None      # the mapped shared page, once a mailbox registers
+        self._mb_filter_n = 0
+        self._mb_filter_enabled = os.environ.get("PENGUIN_HC_MAILBOX_FILTER", "1") != "0"
         # The MailboxCall being dispatched on this vCPU thread, if any. Per
         # thread: with smp > 1, two vCPUs can be inside a dispatch at once.
         self._mb_tls = threading.local()
@@ -107,6 +121,8 @@ class Hypercall(Plugin):
         for alias in _hypercall_aliases(nr):
             self.handlers[alias].append(func)
             self._register_qemu_hypercall(alias)
+            if self._mb_shared is not None:
+                self._mb_filter_add(alias)
         return func
 
     def hypercall(self, nr: int) -> Callable[[Callable], Callable]:
@@ -190,6 +206,8 @@ class Hypercall(Plugin):
             return MB_MODE_OFF
         self.mailboxes[self._vcpu(cpu)] = buf
         self.mb_shared_pa = shared_pa
+        if self._mb_shared is None:
+            self._mb_filter_init(shared_pa)
         mode = MB_MODE_HC
         if getattr(self.panda, "mode", None) == "kvm":
             # The hvc doorbell needs QEMU's no-sync KVM exit path.
@@ -198,6 +216,46 @@ class Hypercall(Plugin):
                 mode = MB_MODE_HVC
         self.logger.info("mailbox: guest cpu %d at %#x, mode %d", guest_cpu, mb_pa, mode)
         return mode
+
+    def _mb_filter_init(self, shared_pa: int) -> None:
+        """Publish the handled numbers, so the guest makes no exit for the rest."""
+        try:
+            ptr, plen = self.panda.physical_map(shared_pa, MB_PAGE)
+        except Exception as exc:
+            self.logger.warning("mailbox: cannot map shared page %#x: %s", shared_pa, exc)
+            return
+        if ptr == self.panda.ffi.NULL or plen < MB_PAGE:
+            return
+        self._mb_shared = self.panda.ffi.buffer(ptr, MB_PAGE)
+        if not self._mb_filter_enabled:
+            return
+        for nr, handlers in list(self.handlers.items()):
+            if handlers:
+                self._mb_filter_add(nr)
+        if self._mb_filter_n <= MB_FILTER_MAX:
+            self._mb_ret.pack_into(self._mb_shared, MB_FILTER_ON_OFFSET, 1)
+        self.logger.info("mailbox: %d handled numbers published to the guest filter",
+                         self._mb_filter_n)
+
+    def _mb_filter_add(self, nr: int) -> None:
+        """Add nr to the guest's set. The guest only ever needs more numbers, never fewer."""
+        nr &= _U64
+        shared = self._mb_shared
+        if nr == 0 or self._mb_filter_n > MB_FILTER_MAX:
+            self._mb_ret.pack_into(shared, MB_FILTER_ON_OFFSET, 0)
+            return
+        h = _mb_filter_hash(nr)
+        for i in range(MB_FILTER_SLOTS):
+            off = MB_FILTER_OFFSET + 8 * ((h + i) % MB_FILTER_SLOTS)
+            (v,) = self._mb_ret.unpack_from(shared, off)
+            if v == nr:
+                return
+            if v == 0:
+                self._mb_ret.pack_into(shared, off, nr)
+                self._mb_filter_n += 1
+                if self._mb_filter_n > MB_FILTER_MAX:
+                    self._mb_ret.pack_into(shared, MB_FILTER_ON_OFFSET, 0)
+                return
 
     def _mb_doorbell(self, cpu):
         """IGLOO_HYPER_MAILBOX: everything is in the calling vCPU's mailbox."""
