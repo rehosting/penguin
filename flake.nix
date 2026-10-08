@@ -389,7 +389,9 @@
               # where it is built, leaving the x86_64 derivation (and its cache
               # hit) untouched. The registered-hypercalls patch (answer numbers
               # no plugin registered for in C, not Python) goes first: the arm64
-              # handler uses its penguin_guest_hypercall_wanted().
+              # handler uses its penguin_guest_hypercall_wanted(). The mailbox
+              # patch goes last: it answers the mailbox doorbell (0xC3001338)
+              # without a vCPU register sync (pyplugins/apis/hypercall.py).
               # TODO: upstream to rehosting/qemu and drop.
               # It also turns on vhost-net (in-kernel virtio-net datapath, used
               # by network.tap), which build.sh disables along with the
@@ -399,6 +401,7 @@
                   patches = (old.patches or [ ]) ++ [
                     ./nix/patches/qemu-penguin-kvm-registered-hypercalls.patch
                     ./nix/patches/qemu-arm-kvm-smccc-hypercall.patch
+                    ./nix/patches/qemu-penguin-kvm-mailbox.patch
                   ];
                   postPatch = (old.postPatch or "") + ''
                     substituteInPlace build.sh \
