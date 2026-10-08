@@ -86,10 +86,10 @@ class Hypercall(Plugin):
         self.mb_calls = Counter()
         self.mb_synced = Counter()
         self._mb_enabled = os.environ.get("PENGUIN_HC_MAILBOX", "1") != "0"
-        endian = "<" if self.panda.endianness == "little" else ">"
-        self._mb_hdr = struct.Struct(f"{endian}8sQ6QQQQQQQ")
-        self._mb_ret = struct.Struct(f"{endian}Q")
-        self._mb_outdir = self.get_arg("outdir")
+        # Built when a guest registers a mailbox (_mb_init_layout), so the
+        # registry itself needs no emulator.
+        self._mb_hdr = self._mb_ret = None
+        self._mb_outdir = None
         self._mb_last_dump = 0.0
         self.register(IGLOO_HYPER_REGISTER_MAILBOX, self._mb_register)
         self.register(IGLOO_HYPER_MAILBOX, self._mb_doorbell)
@@ -192,6 +192,7 @@ class Hypercall(Plugin):
         mb_pa, shared_pa, guest_cpu, size = self.panda._current_args[:4]
         if not self._mb_enabled:
             return MB_MODE_OFF
+        self._mb_init_layout()
         try:
             ptr, plen = self.panda.physical_map(mb_pa, MB_PAGE)
         except Exception as exc:
@@ -216,6 +217,14 @@ class Hypercall(Plugin):
                 mode = MB_MODE_HVC
         self.logger.info("mailbox: guest cpu %d at %#x, mode %d", guest_cpu, mb_pa, mode)
         return mode
+
+    def _mb_init_layout(self) -> None:
+        if self._mb_hdr is not None:
+            return
+        endian = "<" if self.panda.endianness == "little" else ">"
+        self._mb_hdr = struct.Struct(f"{endian}8sQ6QQQQQQQ")
+        self._mb_ret = struct.Struct(f"{endian}Q")
+        self._mb_outdir = self.get_arg("outdir")
 
     def _mb_filter_init(self, shared_pa: int) -> None:
         """Publish the handled numbers, so the guest makes no exit for the rest."""
