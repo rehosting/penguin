@@ -590,19 +590,32 @@ def _check_board_image_config(conf: dict) -> None:
         raise ValueError(
             "core.guest_image: none attaches only core.flash; leave "
             "core.disk_transport unset")
+    if (core.get("snapshot") or {}).get("save_at") == "readiness":
+        raise ValueError(
+            "core.snapshot.save_at: readiness waits for penguin's init, which "
+            "core.guest_image: none doesn't run; use save_at: manual")
 
 
-def _board_flash_args(conf: dict, proj_dir: str) -> list:
-    """The -drive for core.flash. core.immutable (default) keeps the image
-    untouched by sending writes to a throwaway overlay."""
-    flash = conf["core"]["flash"]
-    path = flash["path"]
+def _board_flash_path(conf: dict, proj_dir: str) -> str:
+    """Absolute path of core.flash.path, which must exist."""
+    path = conf["core"]["flash"]["path"]
     if not os.path.isabs(path):
         path = os.path.join(proj_dir, path)
     if not os.path.isfile(path):
         raise ValueError(f"core.flash.path not found: {path}")
-    drive = (f"if={flash.get('interface', 'mtd')},"
-             f"format={flash.get('format', 'raw')},file={path}")
+    return path
+
+
+def _board_flash_args(conf: dict, proj_dir: str, overlay: str = None) -> list:
+    """The -drive for core.flash. core.immutable (default) keeps the image
+    untouched by sending writes to a throwaway overlay. A snapshot run passes
+    its persistent qcow2 overlay (backed by the flash image) instead."""
+    flash = conf["core"]["flash"]
+    interface = flash.get("interface", "mtd")
+    if overlay:
+        return ["-drive", f"if={interface},format=qcow2,file={overlay}"]
+    drive = (f"if={interface},format={flash.get('format', 'raw')},"
+             f"file={_board_flash_path(conf, proj_dir)}")
     if conf["core"].get("immutable", True):
         drive += ",snapshot=on"
     return ["-drive", drive]
@@ -937,11 +950,12 @@ def run_config(
     snapshot_boot_from = snap_cfg.get("boot_from")
     snapshot_enabled = (snapshot_save_at is not None) or (snapshot_boot_from is not None)
     drive_image = config_image
-
-    if snapshot_enabled and board_image:
-        # The snapshot overlay is built over penguin's generated image.
-        raise NotImplementedError(
-            "core.snapshot is not supported with core.guest_image: none yet")
+    # The overlay's backing image: penguin's generated image, or the board's
+    # own flash.
+    snap_base, snap_base_fmt = config_image, "qcow2"
+    if board_image:
+        snap_base = _board_flash_path(conf, proj_dir)
+        snap_base_fmt = conf["core"]["flash"].get("format", "raw")
 
     if snapshot_enabled and snap_cfg.get("backend", "internal") == "file":
         # The standalone migration-file backend (migrate file:/-incoming with
@@ -991,7 +1005,7 @@ def run_config(
                 os.remove(overlay_path)
             subprocess.check_output([
                 "qemu-img", "create", "-f", "qcow2",
-                "-b", config_image, "-F", "qcow2", overlay_path,
+                "-b", snap_base, "-F", snap_base_fmt, overlay_path,
             ])
             with open(meta_path, "w") as f:
                 json.dump({"tag": snap_tag, "fingerprint": fingerprint}, f)
@@ -1007,7 +1021,7 @@ def run_config(
                 yaml.dump(style_config_for_dump(conf), f, sort_keys=False,
                           default_flow_style=False, width=None, Dumper=CoreDumper)
             logger.info("Created snapshot overlay %s over %s (fingerprint %s)",
-                        overlay_path, config_image, fingerprint[:12])
+                        overlay_path, snap_base, fingerprint[:12])
         drive_image = overlay_path
 
     # If core config specifes immutable: False we'll run without snapshot.
@@ -1038,7 +1052,8 @@ def run_config(
         disk_transport = "none" if conf["core"].get("machine") else "auto"
 
     if board_image:
-        drive_args = _board_flash_args(conf, proj_dir)
+        drive_args = _board_flash_args(
+            conf, proj_dir, overlay=drive_image if snapshot_enabled else None)
     elif disk_transport == "none":
         drive_args = []
     elif q_config["arch"] in ["arm", "aarch64"]:
@@ -1299,7 +1314,9 @@ def run_config(
     sys.path.append("/pyplugins")
     from compat.qemu_compat import KVMQemu
 
-    if board_image and conf["core"].get("kmod_inject"):
+    # A restored guest already has igloo.ko in its RAM; injecting it again
+    # would only borrow a process's syscalls to fail init_module with EEXIST.
+    if board_image and conf["core"].get("kmod_inject") and not snapshot_boot_from:
         from compat.qemu_compat import resolve_qemu_paths
         qemu_lib, _ = resolve_qemu_paths("system", archend)
         args += _kmod_inject_args(conf, qemu_lib, proj_dir)

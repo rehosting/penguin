@@ -776,7 +776,10 @@ class Core(PartialModelMixin, BaseModel):
                 "core.flash, unmodified, and nothing of penguin runs inside the "
                 "guest unless core.kmod_inject loads igloo.ko. Requires "
                 "core.machine; core.fs, env.igloo_init and the vpn plugin are "
-                "not used."
+                "not used. core.snapshot runs on a qcow2 overlay over "
+                "core.flash (save_at: manual; readiness needs penguin's init). "
+                "With core.kmod_inject, core also loads netbinds (from "
+                "syscalls), readiness and snapshot."
             ),
             examples=["penguin", "none"],
         ),

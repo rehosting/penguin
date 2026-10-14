@@ -33,6 +33,14 @@ Arguments
   ``bridge.sock``; empty disables it.
 
 Writes ``bridge_endpoints.txt`` in the output directory.
+
+Snapshots: the protocol carries its buffer addresses on every poll, so a
+restored guest picks the bridge back up by itself. Its connections are another
+matter: the guest's bridge thread comes back holding the ones it had at save
+time, whose host sockets are gone. On restore the plugin resets those (their
+ids are saved with the snapshot), drops its own connections, which the
+restored guest never saw, and keeps ids increasing so a new connection never
+reuses a stale one.
 """
 
 import errno
@@ -102,7 +110,11 @@ class IglooBridge(Plugin):
         self.lock = threading.Lock()
         self.conns = {}
         self.rst = []
-        self.next_id = 0
+        # Connection ids start at a random base, so after a restore that
+        # brought no saved state a new id is unlikely to hit one the guest
+        # still holds.
+        self.next_id = int.from_bytes(os.urandom(3), "little") << 4
+        self.saved = {}
         self.attached = False
         self.listeners = {}         # sock -> (ctl, addr, port)
         self.endpoints = []
@@ -410,6 +422,36 @@ class IglooBridge(Plugin):
                     if c.done():
                         c.sock.close()
                         del self.conns[cid]
+
+    # ---- snapshots ----
+
+    def save_state(self):
+        with self.lock:
+            self.saved = {"next_id": self.next_id,
+                          "open": sorted(c.id for c in self.conns.values()
+                                         if c.open_sent)}
+            return dict(self.saved)
+
+    def load_state(self, data) -> None:
+        self.saved = data or {}
+
+    def on_restore(self, tag: str) -> None:
+        """Reset the guest's connections from save time, close ours."""
+        with self.lock:
+            stale = set(self.saved.get("open", ()))
+            for c in self.conns.values():
+                if c.open_sent:
+                    stale.add(c.id)
+                try:
+                    c.sock.close()
+                except OSError:
+                    pass
+            self.conns.clear()
+            self.rst.extend(sorted(stale - set(self.rst)))
+            self.next_id = max(self.next_id, int(self.saved.get("next_id", 0)))
+        self.logger.info("igloo_bridge: restored '%s', reset %d connection(s)",
+                         tag, len(stale))
+        self._wake()
 
     def uninit(self):
         self.stopping = True

@@ -105,3 +105,45 @@ def test_bridge_connect_line_parsing(bridge):
         c = mod._Conn(1, None, True)
         c.line = bytearray(line)
         assert b._connect_line(c) is ok, line
+
+
+class _Sock:
+    closed = False
+
+    def close(self):
+        self.closed = True
+
+
+def _with_snapshot_state(b):
+    import logging
+    import threading
+    b.lock, b.saved, b.logger = threading.Lock(), {}, logging.getLogger("t")
+    b._wake = lambda: None
+    return b
+
+
+def test_bridge_restore_resets_stale_conns(bridge):
+    mod, b = bridge
+    _with_snapshot_state(b)
+    c = mod._Conn(5, _Sock(), False, socket.inet_aton("127.0.0.1"), 80)
+    c.open_sent = True
+    b.conns[5] = c
+    b.conns[6] = mod._Conn(6, _Sock(), True)   # still in its handshake
+    b.next_id = 6
+    state = b.save_state()
+    assert state == {"next_id": 6, "open": [5]}
+
+    # a new process restores the snapshot; it already has a connection of its
+    # own that the restored guest never saw
+    _, b2 = bridge[0], object.__new__(mod.IglooBridge)
+    b2.conns, b2.rst, b2.next_id = {}, [], 1
+    _with_snapshot_state(b2)
+    mine = mod._Conn(1, _Sock(), False, socket.inet_aton("127.0.0.1"), 80)
+    mine.open_sent = True
+    b2.conns[1] = mine
+    b2.load_state(state)
+    b2.on_restore("warm")
+    assert b2.conns == {} and mine.sock.closed
+    assert _recs(mod, b2._fill_rx()) == [(mod.H_CLOSE, mod.RST, 1, b""),
+                                         (mod.H_CLOSE, mod.RST, 5, b"")]
+    assert b2.next_id == 6   # new ids never reuse one the guest may hold

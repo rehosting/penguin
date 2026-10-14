@@ -433,6 +433,13 @@ def boot_fingerprint(proj_dir: str, conf: Dict[str, Any]) -> str:
         # logic is mutable and excluded by hashing only the keys.
         "pseudofile_nodes": sorted((conf.get("pseudofiles") or {}).keys()),
     }
+    if core.get("guest_image") == "none":
+        # A board booted from its own flash: the flash is the disk, and the
+        # verbatim cmdline and the injected module shape the booted state.
+        flash = os.path.join(proj_dir, (core.get("flash") or {}).get("path", ""))
+        frozen["flash"] = get_file_hash(flash) if os.path.isfile(flash) else None
+        frozen["kernel_cmdline"] = core.get("kernel_cmdline")
+        frozen["kmod_inject"] = core.get("kmod_inject")
     blob = json.dumps(frozen, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode()).hexdigest()
 

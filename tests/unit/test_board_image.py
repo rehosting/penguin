@@ -91,3 +91,33 @@ def test_resolve_kernel_address(tmp_path):
     assert _resolve_kernel_address("vector_swi", str(isf)) == 0x80050de0
     with pytest.raises(ValueError, match="not in"):
         _resolve_kernel_address("no_such_symbol+4", str(isf))
+
+
+# ---- snapshots ----
+
+def test_flash_args_snapshot_overlay():
+    conf = _conf(flash={"path": "flash/nand.img", "interface": "mtd"})
+    assert _board_flash_args(conf, "/nonexistent", overlay="/q/snapshot_warm.qcow2") == [
+        "-drive", "if=mtd,format=qcow2,file=/q/snapshot_warm.qcow2"]
+
+
+def test_check_rejects_readiness_snapshot():
+    with pytest.raises(ValueError, match="manual"):
+        _check_board_image_config(_conf(snapshot={"save_at": "readiness"}))
+    _check_board_image_config(_conf(snapshot={"save_at": "manual"}))
+
+
+def test_boot_fingerprint_covers_flash(tmp_path):
+    from penguin.utils import boot_fingerprint
+    (tmp_path / "flash").mkdir()
+    img = tmp_path / "flash" / "nand.img"
+    img.write_bytes(b"\xff" * 16)
+    conf = _conf(kernel="kernels/2.6.36/Image", arch="armel",
+                 kmod_inject={"hook": "vector_swi+0x20"})
+    conf.update(env={}, nvram={}, netdevs=[], pseudofiles={})
+    a = boot_fingerprint(str(tmp_path), conf)
+    img.write_bytes(b"\x00" * 16)
+    b = boot_fingerprint(str(tmp_path), conf)
+    conf["core"]["kmod_inject"] = {"hook": "vector_swi+0x24"}
+    c = boot_fingerprint(str(tmp_path), conf)
+    assert len({a, b, c}) == 3
