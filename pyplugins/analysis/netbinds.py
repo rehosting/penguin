@@ -58,6 +58,30 @@ their teardown must not be reported). A TCP socket that binds but closes
 without ever listening therefore never emits a release and remains
 ``listening``/``pending`` until the end of the run.
 
+Event sources
+-------------
+
+``igloo`` (the default on penguin's kernels) takes binds and releases from
+igloo.ko's socket hooks, which penguin's kernels carry and a vendor kernel
+does not. ``syscalls`` builds the same events from the guest's ``socket``,
+``bind``, ``listen`` and ``close`` syscalls through the syscalls plugin, so it
+works on any kernel the syscalls plugin works on. ``auto`` picks ``syscalls``
+when ``core.guest_image`` is ``none`` (a board booted from its own firmware)
+and ``igloo`` otherwise.
+
+The ``syscalls`` source differs from ``igloo`` in what it can see:
+
+- The socket type comes from the ``socket()`` that made the fd. A bind on an
+  fd whose ``socket()`` was not seen (inherited across exec) is reported only
+  if the fd later calls ``listen()``, as TCP.
+- A bind to port 0 is skipped: the kernel picks the port after the syscall.
+- A release is an explicit ``close()`` of the bound fd by the thread that bound
+  it. A socket that outlives that (inherited by a child, closed on exit, or
+  closed by another thread) stays open until the end of the run, as a TCP
+  bind-without-listen does under ``igloo``.
+- On ABIs where bind goes through ``socketcall`` (i386, ARM OABI) it sees
+  nothing.
+
 Snapshot / restore
 ------------------
 
@@ -102,6 +126,8 @@ Arguments
   Default: 2.0.
 - transient_threshold (int, optional): Number of flaps at which a socket is
   labelled transient. Default: 3.
+- source (str, optional): Where bind/release events come from: ``igloo``,
+  ``syscalls`` or ``auto`` (default). See "Event sources".
 
 Plugin Interface
 ----------------
@@ -127,6 +153,8 @@ import threading
 import time
 from os.path import join
 
+from typing import Literal, Optional
+
 from pydantic import Field
 from penguin import plugins, Plugin, PluginArgs
 
@@ -140,6 +168,42 @@ BINDS_HEADER = "procname,ipvn,domain,guest_ip,guest_port,pid,time,state,closed_t
 DEFAULT_ANNOUNCE_DEBOUNCE_S = 2.0
 DEFAULT_DEBOUNCE_PERIOD = 2.0
 DEFAULT_TRANSIENT_THRESHOLD = 3
+
+# Linux values, the same on every architecture.
+AF_INET, AF_INET6 = 2, 10
+SOCK_TYPES = {1: "tcp", 2: "udp"}  # SOCK_STREAM, SOCK_DGRAM (low bits of type)
+SOCK_TYPE_MASK = 0xF
+
+
+def pick_source(source: Optional[str], conf: Optional[dict]) -> str:
+    """Resolve the ``source`` arg: ``auto`` (or unset) means ``syscalls`` for a
+    board booted from its own firmware (``core.guest_image: none``), whose
+    kernel has no igloo socket hooks, and ``igloo`` otherwise."""
+    if source in ("igloo", "syscalls"):
+        return source
+    if source not in (None, "auto"):
+        raise ValueError(f"netbinds: unknown source {source!r}")
+    try:  # conf is the run's ArgsBox: indexable, no .get()
+        guest_image = conf["core"]["guest_image"]
+    except (KeyError, TypeError):
+        guest_image = None
+    return "syscalls" if guest_image == "none" else "igloo"
+
+
+def decode_sockaddr(sa: bytes, little_endian: bool):
+    """Decode a guest ``sockaddr_in``/``sockaddr_in6`` into ``(ipvn, ip, port)``
+    formatted the way the igloo source reports them (IPv6 in brackets), or None
+    for another family or a short buffer. The family is in guest byte order; the
+    port and address are in network order."""
+    if len(sa) < 2:
+        return None
+    family = struct.unpack_from("<H" if little_endian else ">H", sa)[0]
+    if family == AF_INET and len(sa) >= 8:
+        return 4, socket.inet_ntop(socket.AF_INET, sa[4:8]), struct.unpack_from(">H", sa, 2)[0]
+    if family == AF_INET6 and len(sa) >= 24:
+        ip = socket.inet_ntop(socket.AF_INET6, sa[8:24])
+        return 6, f"[{ip}]", struct.unpack_from(">H", sa, 2)[0]
+    return None
 
 
 class NetBinds(Plugin):
@@ -161,6 +225,13 @@ class NetBinds(Plugin):
         transient_threshold: int = Field(
             default=DEFAULT_TRANSIENT_THRESHOLD,
             description="Number of flaps at which a socket is labelled transient.",
+        )
+        source: Literal["auto", "igloo", "syscalls"] = Field(
+            default="auto",
+            description="Where bind/release events come from: 'igloo' (igloo.ko's socket "
+            "hooks, on penguin's kernels), 'syscalls' (the guest's socket/bind/listen/close "
+            "syscalls, for kernels without those hooks), or 'auto' ('syscalls' when "
+            "core.guest_image is 'none', else 'igloo').",
         )
 
     def __init__(self) -> None:
@@ -210,14 +281,90 @@ class NetBinds(Plugin):
         with open(join(self.outdir, EVENTS_FILE), "w") as f:
             f.write("event,procname,ipvn,domain,guest_ip,guest_port,pid,time\n")
 
-        plugins.subscribe(plugins.Events, "igloo_ipv4_bind", self.on_ipv4_bind)
-        plugins.subscribe(plugins.Events, "igloo_ipv6_bind", self.on_ipv6_bind)
-        plugins.subscribe(plugins.Events, "igloo_ipv4_setup", self.on_ipv4_setup)
-        plugins.subscribe(plugins.Events, "igloo_ipv6_setup", self.on_ipv6_setup)
-        plugins.subscribe(plugins.Events, "igloo_ipv4_release", self.on_ipv4_release)
-        plugins.subscribe(plugins.Events, "igloo_ipv6_release", self.on_ipv6_release)
+        self.source = pick_source(self.get_arg("source"), self.get_arg("conf"))
+        if self.source == "syscalls":
+            self._init_syscall_source()
+        else:
+            plugins.subscribe(plugins.Events, "igloo_ipv4_bind", self.on_ipv4_bind)
+            plugins.subscribe(plugins.Events, "igloo_ipv6_bind", self.on_ipv6_bind)
+            plugins.subscribe(plugins.Events, "igloo_ipv4_setup", self.on_ipv4_setup)
+            plugins.subscribe(plugins.Events, "igloo_ipv6_setup", self.on_ipv6_setup)
+            plugins.subscribe(plugins.Events, "igloo_ipv4_release", self.on_ipv4_release)
+            plugins.subscribe(plugins.Events, "igloo_ipv6_release", self.on_ipv6_release)
         self.pending_procname = None
         self.pending_sinaddr = None
+
+    def _init_syscall_source(self) -> None:
+        """Take binds and releases from the guest's syscalls (see "Event
+        sources" in the module docstring). All four hooks run on the syscall
+        path, so the fd tables below need no lock."""
+        # (pid, fd) -> "tcp"/"udp", from socket()
+        self._sc_types = {}
+        # (pid, fd) -> (ipvn, sock_type, ip, port) of a recorded bind, for close()
+        self._sc_bound = {}
+        # (pid, fd) -> (procname, ipvn, ip, port): a bind on an fd whose socket()
+        # wasn't seen; a listen() on it records it as TCP.
+        self._sc_untyped = {}
+        hook = plugins.syscalls.syscall
+        hook("on_sys_socket_return", read_only=True)(self.sc_socket)
+        hook("on_sys_bind_return", read_only=True)(self.sc_bind)
+        hook("on_sys_listen_return", read_only=True)(self.sc_listen)
+        hook("on_sys_close_return", read_only=True)(self.sc_close)
+
+    def _sc_forget(self, key) -> None:
+        self._sc_types.pop(key, None)
+        self._sc_bound.pop(key, None)
+        self._sc_untyped.pop(key, None)
+
+    def sc_socket(self, regs, proto, syscall, domain, sock_type, protocol) -> None:
+        """socket() returned: remember the type of a new inet fd."""
+        fd = int(syscall.retval)
+        if fd < 0:
+            return
+        key = (int(syscall.pid), fd)
+        self._sc_forget(key)
+        kind = SOCK_TYPES.get(int(sock_type) & SOCK_TYPE_MASK)
+        if int(domain) in (AF_INET, AF_INET6) and kind is not None:
+            self._sc_types[key] = kind
+
+    def sc_bind(self, regs, proto, syscall, fd, addr, addrlen):
+        """bind() returned: record a successful inet bind to a fixed port."""
+        if int(syscall.retval) != 0:
+            return
+        key = (int(syscall.pid), int(fd))
+        sa = yield from plugins.mem.read_bytes(int(addr), min(int(addrlen), 28))
+        decoded = decode_sockaddr(sa or b"", self.panda.endianness == "little")
+        if decoded is None or decoded[2] == 0:
+            return
+        ipvn, ip, port = decoded
+        procname = yield from plugins.osi.get_proc_name()
+        sock_type = self._sc_types.get(key)
+        if sock_type is None:
+            self._sc_untyped[key] = (procname, ipvn, ip, port)
+            return
+        self._sc_open(key, procname, ipvn, sock_type, ip, port)
+
+    def sc_listen(self, regs, proto, syscall, fd, backlog) -> None:
+        """listen() returned: a bind we couldn't type is TCP after all."""
+        key = (int(syscall.pid), int(fd))
+        if int(syscall.retval) != 0 or key not in self._sc_untyped:
+            return
+        procname, ipvn, ip, port = self._sc_untyped.pop(key)
+        self._sc_open(key, procname, ipvn, "tcp", ip, port)
+
+    def sc_close(self, regs, proto, syscall, fd) -> None:
+        """close() returned: release the socket bound on this fd, if any."""
+        key = (int(syscall.pid), int(fd))
+        bound = self._sc_bound.get(key)
+        self._sc_forget(key)
+        if bound is not None and int(syscall.retval) == 0:
+            self.record_close(*bound)
+
+    def _sc_open(self, key, procname, ipvn, sock_type, ip, port) -> None:
+        now = time.time()
+        self._sc_bound[key] = (ipvn, sock_type, ip, port)
+        self.record_open(now, now - self.start_time, procname, ipvn, sock_type,
+                         ip, port, key[0])
 
     def on_ipv4_setup(self, cpu, procname, sin_addr) -> None:
         """
@@ -667,7 +814,8 @@ class NetBinds(Plugin):
         cross-process, possibly cross-host restore; see on_restore.
         """
         with self._lock:
-            if not self.sockets:
+            fds = self._sc_save() if self.source == "syscalls" else None
+            if not self.sockets and not fds:
                 return None
             drop = ("announce_timer", "pending_since",
                     "pending_close", "pending_close_delta")
@@ -675,11 +823,30 @@ class NetBinds(Plugin):
                 {k: v for k, v in rec.items() if k not in drop}
                 for rec in self.sockets.values()
             ]
-            return {
+            state = {
                 "sockets": sockets,
                 "seen_binds": [list(b) for b in self.seen_binds],
                 "bind_rows": [{**r, "key": list(r["key"])} for r in self.bind_rows],
             }
+            if fds:
+                state["fds"] = fds
+            return state
+
+    def _sc_save(self):
+        """The syscall source's fd tables: the restored guest still holds those
+        fds, and a close() of one must still release its socket."""
+        if not (self._sc_types or self._sc_bound or self._sc_untyped):
+            return None
+        return {
+            "types": [[*k, v] for k, v in self._sc_types.items()],
+            "bound": [[*k, *v] for k, v in self._sc_bound.items()],
+            "untyped": [[*k, *v] for k, v in self._sc_untyped.items()],
+        }
+
+    def _sc_load(self, fds) -> None:
+        self._sc_types = {(p, f): v for p, f, v in fds.get("types", [])}
+        self._sc_bound = {(p, f): tuple(v) for p, f, *v in fds.get("bound", [])}
+        self._sc_untyped = {(p, f): tuple(v) for p, f, *v in fds.get("untyped", [])}
 
     def load_state(self, data) -> None:
         """Stash lifecycle state captured at snapshot time. Applied in
@@ -726,6 +893,8 @@ class NetBinds(Plugin):
                 announcement = self._promote_to_listening(rec, time_delta)
                 if announcement is not None:
                     announcements.append(announcement)
+        if self.source == "syscalls" and data.get("fds"):
+            self._sc_load(data["fds"])
         self._rewrite_binds_file()
         return announcements
 
