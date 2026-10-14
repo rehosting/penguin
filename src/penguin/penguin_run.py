@@ -573,6 +573,84 @@ def redirect_stdout_stderr(stdout_path, stderr_path):
             print("stdout or stderr is None - cannot restore")
 
 
+def _check_board_image_config(conf: dict) -> None:
+    """Reject settings that need penguin's own image in the guest."""
+    core = conf["core"]
+    if not core.get("machine"):
+        raise ValueError(
+            "core.guest_image: none needs core.machine: the board that boots "
+            "the firmware from core.flash")
+    if not core.get("flash"):
+        raise ValueError("core.guest_image: none needs core.flash")
+    if _vpn_enabled(conf["plugins"]):
+        raise ValueError(
+            "core.guest_image: none has no penguin userspace for the vpn "
+            "plugin's guest side; set plugins.vpn.enabled: false")
+    if core.get("disk_transport") not in (None, "none"):
+        raise ValueError(
+            "core.guest_image: none attaches only core.flash; leave "
+            "core.disk_transport unset")
+
+
+def _board_flash_args(conf: dict, proj_dir: str) -> list:
+    """The -drive for core.flash. core.immutable (default) keeps the image
+    untouched by sending writes to a throwaway overlay."""
+    flash = conf["core"]["flash"]
+    path = flash["path"]
+    if not os.path.isabs(path):
+        path = os.path.join(proj_dir, path)
+    if not os.path.isfile(path):
+        raise ValueError(f"core.flash.path not found: {path}")
+    drive = (f"if={flash.get('interface', 'mtd')},"
+             f"format={flash.get('format', 'raw')},file={path}")
+    if conf["core"].get("immutable", True):
+        drive += ",snapshot=on"
+    return ["-drive", drive]
+
+
+def _resolve_kernel_address(spec, isf_path: str) -> int:
+    """A number, or symbol[+offset] looked up in the kernel ISF."""
+    spec = str(spec).strip()
+    try:
+        return int(spec, 0)
+    except ValueError:
+        pass
+    sym, _, off = spec.partition("+")
+    import lzma
+    with lzma.open(isf_path, "rt") as f:
+        symbols = json.load(f)["symbols"]
+    if sym not in symbols or "address" not in symbols[sym]:
+        raise ValueError(f"kmod_inject.hook: symbol '{sym}' not in {isf_path}")
+    return symbols[sym]["address"] + (int(off, 0) if off else 0)
+
+
+def _kmod_inject_args(conf: dict, qemu_lib: Path, proj_dir: str) -> list:
+    """-plugin arguments that load igloo.ko from the hypervisor (KmodInject)."""
+    from .utils import get_driver_kmod_path
+    spec = conf["core"]["kmod_inject"]
+    kernel = conf["core"]["kernel"]
+    arch = conf["core"]["arch"]
+    isf = os.path.realpath(os.path.join(kernel, f"../cosi.{arch}.json.xz"))
+    hook = _resolve_kernel_address(spec["hook"], isf)
+    ko = get_driver_kmod_path(conf)
+    if not os.path.isfile(ko):
+        raise ValueError(f"kmod_inject: module not found: {ko}")
+    plugin = spec.get("plugin")
+    if plugin and not os.path.isabs(plugin):
+        plugin = os.path.join(proj_dir, plugin)
+    plugin = plugin or str(qemu_lib.parent / "qemu-plugins" / "libkmodinject.so")
+    if not os.path.isfile(plugin):
+        raise ValueError(f"kmod_inject: injector plugin not found: {plugin}")
+    pargs = f"{plugin},ko={ko},hook={hook:#x}"
+    if spec.get("params"):
+        # QEMU splits -plugin arguments on commas
+        if "," in spec["params"]:
+            raise ValueError("kmod_inject.params cannot contain ','")
+        pargs += f",params={spec['params']}"
+    logger.info("kmod_inject: %s at hook %#x", ko, hook)
+    return ["-plugin", pargs]
+
+
 def run_config(
     proj_dir,
     conf_yaml,
@@ -670,7 +748,15 @@ def run_config(
         # A --timeout argument overrides the config's core.timeout
         conf["core"]["timeout"] = timeout
 
-    if "igloo_init" not in conf["env"]:
+    # core.guest_image: none -- the board boots its own firmware from
+    # core.flash; penguin builds no rootfs and runs no init in the guest.
+    board_image = conf["core"].get("guest_image", "penguin") == "none"
+    if board_image:
+        _check_board_image_config(conf)
+
+    if board_image:
+        pass
+    elif "igloo_init" not in conf["env"]:
         if init:
             conf["env"]["igloo_init"] = init
         else:
@@ -681,7 +767,7 @@ def run_config(
             raise RuntimeError(
                 f"No init binary is specified in configuration, set one in config's env section as igloo_init. Static analysis identified the following: {inits}"
             )
-    if conf["env"]["igloo_init"] == "UNKNOWN_FIX_ME":
+    if not board_image and conf["env"]["igloo_init"] == "UNKNOWN_FIX_ME":
         logger.error("No init binary specified in config, and static analysis did not identify any candidates")
         raise RuntimeError(
             "env.igloo_init in configuration is set to UNKNOWN_FIX_ME. This indicates that we could not find the correct init binary. Please determine the correct init binary and update the config value in static_patches/base.yaml"
@@ -705,11 +791,15 @@ def run_config(
     if not os.path.isfile(conf["core"]["kernel"]):
         raise ValueError(f"Kernel file invalid: {conf['core']['kernel']}")
 
-    if not os.path.isfile(config_fs):
+    if board_image:
+        config_fs = None
+        config_image = None
+    elif not os.path.isfile(config_fs):
         raise ValueError(f"Missing filesystem archive in base directory: {config_fs}")
-    h = hash_image_inputs(proj_dir, conf)
-    image_filename = f"image_{h}.qcow2"
-    config_image = os.path.join(qcow_dir, image_filename)
+    else:
+        h = hash_image_inputs(proj_dir, conf)
+        image_filename = f"image_{h}.qcow2"
+        config_image = os.path.join(qcow_dir, image_filename)
 
     # Make sure we have a clean out_dir every time. XXX should we raise an error here instead?
     if os.path.isdir(out_dir):
@@ -720,40 +810,41 @@ def run_config(
     if not os.path.isdir(qcow_dir):
         os.makedirs(qcow_dir, exist_ok=True)
 
-    lock_file = os.path.join(qcow_dir, f".{image_filename}.lock")
-    while os.path.isfile(lock_file):
-        # Stall while there's a lock
-        logger.info("stalling on lock")
-        sleep(1)
+    if not board_image:
+        lock_file = os.path.join(qcow_dir, f".{image_filename}.lock")
+        while os.path.isfile(lock_file):
+            # Stall while there's a lock
+            logger.info("stalling on lock")
+            sleep(1)
 
-    # If image isn't in our out_dir already, generate it
-    if not os.path.isfile(config_image):
-        open(lock_file, "a").close()  # create lock file
-
-        try:
-            from .gen_image import make_image
-            make_image(config_fs, config_image, qcow_dir, conf)
-        except Exception as e:
-            logger.error(
-                f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}"
-            )
-            logger.error(e, exc_info=True)
-            if os.path.isfile(os.path.join(qcow_dir, image_filename)):
-                os.remove(os.path.join(qcow_dir, image_filename))
-            raise e
-        finally:
-            # Always remove lock file, even if we failed to make the image
-            if os.path.isfile(lock_file):
-                os.remove(lock_file)
-
-        # We expect to have the image now
+        # If image isn't in our out_dir already, generate it
         if not os.path.isfile(config_image):
-            raise ValueError(f"GenImage failed to produce {config_image}")
+            open(lock_file, "a").close()  # create lock file
 
-        # If the file is empty, something has gone wrong - delete it and abort
-        if os.path.getsize(config_image) == 0:
-            os.remove(config_image)
-            raise ValueError(f"GenImage produced empty image file: {config_image}")
+            try:
+                from .gen_image import make_image
+                make_image(config_fs, config_image, qcow_dir, conf)
+            except Exception as e:
+                logger.error(
+                    f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}"
+                )
+                logger.error(e, exc_info=True)
+                if os.path.isfile(os.path.join(qcow_dir, image_filename)):
+                    os.remove(os.path.join(qcow_dir, image_filename))
+                raise e
+            finally:
+                # Always remove lock file, even if we failed to make the image
+                if os.path.isfile(lock_file):
+                    os.remove(lock_file)
+
+            # We expect to have the image now
+            if not os.path.isfile(config_image):
+                raise ValueError(f"GenImage failed to produce {config_image}")
+
+            # If the file is empty, something has gone wrong - delete it and abort
+            if os.path.getsize(config_image) == 0:
+                os.remove(config_image)
+                raise ValueError(f"GenImage produced empty image file: {config_image}")
 
     # We have to set up vsock args for qemu CLI arguments if we're using the vpn. We
     # special case this here and add the arguments to the plugin later
@@ -826,6 +917,10 @@ def run_config(
     # Unset (default) = the constructed append, unchanged.
     if conf["core"].get("kernel_cmdline"):
         append = conf["core"]["kernel_cmdline"]
+    elif board_image:
+        # Penguin's arguments all address its own init and rootfs; a board
+        # booting its own firmware gets only what the config asks for.
+        append = ""
 
     telnet_port = find_free_port()
     if telnet_port is None:
@@ -842,6 +937,11 @@ def run_config(
     snapshot_boot_from = snap_cfg.get("boot_from")
     snapshot_enabled = (snapshot_save_at is not None) or (snapshot_boot_from is not None)
     drive_image = config_image
+
+    if snapshot_enabled and board_image:
+        # The snapshot overlay is built over penguin's generated image.
+        raise NotImplementedError(
+            "core.snapshot is not supported with core.guest_image: none yet")
 
     if snapshot_enabled and snap_cfg.get("backend", "internal") == "file":
         # The standalone migration-file backend (migrate file:/-incoming with
@@ -937,7 +1037,9 @@ def run_config(
     if disk_transport is None:
         disk_transport = "none" if conf["core"].get("machine") else "auto"
 
-    if disk_transport == "none":
+    if board_image:
+        drive_args = _board_flash_args(conf, proj_dir)
+    elif disk_transport == "none":
         drive_args = []
     elif q_config["arch"] in ["arm", "aarch64"]:
         drive += ",if=none"
@@ -1197,6 +1299,11 @@ def run_config(
     sys.path.append("/pyplugins")
     from compat.qemu_compat import KVMQemu
 
+    if board_image and conf["core"].get("kmod_inject"):
+        from compat.qemu_compat import resolve_qemu_paths
+        qemu_lib, _ = resolve_qemu_paths("system", archend)
+        args += _kmod_inject_args(conf, qemu_lib, proj_dir)
+
     with print_to_log(stdout_path, stderr_path):
         qemu_mode = "kvm" if execution_mode == "kvm" else "system"
         qemu_lib_arch = q_config["arch"] if qemu_mode == "kvm" else archend
@@ -1267,7 +1374,7 @@ def run_config(
     # the firmware-expected env, then the rest of the original append. Penguin's
     # internal knobs are stripped here and delivered over the portal instead
     # (LiveImage serves igloo_env.sh; preinit.sh sources it).
-    if conf["core"].get("kernel_cmdline"):
+    if conf["core"].get("kernel_cmdline") or board_image:
         # Full verbatim override (BYO-rootfs board): keep the configured cmdline
         # as-is -- do NOT re-render with the /dev/vda + preinit critical args,
         # since the board sets root=/console=/init= itself.

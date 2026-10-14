@@ -97,7 +97,12 @@ class Core(Plugin):
         Raises:
             ValueError: If any required argument is missing.
         """
-        for arg in "plugins conf fs fw outdir".split():
+        conf = self.get_arg("conf")
+        # core.guest_image: none -- the board boots its own firmware; there is
+        # no penguin rootfs (fs/fw) and no penguin userspace in the guest.
+        board_image = conf["core"].get("guest_image", "penguin") == "none"
+        required = "plugins conf outdir" if board_image else "plugins conf fs fw outdir"
+        for arg in required.split():
             if not self.get_arg(arg):
                 raise ValueError(f"[core] Missing required argument: {arg}")
 
@@ -134,6 +139,10 @@ class Core(Plugin):
             "kmods",
             "net",
         ]
+        if board_image:
+            # The others serve penguin's own guest userspace. igloodriver only
+            # needs igloo.ko, which core.kmod_inject loads.
+            essential_plugins = ["igloodriver"] if conf["core"].get("kmod_inject") else []
 
         for essential_plugin in essential_plugins:
             p = getattr(plugins, essential_plugin)

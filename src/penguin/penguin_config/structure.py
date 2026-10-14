@@ -312,6 +312,91 @@ class CoreDumps(PartialModelMixin, BaseModel):
     ]
 
 
+class Flash(PartialModelMixin, BaseModel):
+    """A board's own flash image, for ``core.guest_image: none``.
+
+    The board boots its firmware from this image (kernel partitions, rootfs,
+    nvram) instead of from a penguin-built disk. It is attached as one
+    ``-drive if=<interface>``; with ``core.immutable`` (the default) writes
+    go to a throwaway overlay and the image is never modified.
+    """
+
+    model_config = ConfigDict(title="Board flash image", extra="forbid")
+
+    path: Annotated[
+        str,
+        Field(
+            title="Flash image path",
+            description="Path to the image, relative to the project directory.",
+            examples=["flash/nand.img"],
+        ),
+    ]
+    interface: Annotated[
+        Literal["mtd", "pflash", "sd"],
+        Field(
+            "mtd",
+            title="QEMU drive interface",
+            description="The -drive if= the board looks for its flash on.",
+            examples=["mtd", "pflash"],
+        ),
+    ]
+    format: Annotated[
+        Literal["raw", "qcow2"],
+        Field(
+            "raw",
+            title="Image format",
+            examples=["raw", "qcow2"],
+        ),
+    ]
+
+
+class KmodInject(PartialModelMixin, BaseModel):
+    """Load igloo.ko into an unmodified guest from the hypervisor.
+
+    With no penguin userspace in the guest (``core.guest_image: none``),
+    nothing inside it will insmod the module. Instead a QEMU TCG plugin
+    borrows the first user-mode syscall it sees (on Linux, init's), runs
+    mmap -> init_module -> munmap in that process, then lets the original
+    syscall continue. The guest image is not modified. 32-bit ARM only.
+    """
+
+    model_config = ConfigDict(title="Hypervisor module injection", extra="forbid")
+
+    hook: Annotated[
+        str,
+        Field(
+            title="Hook instruction",
+            description=(
+                "Kernel virtual address of the instruction in the SWI entry "
+                "where the user registers are saved in the frame and r8 holds "
+                "SPSR. A number, or symbol+offset resolved from the kernel ISF. "
+                "For ARM entry-common.S of 2.6.x this is vector_swi+0x20."
+            ),
+            examples=["vector_swi+0x20", "0x80050e00"],
+        ),
+    ]
+    params: Annotated[
+        str,
+        Field(
+            "",
+            title="Module parameters",
+            description="Parameter string passed to init_module.",
+            examples=["bridge=1"],
+        ),
+    ]
+    plugin: Annotated[
+        Optional[str],
+        Field(
+            None,
+            title="Injector plugin path",
+            description=(
+                "Path to libkmodinject.so. Unset = the one shipped with "
+                "penguin's QEMU (lib/qemu-plugins next to the QEMU library)."
+            ),
+        ),
+    ]
+
+
 class Core(PartialModelMixin, BaseModel):
     """Core configuration options for this rehosting"""
 
@@ -679,6 +764,25 @@ class Core(PartialModelMixin, BaseModel):
             examples=[{"AT91_NAND_IMAGE": "/projects/tierA/rootfs.jffs2"}],
         ),
     ]
+    guest_image: Annotated[
+        Literal["penguin", "none"],
+        Field(
+            "penguin",
+            title="Guest image",
+            description=(
+                "'penguin' (default) builds the rootfs image from core.fs with "
+                "penguin's init and userspace and boots it. 'none' builds and "
+                "attaches nothing: the board boots its own firmware from "
+                "core.flash, unmodified, and nothing of penguin runs inside the "
+                "guest unless core.kmod_inject loads igloo.ko. Requires "
+                "core.machine; core.fs, env.igloo_init and the vpn plugin are "
+                "not used."
+            ),
+            examples=["penguin", "none"],
+        ),
+    ]
+    flash: Optional[Flash] = None
+    kmod_inject: Optional[KmodInject] = None
     mem: Annotated[
         Optional[str],
         Field(

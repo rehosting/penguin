@@ -627,6 +627,222 @@ nokaslr mem=256M
 igloo_debug=1
 ```
 
+### `core.machine` QEMU machine override
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Override the per-arch default QEMU machine (from the arch registry). Set this to boot a faithful vendor board instead of the donor-kernel 'virt' machine, e.g. 'at91sam9260'. When set, penguin skips the virt-only tuning and, unless core.disk_transport says otherwise, attaches no rootfs drive (the board boots its own storage); pair with core.rootfs_format + core.kernel_cmdline for a bring-your-own-rootfs boot. Unset (default) = the arch registry's machine, unchanged.
+
+```yaml
+at91sam9260
+```
+
+### `core.disk_transport` Root disk transport
+
+|||
+|-|-|
+|__Type__|`"auto"` or `"none"` or null|
+|__Default__|`null`|
+
+How the rootfs disk is attached. 'auto' (the default when core.machine is unset) keeps the per-arch virtio-blk drive; 'none' attaches no drive, for a board that boots its own rootfs (NAND/JFFS2/etc.). When core.machine is set, this defaults to 'none'.
+
+```yaml
+auto
+```
+
+```yaml
+none
+```
+
+### `core.rootfs_format` Root filesystem image format
+
+|||
+|-|-|
+|__Type__|`"qcow_ext4"` or `"jffs2"` or null|
+|__Default__|`null`|
+
+Format penguin writes the assembled rootfs (firmware + igloo overlay + preinit) into. Unset/'qcow_ext4' (default) = today's ext4-in-qcow on /dev/vda, unchanged. 'jffs2' repacks the SAME assembled tree into a JFFS2 image (mkfs.jffs2) for a NAND board to mount as its own rootfs -- preinit and the whole penguin userspace ride along. Board picks the image up via core.qemu_env (e.g. AT91_NAND_IMAGE). Extensible to ubifs/squashfs.
+
+```yaml
+qcow_ext4
+```
+
+```yaml
+jffs2
+```
+
+### `core.rootfs_format_opts` Root filesystem repack options
+
+|||
+|-|-|
+|__Type__|mapping from string to string or null|
+|__Default__|`null`|
+
+Per-format knobs for core.rootfs_format. For 'jffs2': 'eraseblock' (e.g. '0x4000'), 'pagesize', 'endian' (le/be), and 'extra' (verbatim mkfs.jffs2 flags). Unset = per-format defaults.
+
+```yaml
+endian: le
+eraseblock: '0x4000'
+```
+
+### `core.kernel_cmdline` Full kernel command line override
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Replace the entire -append verbatim. Bypasses penguin's default root=/dev/vda + console replacement -- for a board that boots a vendor rootfs from its own storage (set root=, console= yourself; keep init=/igloo/boot/preinit to retain the penguin userspace). Unset (default) = penguin's constructed append.
+
+```yaml
+mem=64M console=ttyS0,115200 root=/dev/mtdblock4 rootfstype=jffs2 rw init=/igloo/boot/preinit
+```
+
+### `core.qemu_env` Extra environment for the QEMU process
+
+|||
+|-|-|
+|__Type__|mapping from string to string or null|
+|__Default__|`null`|
+
+Environment variables exported for the in-process QEMU before it runs. For a board that reads a path from getenv (e.g. the AT91SAM9260 board's AT91_NAND_IMAGE, pointing at the repacked rootfs). Unset (default) = no extra environment.
+
+```yaml
+AT91_NAND_IMAGE: /projects/tierA/rootfs.jffs2
+```
+
+### `core.guest_image` Guest image
+
+|||
+|-|-|
+|__Type__|`"penguin"` or `"none"`|
+|__Default__|`penguin`|
+
+'penguin' (default) builds the rootfs image from core.fs with penguin's init and userspace and boots it. 'none' builds and attaches nothing: the board boots its own firmware from core.flash, unmodified, and nothing of penguin runs inside the guest unless core.kmod_inject loads igloo.ko. Requires core.machine; core.fs, env.igloo_init and the vpn plugin are not used.
+
+```yaml
+penguin
+```
+
+```yaml
+none
+```
+
+### `core.flash` Board flash image
+
+|||
+|-|-|
+|__Default__|`null`|
+
+A board's own flash image, for ``core.guest_image: none``.
+
+The board boots its firmware from this image (kernel partitions, rootfs,
+nvram) instead of from a penguin-built disk. It is attached as one
+``-drive if=<interface>``; with ``core.immutable`` (the default) writes
+go to a throwaway overlay and the image is never modified.
+
+
+#### `core.flash.path` Flash image path
+
+|||
+|-|-|
+|__Type__|string|
+
+Path to the image, relative to the project directory.
+
+```yaml
+flash/nand.img
+```
+
+#### `core.flash.interface` QEMU drive interface
+
+|||
+|-|-|
+|__Type__|`"mtd"` or `"pflash"` or `"sd"`|
+|__Default__|`mtd`|
+
+The -drive if= the board looks for its flash on.
+
+```yaml
+mtd
+```
+
+```yaml
+pflash
+```
+
+#### `core.flash.format` Image format
+
+|||
+|-|-|
+|__Type__|`"raw"` or `"qcow2"`|
+|__Default__|`raw`|
+
+
+```yaml
+raw
+```
+
+```yaml
+qcow2
+```
+
+### `core.kmod_inject` Hypervisor module injection
+
+|||
+|-|-|
+|__Default__|`null`|
+
+Load igloo.ko into an unmodified guest from the hypervisor.
+
+With no penguin userspace in the guest (``core.guest_image: none``),
+nothing inside it will insmod the module. Instead a QEMU TCG plugin
+borrows the first user-mode syscall it sees (on Linux, init's), runs
+mmap -> init_module -> munmap in that process, then lets the original
+syscall continue. The guest image is not modified. 32-bit ARM only.
+
+
+#### `core.kmod_inject.hook` Hook instruction
+
+|||
+|-|-|
+|__Type__|string|
+
+Kernel virtual address of the instruction in the SWI entry where the user registers are saved in the frame and r8 holds SPSR. A number, or symbol+offset resolved from the kernel ISF. For ARM entry-common.S of 2.6.x this is vector_swi+0x20.
+
+```yaml
+vector_swi+0x20
+```
+
+```yaml
+'0x80050e00'
+```
+
+#### `core.kmod_inject.params` Module parameters
+
+|||
+|-|-|
+|__Type__|string|
+|__Default__|`''`|
+
+Parameter string passed to init_module.
+
+```yaml
+bridge=1
+```
+
+#### `core.kmod_inject.plugin` Injector plugin path
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Path to libkmodinject.so. Unset = the one shipped with penguin's QEMU (lib/qemu-plugins next to the QEMU library).
+
 ### `core.mem` Panda Memory Value
 
 |||
