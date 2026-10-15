@@ -261,6 +261,14 @@ Ordered most-valuable first. Percentages are current host coverage.
     kernels. Out of scope here: the engine itself (system/penguin-syscalls.c),
     tested under QEMU in qemu_builder's guest harness.
 
+12. **`apis/hostosi.py` — OS introspection from the hypervisor** ✅ done
+    (`test_hostosi.py`, `real_isf=` load). Against a fake QEMU library: the
+    current task and another by pid, the argument vector and environment (the
+    current task's through `plugins.mem`, another's through its page tables,
+    a short read), fds and their names, mappings, and refusing 32-bit kernels.
+    Out of scope here: the walks (system/penguin-osi.c), checked under QEMU
+    against the guest's own /proc.
+
 ### Harness capabilities (as landed)
 
 `load_pyplugin` currently handles: module/class-body decorators

@@ -1,0 +1,204 @@
+"""
+HostOSI: OS introspection from the hypervisor
+=============================================
+
+The guest kernel's own data structures, read by QEMU: processes, open files,
+memory mappings and the process list, walked in C (``system/penguin-osi.c``)
+through ``task_struct``, ``cred``, ``mm_struct`` (its maple tree, or the VMA
+list of older kernels), ``files_struct``/``fdtable``, ``dentry`` and
+``mount``.  The layout of those structures comes from the kernel's ISF
+(``plugins.kffi``), once, through dwarffi; the walks read guest memory
+directly.
+
+No guest code runs: no portal, no kernel module, no guest syscall.  Kernel
+memory never faults.  A process's own memory (arguments, environment) can:
+the current task's is read through ``plugins.mem`` as any callback's read
+(the task takes the fault when it must); another task's through its page
+tables, without faults (None if a page is out).
+
+The calls are ``plugins.osi``'s, as generators (``yield from``)::
+
+    proc = yield from plugins.HostOSI.get_proc()
+    args = yield from plugins.HostOSI.get_args()
+    fds = yield from plugins.HostOSI.get_fds()
+    maps = yield from plugins.HostOSI.get_mappings()
+
+They answer for the current task (the task of the syscall trap callback that
+runs them; ``compat/syscall_trap.py`` sets it) or another one by ``pid=``.
+Results are plain records (``types.SimpleNamespace``) with the field names of
+igloo's ``osi_proc``, ``osi_fd_entry`` and ``osi_module``.  Names are the
+kernel's own, as ``/proc`` shows them: ``d_path()`` for files
+(``socket:[ino]``, ``pipe:[ino]``, ``anon_inode:[eventfd]``, ``... (deleted)``)
+and ``/proc/<pid>/maps``' for mappings (``[heap]``, ``[stack]``, special
+mappings such as ``[vdso]``, the x86 gate area ``[vsyscall]``).
+
+The same walks serve the syscall engine's filters, in C, before any Python
+runs: see ``penguin_sc_hook.exe_filter`` and fd-path argument filters.
+
+Supported: 64-bit little-endian kernels (x86_64, aarch64).
+"""
+
+from types import SimpleNamespace
+from typing import Any, Generator, List, Optional
+
+from penguin import Plugin, plugins
+from compat.osi_layout import set_osi_layout
+
+AT_FDCWD = -100
+STRS = 1 << 18          # name bytes one call can return
+MAX_FDS = 4096
+MAX_VMAS = 8192
+MAX_PROCS = 16384
+ARGS_MAX = 128 * 1024
+
+PROC_FIELDS = ("map_count", "start_brk", "brk", "start_stack", "start_code",
+               "end_code", "start_data", "end_data", "arg_start", "arg_end",
+               "env_start", "env_end", "mmap_base", "task_size")
+
+
+class HostOSI(Plugin):
+    """OS introspection by QEMU, from the kernel's ISF."""
+
+    def __init__(self) -> None:
+        self.lib, self.ffi = self.panda.lib, self.panda.ffi
+        self.isf = plugins.kffi.ffi
+        if self.panda.bits != 64 or getattr(self.panda, "endianness", "little") != "little":
+            raise RuntimeError("HostOSI: 64-bit little-endian kernels only")
+        if not set_osi_layout(self.panda, self.isf):
+            raise RuntimeError("HostOSI: QEMU refused the kernel layout")
+        f = self.ffi
+        self._proc = f.new("struct penguin_osi_proc *")
+        self._strs = f.new("char[]", STRS)
+        self._fds = f.new("struct penguin_osi_fd[]", MAX_FDS)
+        self._vmas = f.new("struct penguin_osi_vma[]", MAX_VMAS)
+        self._tasks = f.new("uint64_t[]", MAX_PROCS)
+        self._ubuf = f.new("char[]", ARGS_MAX)
+
+    # --- helpers ---
+
+    def _cpu(self):
+        return self.panda.get_cpu()
+
+    def _current(self) -> int:
+        return getattr(self.panda._callback_state(), "task", 0) or 0
+
+    def _task(self, pid: Optional[int]) -> int:
+        if pid is None:
+            return self._current()
+        return self.lib.penguin_osi_task(self._cpu(), pid)
+
+    def _str(self, off: int) -> str:
+        return self.ffi.string(self._strs + off).decode("latin-1")
+
+    def _record(self, task: int) -> Optional[SimpleNamespace]:
+        p = self._proc
+        if not task or not self.lib.penguin_osi_proc(self._cpu(), task, p):
+            return None
+        r = SimpleNamespace(
+            taskd=p.task, pgd=p.pgd, pid=p.pid, tgid=p.tgid, ppid=p.ppid,
+            name=self.ffi.string(p.comm).decode("latin-1"), create_time=p.create_time,
+            uid=p.uid, gid=p.gid, euid=p.euid, egid=p.egid)
+        for f in PROC_FIELDS:
+            setattr(r, f, getattr(p, f))
+        return r
+
+    def _area(self, pid: Optional[int], which: str) -> Generator[Any, Any, Optional[bytes]]:
+        task = self._task(pid)
+        if not task or not self.lib.penguin_osi_proc(self._cpu(), task, self._proc):
+            return None
+        lo = getattr(self._proc, f"{which}_start")
+        hi = getattr(self._proc, f"{which}_end")
+        if not lo or hi <= lo:
+            return None
+        n = min(hi - lo, ARGS_MAX)
+        if task == self._current():
+            return (yield from plugins.mem.read_bytes(lo, n))
+        got = self.lib.penguin_osi_user_read(self._cpu(), task, lo, self._ubuf, n)
+        return self.ffi.buffer(self._ubuf, got)[:] if got == n else None
+
+    # --- the calls (plugins.osi's) ---
+
+    def get_proc(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[SimpleNamespace]]:
+        """the task's osi_proc fields"""
+        return self._record(self._task(pid))
+        yield
+
+    def get_all_procs(self) -> Generator[Any, Any, Optional[List[SimpleNamespace]]]:
+        """every process (thread group leader)"""
+        n = self.lib.penguin_osi_procs(self._cpu(), self._tasks, MAX_PROCS)
+        if n < 0:
+            return None
+        return [r for r in (self._record(self._tasks[i]) for i in range(min(n, MAX_PROCS)))
+                if r is not None]
+        yield
+
+    def get_args(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[List[str]]]:
+        """the argument vector, from mm->arg_start..arg_end"""
+        data = yield from self._area(pid, "arg")
+        if data is None:
+            return None
+        return data.rstrip(b"\0").decode("latin-1").split("\0")
+
+    def get_env(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[dict]]:
+        """the environment, from mm->env_start..env_end"""
+        data = yield from self._area(pid, "env")
+        if data is None:
+            return None
+        env = {}
+        for kv in data.rstrip(b"\0").decode("latin-1").split("\0"):
+            k, _, v = kv.partition("=")
+            env[k] = v
+        return env
+
+    def get_proc_name(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[str]]:
+        """argv[0]'s base name, or the comm"""
+        args = yield from self.get_args(pid)
+        if args and args[0]:
+            return args[0].rsplit("/", 1)[-1]
+        p = self._record(self._task(pid))
+        return p.name if p else None
+
+    def get_fds(self, pid: Optional[int] = None, start_fd: int = 0,
+                count: Optional[int] = None) -> Generator[Any, Any, Optional[List[SimpleNamespace]]]:
+        """open files from @start_fd: fd and d_path() name"""
+        task = self._task(pid)
+        n = self.lib.penguin_osi_fds(self._cpu(), task, start_fd, self._fds,
+                                     min(count or MAX_FDS, MAX_FDS), self._strs, STRS) if task else -1
+        if n < 0:
+            return None
+        return [SimpleNamespace(fd=e.fd, file=e.file, name=self._str(e.name))
+                for e in (self._fds[i] for i in range(n))]
+        yield
+
+    def get_fd_name(self, fd: int, pid: Optional[int] = None) -> Generator[Any, Any, Optional[str]]:
+        """one fd's name (AT_FDCWD: the working directory)"""
+        task = self._task(pid)
+        n = self.lib.penguin_osi_fd_path(self._cpu(), task, fd, self._strs, STRS) if task else -1
+        return self.ffi.string(self._strs, n).decode("latin-1") if n >= 0 else None
+        yield
+
+    def get_cwd(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[str]]:
+        return (yield from self.get_fd_name(AT_FDCWD, pid))
+
+    def get_proc_exe(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[str]]:
+        """mm->exe_file's path"""
+        task = self._task(pid)
+        n = self.lib.penguin_osi_exe_path(self._cpu(), task, self._strs, STRS) if task else -1
+        return self.ffi.string(self._strs, n).decode("latin-1") if n >= 0 else None
+        yield
+
+    def get_mappings(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[List[SimpleNamespace]]]:
+        """the mappings in address order, as /proc/<pid>/maps lists them"""
+        task = self._task(pid)
+        n = self.lib.penguin_osi_mappings(self._cpu(), task, self._vmas, MAX_VMAS,
+                                          self._strs, STRS) if task else -1
+        if n < 0:
+            return None
+        out = []
+        for i in range(min(n, MAX_VMAS)):
+            v = self._vmas[i]
+            out.append(SimpleNamespace(
+                base=v.start, size=v.end - v.start, offset=v.offset, flags=v.flags,
+                perms=self.ffi.string(v.perms).decode(), name=self._str(v.name), file=v.file))
+        return out
+        yield
