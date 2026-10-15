@@ -43,7 +43,7 @@ def test_trap_event_fields(trap, ffi):
 
 def _backend(trap, ffi, **kw):
     b = trap.TrapBackend.__new__(trap.TrapBackend)
-    b.ffi, b.runs, b.wbufs, b.unsupported = ffi, {}, {}, set()
+    b.ffi, b.runs, b.wbufs, b.unsupported, b.numbers = ffi, {}, {}, set(), {}
     for k, v in kw.items():
         setattr(b, k, v)
     return b
@@ -183,3 +183,82 @@ def test_names_at_boot(trap, ffi):
     # i386: openat is 295, fstat 108, fstat64 197 (named as the native fstat)
     assert (1, 295, b"openat", 4) in names and (1, 108, b"fstat", 2) in names
     assert (1, 197, b"fstat", 2) in names
+    assert b.numbers == {"openat": 257, "fstat": 5}
+
+
+def test_numbers_from_sys_call_table(trap, ffi):
+    """calls without metadata get their number from the function their
+    sys_call_table entry points to; sys_ni_syscall's aliases get none"""
+    A, N, M, X, T = 0x1000, 0x2000, 0x3000, 0x4000, 0x9000
+    syms = {"sys_call_table": T, "sys_read": A, "sys_ni_syscall": N,
+            "sys_quotactl": N, "sys_mmap": M, "jiffies": X}
+    table = [A, N, M, N, X, M]          # X: not a syscall function, the end
+    mem = b"".join(v.to_bytes(8, "little") for v in table).ljust(512, b"\0")
+
+    def read(cs, addr, buf, n):
+        if addr != T:
+            return False
+        ffi.buffer(buf, n)[:] = mem[:n]
+        return True
+
+    kffi = SimpleNamespace(
+        symbols={k: SimpleNamespace(address=v) for k, v in syms.items()},
+        get_symbol=lambda name: SimpleNamespace(address=syms[name]) if name in syms else None)
+    b = _backend(trap, ffi, kffi=kffi, big=False,
+                 lib=SimpleNamespace(penguin_syscall_read_memory=read))
+    b.numbers = {"read": 0}
+    b._table_numbers(ffi.NULL)
+    assert b.numbers == {"read": 0, "mmap": 2}
+    assert b.number("mmap") == 2 and b.number("quotactl") is None
+
+
+def test_inject_command_and_answer(trap, ffi):
+    b = _backend(trap, ffi)
+    assert b._command(trap.InjectCmd(9, (0, -1))) == (trap.OP_SYSCALL, 9, (0, M64), None)
+    seen = []
+
+    def callback(sce):
+        seen.append((yield trap.InjectCmd(39, ())))
+        seen.append((yield trap.InjectCmd(59, (1, 2, 3))))
+
+    state = SimpleNamespace(cpu=None)
+    b.s = SimpleNamespace(_trap_event=callback)
+    b.panda = SimpleNamespace(_callback_state=lambda: state)
+    ev = ffi.new("struct penguin_sc_event *")
+    cmd = ffi.new("struct penguin_sc_cmd *")
+    ev.call = 3
+    b._on_event(ffi.NULL, ev, cmd, ffi.NULL)
+    assert (cmd.op, cmd.num, list(cmd.args)) == (trap.OP_SYSCALL, 39, [0] * 6)
+    cmd.status, cmd.ret = trap.OK, -38
+    b._on_event(ffi.NULL, ev, cmd, ffi.NULL)
+    assert seen == [-38] and (cmd.op, cmd.num, list(cmd.args)) == (
+        trap.OP_SYSCALL, 59, [1, 2, 3, 0, 0, 0])
+    cmd.status = trap.FAIL                      # refused: nothing ran
+    b._on_event(ffi.NULL, ev, cmd, ffi.NULL)
+    assert seen == [-38, None] and cmd.op == trap.OP_NONE and not b.runs
+
+
+def test_syscalls_inject(trap, igloo_ko_isf):
+    sc, _ = load_module(str(PY / "apis" / "syscalls.py"), real_isf=igloo_ko_isf)
+    s = sc.Syscalls.__new__(sc.Syscalls)
+
+    def run(g, answer=None):
+        try:
+            c = next(g)
+        except StopIteration as e:
+            return "returned", e.value
+        try:
+            g.send(answer)
+        except StopIteration as e:
+            return c, e.value
+        raise AssertionError("more than one command")
+
+    s._trap = None                              # the igloo backend: no injecting
+    assert run(s.inject("getpid")) == ("returned", None)
+    s._trap = SimpleNamespace(number={"getpid": 39}.get)
+    c, v = run(s.inject("getpid"), 4242)
+    assert (type(c).__name__, c.num, c.args, v) == ("InjectCmd", 39, (), 4242)
+    c, v = run(s.inject(62, 7, -1), 0)
+    assert (c.num, c.args) == (62, (7, M64))
+    assert run(s.inject("nosuch")) == ("returned", None)
+    assert run(s.inject(1, *range(7))) == ("returned", None)

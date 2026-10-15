@@ -258,8 +258,11 @@ Ordered most-valuable first. Percentages are current host coverage.
     portal commands QEMU serves and their answers, a coroutine suspended across
     commands, syscall names at boot (native metadata, compat ABIs by uapi
     number), and the OSI layout filling exactly the C struct on 6.x and 4.x
-    kernels. Out of scope here: the engine itself (system/penguin-syscalls.c),
-    tested under QEMU in qemu_builder's guest harness.
+    kernels; `Syscalls.inject` (the command and its answer, a coroutine across
+    injected calls, refusals) and native numbers from `sys_call_table` where
+    the metadata has none. Out of scope here: the engine itself
+    (system/penguin-syscalls.c), tested under QEMU in qemu_builder's guest
+    harness.
 
 12. **`apis/hostosi.py` — OS introspection from the hypervisor** ✅ done
     (`test_hostosi.py`, `real_isf=` load). Against a fake QEMU library: the

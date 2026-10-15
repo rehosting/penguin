@@ -24,6 +24,8 @@ across it.  Other commands (OSI, ...) get the portal's failure, None.
 - mem's direct reads and writes, during a callback, go to the engine: the
   vCPU's own view, never faulting; a write needs the guest's permission
   (a debug write would reach a read-only or copy-on-write page).
+- An entry callback may yield ``InjectCmd`` (Syscalls.inject): the task
+  makes that system call first, and the callback gets its return value.
 
 TCG; x86_64 and AArch64 guests, with their 32-bit compat ABIs.  Enabled by
 the Syscalls argument ``backend: trap`` (``plugins: syscalls: backend: trap``).
@@ -179,6 +181,19 @@ COMPAT = {
 }
 
 
+class InjectCmd:
+    """A command a callback yields: the task makes system call ``num`` (of
+    the native ABI) with ``args``; the answer is its return value, or None
+    if it could not run (Syscalls.inject)"""
+    __slots__ = ("num", "args")
+
+    def __init__(self, num, args):
+        self.num, self.args = int(num), tuple(int(a) & M64 for a in args)
+
+    def __repr__(self):
+        return f"InjectCmd({self.num}, {self.args})"
+
+
 def _s64(v):
     v = int(v) & M64
     return v - (1 << 64) if v >> 63 else v
@@ -316,6 +331,7 @@ class TrapBackend:
         self.arch = arch
         self.native, self.compat = NATIVE[arch]
         self.big = panda.endianness == "big"
+        self.numbers = {}       # native syscall name -> number (at boot)
         self.runs = {}          # call id -> the coroutine waiting for its answer
         self.wbufs = {}         # call id -> the bytes it writes, until answered
         self.unsupported = set()
@@ -342,6 +358,8 @@ class TrapBackend:
             logger.warning("syscall trap: no guard; commands on unmapped memory fail")
         if not self.lib.penguin_syscall_set_reaper(self._sym("release_task")):
             logger.warning("syscall trap: no reaper; a killed task's calls stay until evicted")
+        if not self.lib.penguin_syscall_set_exec(self._sym("__set_task_comm")):
+            logger.warning("syscall trap: no exec hook; execve cannot be injected")
         # core.analysis_scope, as the Scope plugin reads it: on unless "none"
         conf = syscalls.get_arg("conf") or {}
         scope = (conf.get("core") or {}).get("analysis_scope", "firmware")
@@ -418,6 +436,8 @@ class TrapBackend:
                 self.lib.penguin_syscall_set_name(ABIS[self.native], vals[0], sc.encode(),
                                                   vals[1])
                 nargs[sc] = vals[1]
+                self.numbers[sc] = vals[0]
+        self._table_numbers(cs)
         n = 0
         for num, uname in enumerate(COMPAT[self.compat].split()):
             for cand in (uname, re.sub(r"(32|64)$", "", uname), uname.lstrip("_")):
@@ -427,6 +447,55 @@ class TrapBackend:
                     n += 1
                     break
         logger.debug("syscall trap: %d native and %d compat names", len(nargs), n)
+
+    _TABLE_MAX = 1024            # entries; past the end, a non-function stops it
+    _TABLE_PREFIXES = ("__x64_sys_", "__arm64_sys_", "sys_", "SyS_")
+
+    def _table_numbers(self, cs):
+        """Native numbers the syscall metadata lacks (calls not defined with
+        SYSCALL_DEFINE, as arm64's mmap before 4.13), for inject(): each
+        sys_call_table entry is named by the function it points to"""
+        table = self._sym("sys_call_table")
+        if not table:
+            return
+        byaddr = {}
+        for name, sym in self.kffi.symbols.items():
+            a = getattr(sym, "address", 0)
+            if a:
+                byaddr.setdefault(a, []).append(name)
+        buf = self.ffi.new("uint8_t[512]")
+        order = "big" if self.big else "little"
+        added, agree, differ = [], 0, []
+        num = 0                         # entries read: the table's length at the end
+        while num < self._TABLE_MAX:
+            if num % 64 == 0:
+                if not self.lib.penguin_syscall_read_memory(cs, table + num * 8, buf, 512):
+                    break
+                raw = bytes(buf)
+            o = num % 64 * 8
+            names = byaddr.get(int.from_bytes(raw[o:o + 8], order), ())
+            bases = [n[len(p):] for n in names for p in self._TABLE_PREFIXES
+                     if n.startswith(p)]
+            # past the end: not a syscall function
+            if not bases:
+                break
+            # sys_ni_syscall: its aliases name calls not built in
+            if not any(b.endswith("ni_syscall") for b in bases):
+                base = bases[0]
+                if base not in self.numbers:
+                    self.numbers[base] = num
+                    added.append(f"{base}={num}")
+                elif self.numbers[base] == num:
+                    agree += 1
+                else:
+                    differ.append(f"{base}={self.numbers[base]}/{num}")
+            num += 1
+        # where the metadata numbers a call too, the two must agree
+        (logger.warning if differ else logger.info)(
+            "syscall trap: sys_call_table: %d entries, %d numbers added, %d agree "
+            "with the metadata%s", num, len(added), agree,
+            f", differ: {' '.join(differ[:8])}" if differ else "")
+        logger.debug("syscall trap: from sys_call_table: %s", " ".join(added))
 
     # hooks
 
@@ -530,9 +599,15 @@ class TrapBackend:
                 q(b, off["regs"], ev.retval & M64)
         return self.kffi.from_buffer("struct pt_regs", b)
 
+    def number(self, name):
+        """the native ABI's number for syscall @name, or None"""
+        return self.numbers.get(name)
+
     def _command(self, c):
-        """a yielded PortalCmd as (op, addr, size, data), or
+        """a yielded PortalCmd or InjectCmd as (op, addr, size, data), or
         None if QEMU cannot carry it out"""
+        if isinstance(c, InjectCmd):
+            return OP_SYSCALL, c.num, c.args, None
         op = getattr(c, "op", None)
         if getattr(c, "pid", CURRENT_PID) in (CURRENT_PID, None):
             addr = int(getattr(c, "addr", 0) or 0) & M64
@@ -553,6 +628,8 @@ class TrapBackend:
         """what the portal sends the coroutine (Portal.wrap)"""
         if cmd.op in (OP_READ, OP_READ_STR) and cmd.status != FAIL:
             return bytes(self.ffi.buffer(cmd.buf, cmd.len)) if cmd.len else b""
+        if cmd.op == OP_SYSCALL and cmd.status == OK:
+            return cmd.ret
         return None
 
     def _on_event(self, cs, ev, cmd, opaque):
@@ -596,6 +673,11 @@ class TrapBackend:
             state.task = 0
             state.cpu = prev
         self.runs[ev.call] = g
+        if k[0] == OP_SYSCALL:
+            cmd.op, cmd.num = OP_SYSCALL, k[1]
+            for i in range(6):
+                cmd.args[i] = k[2][i] if i < len(k[2]) else 0
+            return
         cmd.op, cmd.addr, cmd.size = k[0], k[1], k[2]
         if k[3] is not None:
             b = self.ffi.new("char[]", k[3])

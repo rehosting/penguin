@@ -1297,3 +1297,48 @@ class Syscalls(Plugin):
         # Unregister all found matches
         for ptr in targets_found:
             self._cleanup_hook_maps(ptr)
+
+    def inject(self, syscall: Union[str, int], *args: int) -> Iterator[Any]:
+        """
+        Make the task run a system call now, before its own.
+
+        For an entry callback on the trap backend: the task enters the kernel
+        with ``syscall(*args)``, comes back to its own call's trap with its
+        registers as they were, and the callback resumes with the return
+        value::
+
+            pid = yield from plugins.syscalls.inject("getpid")
+
+        The call is the task's: its credentials, namespaces, files and
+        signals; a signal can interrupt it (-EINTR), or the kernel restarts
+        it after a handler.  Pointer arguments point into the task's memory:
+        get some with an injected ``mmap`` and fill it with
+        ``plugins.mem.write_bytes``.
+
+        ``execve`` and ``execveat`` behave as they do for the task: if the
+        exec fails, the callback resumes with its error; if it succeeds, the
+        callback does not resume (the generator is closed): the task runs the
+        new program and its own call is gone.
+
+        Parameters
+        ----------
+        syscall : str or int
+            The native ABI's name (as the kernel's syscall metadata names it,
+            e.g. "openat") or number.
+        *args : int
+            Up to six arguments.
+
+        Returns
+        -------
+        The return value (a negative errno on failure), or None if it could
+        not run: not the trap backend, not at an entry, a 32-bit task, an
+        unknown name, or a call that would not come back (exit, fork, clone,
+        ..., and execve when the kernel's exec cannot be hooked).
+        """
+        if not self._trap or len(args) > 6:
+            return None
+        num = syscall if isinstance(syscall, int) else self._trap.number(syscall)
+        if num is None:
+            return None
+        from compat.syscall_trap import InjectCmd
+        return (yield InjectCmd(num, args))
