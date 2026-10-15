@@ -146,3 +146,61 @@ def test_on_bind_rebridged_wildcard_keeps_its_own_procname():
 
     assert vpn.bridged[0] == ("tcp", "192.168.0.1", 80, "httpd")
     assert vpn.published[0] == ("tcp", "192.168.0.1", 80, "httpd")
+
+
+# --- fixed port maps on the wildcard -----------------------------------------
+#
+# A fixed map's guest IP is recorded in seen_ips so wildcard services are also
+# bridged onto it. A map on 0.0.0.0 must not land there: on_bind would then
+# re-bridge a 0.0.0.0 bind onto 0.0.0.0, claim the same fixed host port twice,
+# and the "not free" error would abort bridging of the concrete-IP copies.
+
+
+class _Logger:
+    def info(self, *_a, **_k):
+        pass
+
+
+def _fixed_map_vpn(mod, port_maps):
+    vpn = _bind_vpn(mod, set())
+    vpn.logger = _Logger()
+    vpn.fixed_maps = {}
+    vpn._load_fixed_maps(port_maps)
+
+    claimed = set()
+
+    def fixed_port_bridge(sock_type, ip, guest_port, procname, ipvn):
+        # Mirror map_bound_socket: a fixed host port can be bound only once.
+        host_port = vpn.fixed_maps.get((sock_type, ip, guest_port), 20000 + len(claimed))
+        if host_port in claimed:
+            raise RuntimeError(f"User requested to map host port {host_port} but it is not free")
+        claimed.add(host_port)
+        vpn.bridged.append((sock_type, ip, guest_port, procname))
+        return host_port
+
+    vpn.bridge = fixed_port_bridge
+    return vpn
+
+
+def test_fixed_map_wildcard_is_not_a_seen_ip():
+    mod = _load_vpn_module("vpn_plugin_fixed_map_seen")
+    vpn = _fixed_map_vpn(mod, "tcp:2022:0.0.0.0:22,tcp:3022:192.168.1.1:22")
+
+    assert vpn.seen_ips == {"192.168.1.1"}
+    assert vpn.fixed_maps == {("tcp", "0.0.0.0", 22): 2022, ("tcp", "192.168.1.1", 22): 3022}
+
+
+def test_fixed_map_wildcard_bind_bridges_every_seen_ip():
+    """A wildcard bind with a fixed map is bridged once on the wildcard and
+    once per concrete IP, each on its own host port."""
+    mod = _load_vpn_module("vpn_plugin_fixed_map_bind")
+    vpn = _fixed_map_vpn(mod, "tcp:2022:0.0.0.0:22,tcp:3022:192.168.1.1:22")
+    vpn.seen_ips.add("127.0.0.1")
+
+    vpn.on_bind("tcp", 4, "0.0.0.0", 22, "dropbear")
+
+    assert sorted(vpn.bridged) == sorted([
+        ("tcp", "0.0.0.0", 22, "dropbear"),
+        ("tcp", "192.168.1.1", 22, "dropbear"),
+        ("tcp", "127.0.0.1", 22, "dropbear"),
+    ])
