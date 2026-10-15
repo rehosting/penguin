@@ -141,8 +141,9 @@ class Core(Plugin):
         ]
         if board_image:
             # The others serve penguin's own guest userspace. With igloo.ko
-            # loaded by core.kmod_inject, netbinds works from syscalls and
-            # readiness from netbinds; snapshot needs neither.
+            # loaded by core.kmod_inject, netbinds works (its socket hooks come
+            # from igloo.ko's proto_ops wrappers) and readiness from netbinds;
+            # snapshot needs neither.
             essential_plugins = ["snapshot"]
             if conf["core"].get("kmod_inject"):
                 essential_plugins = ["igloodriver", "netbinds", "readiness", "snapshot"]

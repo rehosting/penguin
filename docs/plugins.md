@@ -153,12 +153,14 @@ and would otherwise vanish from `netbinds.csv`). Already-announced services are
 rebuilt silently — downstream consumers replay their own state — while a service
 still within its announce window at snapshot time is announced on restore.
 
-Binds and releases normally come from igloo.ko's socket hooks. On a kernel
-without them (a board booting its own firmware, `core.guest_image: none`)
-`source: syscalls` builds the same events from the guest's `socket`, `bind`,
-`listen` and `close` syscalls; `source: auto` (the default) picks it there.
-That source sees a release only as an explicit `close()` by the binding thread
-and skips binds to port 0; see the plugin's docstring.
+Binds and releases come from igloo.ko's socket hooks. On a vendor kernel
+without them (a board booting its own firmware, `core.guest_image: none`),
+igloo.ko built with `CONFIG_IGLOO_KL_SOCK` wraps the inet `proto_ops` tables
+to call the same hooks, so the events are the same, including releases on
+process exit or crash. `source: syscalls` is a fallback that builds events from
+the guest's `socket`, `bind`, `listen` and `close` syscalls; it sees a release
+only as an explicit `close()` by the binding thread and skips binds to port 0
+(see the plugin's docstring).
 
 ## Nmap
 This plugin runs nmap scans on all network-listening services.

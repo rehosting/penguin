@@ -61,15 +61,16 @@ without ever listening therefore never emits a release and remains
 Event sources
 -------------
 
-``igloo`` (the default on penguin's kernels) takes binds and releases from
-igloo.ko's socket hooks, which penguin's kernels carry and a vendor kernel
-does not. ``syscalls`` builds the same events from the guest's ``socket``,
-``bind``, ``listen`` and ``close`` syscalls through the syscalls plugin, so it
-works on any kernel the syscalls plugin works on. ``auto`` picks ``syscalls``
-when ``core.guest_image`` is ``none`` (a board booted from its own firmware)
-and ``igloo`` otherwise.
+``igloo`` (the default) takes binds and releases from igloo.ko's socket
+hooks. Penguin's kernels call them from their own patches; on a vendor kernel
+without those (``core.guest_image: none``) igloo.ko built with
+CONFIG_IGLOO_KL_SOCK wraps the inet proto_ops tables to call the same hooks,
+so the events and their semantics are the same: a release fires when the
+socket's last reference goes, whether by close, exit or a fatal signal.
 
-The ``syscalls`` source differs from ``igloo`` in what it can see:
+``syscalls`` is a fallback for a kernel where igloo.ko can install neither. It
+builds the events from the guest's ``socket``, ``bind``, ``listen`` and
+``close`` syscalls through the syscalls plugin, and sees less:
 
 - The socket type comes from the ``socket()`` that made the fd. A bind on an
   fd whose ``socket()`` was not seen (inherited across exec) is reported only
@@ -126,8 +127,8 @@ Arguments
   Default: 2.0.
 - transient_threshold (int, optional): Number of flaps at which a socket is
   labelled transient. Default: 3.
-- source (str, optional): Where bind/release events come from: ``igloo``,
-  ``syscalls`` or ``auto`` (default). See "Event sources".
+- source (str, optional): Where bind/release events come from: ``igloo``
+  (default) or ``syscalls``. See "Event sources".
 
 Plugin Interface
 ----------------
@@ -175,19 +176,13 @@ SOCK_TYPES = {1: "tcp", 2: "udp"}  # SOCK_STREAM, SOCK_DGRAM (low bits of type)
 SOCK_TYPE_MASK = 0xF
 
 
-def pick_source(source: Optional[str], conf: Optional[dict]) -> str:
-    """Resolve the ``source`` arg: ``auto`` (or unset) means ``syscalls`` for a
-    board booted from its own firmware (``core.guest_image: none``), whose
-    kernel has no igloo socket hooks, and ``igloo`` otherwise."""
-    if source in ("igloo", "syscalls"):
-        return source
-    if source not in (None, "auto"):
+def pick_source(source: Optional[str]) -> str:
+    """Validate the ``source`` arg; unset means ``igloo``."""
+    if source is None:
+        return "igloo"
+    if source not in ("igloo", "syscalls"):
         raise ValueError(f"netbinds: unknown source {source!r}")
-    try:  # conf is the run's ArgsBox: indexable, no .get()
-        guest_image = conf["core"]["guest_image"]
-    except (KeyError, TypeError):
-        guest_image = None
-    return "syscalls" if guest_image == "none" else "igloo"
+    return source
 
 
 def decode_sockaddr(sa: bytes, little_endian: bool):
@@ -226,12 +221,12 @@ class NetBinds(Plugin):
             default=DEFAULT_TRANSIENT_THRESHOLD,
             description="Number of flaps at which a socket is labelled transient.",
         )
-        source: Literal["auto", "igloo", "syscalls"] = Field(
-            default="auto",
+        source: Literal["igloo", "syscalls"] = Field(
+            default="igloo",
             description="Where bind/release events come from: 'igloo' (igloo.ko's socket "
-            "hooks, on penguin's kernels), 'syscalls' (the guest's socket/bind/listen/close "
-            "syscalls, for kernels without those hooks), or 'auto' ('syscalls' when "
-            "core.guest_image is 'none', else 'igloo').",
+            "hooks; on a vendor kernel, its proto_ops wrappers) or 'syscalls' (the guest's "
+            "socket/bind/listen/close syscalls, a fallback for kernels where igloo.ko can "
+            "install neither).",
         )
 
     def __init__(self) -> None:
@@ -281,7 +276,7 @@ class NetBinds(Plugin):
         with open(join(self.outdir, EVENTS_FILE), "w") as f:
             f.write("event,procname,ipvn,domain,guest_ip,guest_port,pid,time\n")
 
-        self.source = pick_source(self.get_arg("source"), self.get_arg("conf"))
+        self.source = pick_source(self.get_arg("source"))
         if self.source == "syscalls":
             self._init_syscall_source()
         else:

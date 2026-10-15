@@ -721,7 +721,7 @@ AT91_NAND_IMAGE: /projects/tierA/rootfs.jffs2
 |__Type__|`"penguin"` or `"none"`|
 |__Default__|`penguin`|
 
-'penguin' (default) builds the rootfs image from core.fs with penguin's init and userspace and boots it. 'none' builds and attaches nothing: the board boots its own firmware from core.flash, unmodified, and nothing of penguin runs inside the guest unless core.kmod_inject loads igloo.ko. Requires core.machine; core.fs, env.igloo_init and the vpn plugin are not used. core.snapshot runs on a qcow2 overlay over core.flash (save_at: manual; readiness needs penguin's init). With core.kmod_inject, core also loads netbinds (from syscalls), readiness and snapshot.
+'penguin' (default) builds the rootfs image from core.fs with penguin's init and userspace and boots it. 'none' builds and attaches nothing: the board boots its own firmware from core.flash, unmodified, and nothing of penguin runs inside the guest unless core.kmod_inject loads igloo.ko. Requires core.machine; core.fs, env.igloo_init and the vpn plugin are not used. core.snapshot runs on a qcow2 overlay over core.flash (save_at: manual; readiness needs penguin's init). With core.kmod_inject, core also loads netbinds, readiness and snapshot.
 
 ```yaml
 penguin

@@ -89,24 +89,11 @@ def _states(lp):
 def test_pick_source(tmp_path):
     lp, _ = _load(tmp_path)
     pick = type(lp.plugin).__init__.__globals__["pick_source"]
-    assert pick(None, None) == "igloo"
-    assert pick("auto", {"core": {"guest_image": "penguin"}}) == "igloo"
-    assert pick("auto", {"core": {"guest_image": "none"}}) == "syscalls"
-    assert pick(None, {"core": {"guest_image": "none"}}) == "syscalls"
-    assert pick("igloo", {"core": {"guest_image": "none"}}) == "igloo"
+    assert pick(None) == "igloo"
+    assert pick("igloo") == "igloo"
+    assert pick("syscalls") == "syscalls"
     with pytest.raises(ValueError):
-        pick("kprobes", None)
-
-    class Box:  # the run passes conf as an ArgsBox: __getitem__ only
-        def __init__(self, d):
-            self.d = d
-
-        def __getitem__(self, k):
-            return self.d[k]
-
-    assert pick(None, Box({"core": {"guest_image": "none"}})) == "syscalls"
-    assert pick(None, Box({"core": {}})) == "igloo"
-    assert pick(None, Box({})) == "igloo"
+        pick("auto")
 
 
 def test_syscalls_source_hooks_syscalls_not_igloo_events(tmp_path):
@@ -218,3 +205,10 @@ def test_fd_tables_survive_a_restore(tmp_path):
     lp2.finalize()
     assert _states(lp2) == {("tcp", "0.0.0.0", 80): "closed",
                             ("udp", "0.0.0.0", 53): "listening"}
+
+
+def test_default_source_is_igloo(tmp_path):
+    lp = load_pyplugin(str(NETBINDS), outdir=tmp_path, args={})
+    assert lp.plugin.source == "igloo"
+    assert not lp.manager.syscall_hooks
+    assert "igloo_ipv4_release" in {ev for (_p, ev, _c) in lp.subscriptions}
