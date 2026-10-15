@@ -781,17 +781,19 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
 
     def __init__(self, obj: Any, panda: Optional[Any] = None, extra_context: Optional[Dict] = None) -> None:
         super().__init__(obj, panda=panda, extra_context=extra_context)
+        # The wrapper's own state, on the wrapper (not set through Wrapper,
+        # which would try the wrapped pt_regs first)
         # Create a delegate for x86 (32-bit) mode access (but don't initialize it yet)
-        self._x86_delegate = None
+        object.__setattr__(self, '_x86_delegate', None)
         # Flag to prevent recursion in _is_compatibility_mode
-        self._checking_mode = False
+        object.__setattr__(self, '_checking_mode', False)
 
     def _get_x86_delegate(self) -> 'X86PtRegsWrapper':
         """
         Get or create an X86PtRegsWrapper delegate for 32-bit compatibility mode access.
         """
         if self._x86_delegate is None:
-            self._x86_delegate = X86PtRegsWrapper(self._obj, panda=self._panda, extra_context=self._extra_context)
+            object.__setattr__(self, '_x86_delegate', X86PtRegsWrapper(self._obj, panda=self._panda, extra_context=self._extra_context))
         return self._x86_delegate
 
     def _is_compatibility_mode(self) -> bool:
@@ -807,7 +809,7 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
         if self._checking_mode:
             return False
 
-        self._checking_mode = True
+        object.__setattr__(self, '_checking_mode', True)
         try:
             # Check if the cs field is actually available in the structure
             if hasattr(self._obj, "cs"):
@@ -823,7 +825,7 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
             # Default: assume not in compatibility mode if we can't determine
             return False
         finally:
-            self._checking_mode = False
+            object.__setattr__(self, '_checking_mode', False)
 
     def get_register(self, reg_name: str) -> Optional[int]:
         # Handle compatibility mode dispatch logic
@@ -993,6 +995,42 @@ class ArmPtRegsWrapper(PtRegsWrapper):
         return cpsr is not None and (cpsr & 0x1F) != 0x10
 
 
+class _Arm64CompatUregs:
+    """ARM's uregs[] over arm64's pt_regs, for an AArch32 task: r0-r14 are
+    regs[0..14] (compat_usr()), then pc, pstate (the cpsr), orig_x0."""
+    __slots__ = ('_r',)
+    _NAMED = {15: 'pc', 16: 'pstate', 17: 'orig_x0'}
+
+    def __init__(self, r):
+        self._r = r
+
+    def __getitem__(self, i):
+        if i < 15:
+            return self._r.regs[i] & 0xFFFFFFFF
+        return getattr(self._r, self._NAMED[i]) & 0xFFFFFFFF
+
+    def __setitem__(self, i, value):
+        if i < 15:
+            self._r.regs[i] = value & 0xFFFFFFFF
+        else:
+            setattr(self._r, self._NAMED[i], value & 0xFFFFFFFF)
+
+
+class _Arm64CompatRegs:
+    """arm64's pt_regs as ArmPtRegsWrapper reads it (uregs)"""
+    __slots__ = ('_r', 'uregs')
+
+    def __init__(self, r):
+        self._r = r
+        self.uregs = _Arm64CompatUregs(r)
+
+    def __getattr__(self, attr):
+        return getattr(self._r, attr)
+
+    def __bytes__(self):
+        return bytes(self._r)
+
+
 class AArch64PtRegsWrapper(PtRegsWrapper):
     """Wrapper for AArch64 pt_regs"""
 
@@ -1023,8 +1061,8 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
 
     def __init__(self, obj: Any, panda: Optional[Any] = None, extra_context: Optional[Dict] = None) -> None:
         super().__init__(obj, panda, extra_context=extra_context)
-        self._arm_delegate = None
-        self._checking_mode = False
+        object.__setattr__(self, '_arm_delegate', None)
+        object.__setattr__(self, '_checking_mode', False)
 
     def _is_aarch32_mode(self) -> bool:
         """
@@ -1039,7 +1077,7 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
         if self._checking_mode:
             return False
 
-        self._checking_mode = True
+        object.__setattr__(self, '_checking_mode', True)
         try:
             # Check pstate nRW bit (bit 4). 1 = 32-bit.
             pstate = self._obj.pstate
@@ -1047,15 +1085,18 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
         except (AttributeError, TypeError):
             return False
         finally:
-            self._checking_mode = False
+            object.__setattr__(self, '_checking_mode', False)
 
     def _get_arm_delegate(self) -> ArmPtRegsWrapper:
         """
         Get or create an ARM registers delegate for AArch32 mode access
         """
         if self._arm_delegate is None:
-            # Create delegate with our original object but use ARM wrapper
-            self._arm_delegate = ArmPtRegsWrapper(self._obj, panda=self._panda, extra_context=self._extra_context)
+            # An ARM wrapper over our object: arm64's pt_regs keeps an
+            # AArch32 task's registers in regs[], pc and pstate, not uregs[]
+            object.__setattr__(self, '_arm_delegate', ArmPtRegsWrapper(
+                _Arm64CompatRegs(self._obj), panda=self._panda,
+                extra_context=self._extra_context))
         return self._arm_delegate
 
     def get_register(self, reg_name: str) -> Optional[int]:
