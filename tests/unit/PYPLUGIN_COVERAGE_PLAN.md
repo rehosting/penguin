@@ -250,6 +250,17 @@ Ordered most-valuable first. Percentages are current host coverage.
     non-network-path/idempotency edges. This is the host-side reproduction of the
     all-arch guest failure that motivated PR #872's fix.
 
+11. **`compat/syscall_trap.py` — the Syscalls trap backend** ✅ done
+    (`test_syscall_trap.py`, `real_isf=` load; `test_osi_layout.py` for
+    `compat/osi_layout.py`; `test_ptregs_compat.py` for the arm64 compat view in
+    `wrappers/ptregs_wrap.py`). Against a fake QEMU library: the engine event's
+    fields, filters built as igloo builds them (incl. fd-path and exe), the
+    portal commands QEMU serves and their answers, a coroutine suspended across
+    commands, syscall names at boot (native metadata, compat ABIs by uapi
+    number), and the OSI layout filling exactly the C struct on 6.x and 4.x
+    kernels. Out of scope here: the engine itself (system/penguin-syscalls.c),
+    tested under QEMU in qemu_builder's guest harness.
+
 ### Harness capabilities (as landed)
 
 `load_pyplugin` currently handles: module/class-body decorators

@@ -88,6 +88,159 @@ bool penguin_handle_qmp(const char *command, const char *args, char **result);
 char *strdup(const char *s);
 """
 
+# The syscall trap engine's C ABI (include/system/penguin-syscalls.h), for
+# QEMU builds whose cffi header does not carry it (compat/syscall_trap.py).
+SYSCALL_TRAP_CDEF = """
+struct penguin_sc_filter {
+    bool enabled; int32_t type; int64_t value; int64_t min_value;
+    int64_t max_value; uint64_t bitmask; const char *pattern;
+    uint32_t pattern_len; int32_t subject;
+};
+struct penguin_sc_hook {
+    bool enabled; bool on_enter; bool on_return; bool on_all; bool on_unknown;
+    char name[48]; bool pid_filter_enabled; int64_t filter_pid;
+    bool comm_filter_enabled; char comm_filter[16]; bool scope_filter_enabled;
+    struct penguin_sc_filter arg_filters[6];
+    struct penguin_sc_filter retval_filter;
+    struct penguin_sc_filter exe_filter;
+};
+struct penguin_sc_event {
+    uint64_t call; uint64_t args[6]; uint64_t pc; uint64_t hook;
+    uint64_t task; uint64_t regs; int64_t retval; uint64_t pid;
+    uint64_t create_time; uint32_t argc; bool skip_syscall;
+    char syscall_name[48]; int32_t abi; int64_t num; bool is_enter;
+    bool restart;
+};
+struct penguin_sc_cmd {
+    int32_t op; uint64_t addr; uint64_t size; const void *data;
+    int32_t status; const void *buf; uint64_t len;
+    int64_t num; uint64_t args[6]; int64_t ret;
+};
+struct penguin_sc_layout {
+    uint64_t cur_mask; uint64_t cur_offset; int32_t ptr_size;
+    int32_t task_pid; int32_t task_comm; int32_t task_start_time;
+    int32_t task_nsproxy; int32_t nsproxy_uts_ns; uint64_t init_uts_ns;
+};
+struct penguin_sc_stats {
+    uint64_t enters, events, commands, faults, refused, kept, pending,
+             full, stale, reaped, injected;
+};
+typedef void (*penguin_syscall_cb_t)(CPUState *cs,
+                                     struct penguin_sc_event *ev,
+                                     struct penguin_sc_cmd *cmd,
+                                     void *opaque);
+typedef void (*penguin_syscall_boot_cb_t)(CPUState *cs, void *opaque);
+bool set_penguin_syscall_callback(penguin_syscall_cb_t cb, void *opaque);
+void set_penguin_syscall_boot_callback(penguin_syscall_boot_cb_t cb,
+                                       void *opaque);
+bool penguin_syscall_set_name(int32_t abi, int64_t num, const char *name,
+                              int32_t nargs);
+bool penguin_syscall_set_layout(const struct penguin_sc_layout *layout);
+bool penguin_syscall_set_guard(uint64_t force_sig_fault,
+                               uint64_t force_sig_info);
+bool penguin_syscall_set_reaper(uint64_t release_task);
+bool penguin_syscall_set_exec(uint64_t set_task_comm);
+void penguin_syscall_set_scope(bool enabled);
+uint64_t penguin_syscall_register(const struct penguin_sc_hook *hook);
+bool penguin_syscall_unregister(uint64_t id);
+bool penguin_syscall_read_memory(CPUState *cs, uint64_t addr, void *buf,
+                                 size_t len);
+bool penguin_syscall_write_memory(CPUState *cs, uint64_t addr,
+                                  const void *buf, size_t len);
+int penguin_syscall_regs(CPUState *cs, int first, int n, uint64_t *out);
+void penguin_syscall_stats(struct penguin_sc_stats *stats);
+"""
+
+# include/system/penguin-osi.h: the host-side OSI walks (apis/hostosi.py)
+PENGUIN_OSI_CDEF = """
+struct penguin_osi_layout {
+    int32_t task_pid, task_tgid, task_comm, task_real_parent, task_cred;
+    int32_t task_mm, task_fs, task_files, task_start_time, task_tasks;
+    int32_t task_signal, task_thread_node;
+    int32_t task_thread_group;
+    int32_t signal_thread_head;
+    int32_t cred_uid, cred_gid, cred_euid, cred_egid;
+    int32_t mm_pgd, mm_map_count, mm_start_code, mm_end_code, mm_start_data;
+    int32_t mm_end_data, mm_start_brk, mm_brk, mm_start_stack, mm_arg_start;
+    int32_t mm_arg_end, mm_env_start, mm_env_end, mm_mmap_base, mm_task_size;
+    int32_t mm_exe_file;
+    int32_t mm_mt_root;
+    int32_t mm_mmap;
+    int32_t mm_context_flags;
+    int32_t fs_root_mnt, fs_root_dentry, fs_pwd_mnt, fs_pwd_dentry;
+    int32_t files_fdt, fdt_max_fds, fdt_fd;
+    int32_t file_mnt, file_dentry;
+    int32_t dentry_parent, dentry_name_len, dentry_name_name, dentry_op;
+    int32_t dentry_inode, dentry_hash_pprev;
+    int32_t inode_ino;
+    int32_t mount_mnt, mount_parent, mount_mountpoint, vfsmount_root;
+    int32_t dops_dname;
+    int32_t vma_start, vma_end, vma_flags, vma_pgoff, vma_file, vma_ops;
+    int32_t vma_private, vma_mm, vma_next;
+    int32_t vmops_name, special_mapping_name;
+    int32_t mr64_pivot, mr64_slot, mr64_meta_end, mr64_pivots;
+    int32_t ma64_pivot, ma64_slot, ma64_meta_end, ma64_pivots;
+    uint64_t init_task, gate_vma;
+    uint64_t fn_sockfs_dname, fn_pipefs_dname, fn_anon_inodefs_dname;
+    uint64_t fn_simple_dname, fn_dmabuffs_dname;
+    uint64_t fn_special_mapping_name, fn_gate_vma_name;
+    uint64_t pt_page_offset_base, pt_l5_enabled;
+    uint64_t pt_vabits_actual, pt_memstart_addr;
+    bool pt_x86;
+    uint64_t kimg_start, kimg_end, pt_phys_base, pt_kimage_voffset;
+    int32_t maple_leaf_64, maple_range_64, maple_arange_64;
+    uint64_t uts_release, stack_guard_gap;
+};
+struct penguin_osi_proc {
+    uint64_t task, mm, pgd;
+    int64_t pid, tgid, ppid;
+    uint64_t create_time;
+    uint32_t uid, gid, euid, egid;
+    char comm[16];
+    uint64_t map_count, start_brk, brk, start_stack, start_code, end_code;
+    uint64_t start_data, end_data, arg_start, arg_end, env_start, env_end;
+    uint64_t mmap_base, task_size;
+};
+struct penguin_osi_fd {
+    int32_t fd;
+    uint32_t name;
+    uint64_t file;
+};
+struct penguin_osi_vma {
+    uint64_t start, end, flags, offset;
+    uint64_t vma, file;
+    uint32_t name;
+    char perms[5];
+};
+bool penguin_osi_set_layout(const struct penguin_osi_layout *layout);
+uint64_t penguin_osi_task(CPUState *cs, int64_t pid);
+bool penguin_osi_proc(CPUState *cs, uint64_t task, struct penguin_osi_proc *out);
+int penguin_osi_procs(CPUState *cs, uint64_t *tasks, int max);
+int penguin_osi_fds(CPUState *cs, uint64_t task, int32_t start,
+                    struct penguin_osi_fd *out, int max,
+                    char *strs, uint32_t slen);
+int penguin_osi_fd_path(CPUState *cs, uint64_t task, int32_t fd,
+                        char *buf, uint32_t len);
+int penguin_osi_exe_path(CPUState *cs, uint64_t task, char *buf, uint32_t len);
+int penguin_osi_mappings(CPUState *cs, uint64_t task,
+                         struct penguin_osi_vma *out, int max,
+                         char *strs, uint32_t slen);
+enum penguin_osi_match {
+    PENGUIN_OSI_MATCH_EXACT,
+    PENGUIN_OSI_MATCH_CONTAINS,
+    PENGUIN_OSI_MATCH_STARTSWITH,
+    PENGUIN_OSI_MATCH_ENDSWITH,
+};
+int penguin_osi_fd_path_match(CPUState *cs, uint64_t task, int32_t fd,
+                              int how, const char *pat, uint32_t plen);
+int penguin_osi_exe_match(CPUState *cs, uint64_t task, int how,
+                          const char *pat, uint32_t plen);
+int penguin_osi_user_read(CPUState *cs, uint64_t task, uint64_t va,
+                          void *buf, uint32_t len);
+bool penguin_osi_kread(CPUState *cs, uint64_t va, void *buf, uint32_t len);
+void penguin_osi_counters(uint64_t *out);
+"""
+
 # Alternate spellings under which a QEMU build may have published its
 # library/header assets for the same architecture.
 _ARCH_FILE_ALIASES = {
@@ -611,6 +764,10 @@ class QemuCompat:
             )
         if "char *strdup" not in cdef_source:
             cdef_source += "\nchar *strdup(const char *s);\n"
+        if "penguin_syscall_register" not in cdef_source:
+            cdef_source += SYSCALL_TRAP_CDEF
+        if "penguin_osi_set_layout" not in cdef_source:
+            cdef_source += PENGUIN_OSI_CDEF
         self.ffi.cdef(cdef_source)
 
         flags = getattr(os, "RTLD_GLOBAL", 0) | getattr(os, "RTLD_NOW", 0)
@@ -972,6 +1129,13 @@ class QemuCompat:
                 bql_unlock()
 
     def _cpu_memory_rw_debug(self, cpu, addr, ptr, length, is_write):
+        if getattr(self._thread_state, "syscall_trap", False):
+            # in a syscall trap callback (compat/syscall_trap.py): the vCPU's
+            # own view, never faulting; a write needs the guest's permission
+            access = (self.lib.penguin_syscall_write_memory if is_write
+                      else self.lib.penguin_syscall_read_memory)
+            ok = access(cpu, int(addr) & ((1 << self.bits) - 1), ptr, int(length))
+            return 0 if ok else -1
         vaddr = self._guest_addr(addr)
         size = self.ffi.cast("size_t", int(length))
         return self._call_with_bql(

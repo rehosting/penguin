@@ -3,9 +3,10 @@
    :parser: myst_parser.sphinx_
 """
 
-from penguin import plugins, Plugin
+from penguin import plugins, Plugin, PluginArgs
+from pydantic import Field
 import json
-from typing import Dict, List, Any, Callable, Optional, Iterator, Union
+from typing import Dict, List, Any, Callable, Literal, Optional, Iterator, Union
 from hyper.consts import value_filter_type as vft
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import igloo_base_hypercalls as bconsts
@@ -79,7 +80,7 @@ class ValueFilter:
         The bitmask for bitmask filters.
     """
 
-    __slots__ = ('filter_type', 'value', 'min_value', 'max_value', 'bitmask', 'pattern')
+    __slots__ = ('filter_type', 'value', 'min_value', 'max_value', 'bitmask', 'pattern', 'subject')
 
     def __init__(self, filter_type: int = vft.SYSCALLS_HC_FILTER_EXACT, value: int = 0,
                  min_value: int = 0, max_value: int = 0, bitmask: int = 0,
@@ -106,6 +107,7 @@ class ValueFilter:
         self.max_value = max_value
         self.bitmask = bitmask
         self.pattern = pattern
+        self.subject = None
 
     @classmethod
     def _encode_pattern(cls, pattern: str) -> bytes:
@@ -331,6 +333,20 @@ class ValueFilter:
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_STR_ENDSWITH,
                    pattern=cls._encode_pattern(pattern))
 
+    @classmethod
+    def fd_path(cls, inner: "ValueFilter") -> "ValueFilter":
+        """
+        A string filter on the name of the file an fd argument refers to,
+        as /proc/<pid>/fd shows it (``/dev/null``, ``socket:[1234]``), e.g.
+        ``ValueFilter.fd_path(ValueFilter.string_endswith("/dev/watchdog"))``.
+        Decided in QEMU, before any callback runs (the trap backend only).
+        """
+        f = cls(filter_type=inner.filter_type, value=inner.value,
+                min_value=inner.min_value, max_value=inner.max_value,
+                bitmask=inner.bitmask, pattern=inner.pattern)
+        f.subject = "fd_path"
+        return f
+
 
 class SyscallPrototype:
     """
@@ -454,6 +470,18 @@ class Syscalls(Plugin):
     Uses the portal's interrupt mechanism to handle registration and event delivery.
     """
 
+    class Args(PluginArgs):
+        backend: Literal["igloo", "trap"] = Field(
+            default="igloo",
+            description="Where syscall hooks are served. 'igloo': igloo_driver's kernel "
+            "hooks (needs Penguin's kernel patches). 'trap': QEMU's syscall trap engine "
+            "(compat/syscall_trap.py), no kernel hooks; TCG, x86_64 and aarch64 guests "
+            "only.",
+        )
+
+    # the trap backend (compat/syscall_trap.py), when backend is "trap"
+    _trap = None
+
     def __init__(self) -> None:
         """
         Initialize the Syscalls plugin.
@@ -505,6 +533,12 @@ class Syscalls(Plugin):
         # Add a queue for pending hook registrations
         self._pending_hooks = []
         self._syscall_event = plugins.portal.wrap(self._syscall_event)
+
+        # backend: trap serves the hooks from QEMU's syscall trap
+        # (compat/syscall_trap.py) instead of igloo_driver's kernel hooks
+        if (self.get_arg("backend") or "igloo") == "trap":
+            from compat.syscall_trap import TrapBackend
+            self._trap = TrapBackend(self)
 
     def _setup_syscall_handler(self, cpu: int) -> None:
         """
@@ -606,30 +640,34 @@ class Syscalls(Plugin):
                 _, hook_ptr = item
                 yield PortalCmd(hop.HYPER_OP_UNREGISTER_SYSCALL_HOOK, addr=hook_ptr)
             else:
-                hook_config, handle = item
                 # handle is the wrapper created in the decorator
-                original_func = getattr(handle, '_original_func', handle)
+                hook_config, handle = item
 
                 # Register the syscall hook
                 hook_ptr = yield from self._register_syscall_hook(hook_config)
-                on_all = hook_config.get("on_all", False)
-                is_method = hook_config.get("is_method", False)
-                read_only = hook_config.get("read_only", False)
+                self._add_hook(hook_ptr, hook_config, handle)
 
-                # Store 5-tuple (on_all, handle, is_method, read_only, original_func)
-                self._hooks[hook_ptr] = (
-                    on_all, handle, is_method, read_only, original_func)
+    def _add_hook(self, hook_ptr: int, hook_config: Dict[str, Any], handle: Callable) -> None:
+        """Track a registered hook for dispatch and unregistration."""
+        original_func = getattr(handle, '_original_func', handle)
+        on_all = hook_config.get("on_all", False)
+        is_method = hook_config.get("is_method", False)
+        read_only = hook_config.get("read_only", False)
 
-                # 1. Map specific handle (fun1, fun2) to hook_ptr
-                self._handle_to_hook_ptr[handle] = hook_ptr
+        # Store 5-tuple (on_all, handle, is_method, read_only, original_func)
+        self._hooks[hook_ptr] = (
+            on_all, handle, is_method, read_only, original_func)
 
-                # 2. Map original function to list of hook_ptrs
-                self._func_to_hook_ptrs[original_func].append(hook_ptr)
+        # 1. Map specific handle (fun1, fun2) to hook_ptr
+        self._handle_to_hook_ptr[handle] = hook_ptr
 
-                # 3. Map name to list of hook_ptrs
-                func_name = getattr(original_func, "__name__", None)
-                if func_name:
-                    self._name_to_hook_ptrs[func_name].append(hook_ptr)
+        # 2. Map original function to list of hook_ptrs
+        self._func_to_hook_ptrs[original_func].append(hook_ptr)
+
+        # 3. Map name to list of hook_ptrs
+        func_name = getattr(original_func, "__name__", None)
+        if func_name:
+            self._name_to_hook_ptrs[func_name].append(hook_ptr)
 
     def _get_proto(self, cpu: int, sce: Any, on_all: bool) -> SyscallPrototype:
         """
@@ -855,6 +893,30 @@ class Syscalls(Plugin):
 
         return result
 
+    def _trap_event(self, sce: Any) -> Any:
+        """
+        Handle an event from QEMU's syscall trap (the trap backend): the
+        callback's result, which the backend drives if it is a coroutine.
+        The event is QEMU's, so its changes need no write back.
+        """
+        hook_ptr = sce.hook.address
+        entry = self._hooks.get(hook_ptr)
+        if entry is None:
+            return None
+        on_all, f, is_method = entry[0], entry[1], entry[2]
+        proto = self._get_proto(None, sce, on_all)
+        pt_regs = self._trap.pt_regs(sce)
+        if on_all or proto is None or sce.argc == 0:
+            args = (pt_regs, proto, sce)
+        else:
+            sysargs = [sce.args[i] for i in range(sce.argc)]
+            args = (pt_regs, proto, sce, *sysargs)
+        if is_method:
+            f = self._resolve_syscall_callback(f, is_method, hook_ptr)
+            if not f:
+                return None
+        return f(*args)
+
     def _register_syscall_hook(
             self, hook_config: Dict[str, Any]) -> Iterator[int]:
         """
@@ -986,7 +1048,8 @@ class Syscalls(Plugin):
         retval_filter: Optional[Union[ValueFilter, str, int]] = None,
         enabled: bool = True,
         read_only: bool = False,
-        scope_filter: Optional[bool] = None
+        scope_filter: Optional[bool] = None,
+        exe_filter: Optional[Union[ValueFilter, str]] = None
     ) -> Callable:
         """
         Decorator for registering syscall callbacks.
@@ -1016,6 +1079,10 @@ class Syscalls(Plugin):
             subtree when analysis scoping is enabled. Defaults to True (firmware
             only). Set False for hooks that must also fire for Penguin's own
             infrastructure (e.g. the portal transport).
+        exe_filter : ValueFilter or str, optional
+            A string filter on the process's executable path (a str: ends
+            with it, e.g. ``"/httpd"``), unlike comm_filter not cut at 15
+            characters.  Decided in QEMU (the trap backend only).
 
         Returns
         -------
@@ -1117,7 +1184,13 @@ class Syscalls(Plugin):
                 # None => default to firmware-only scope (see register_syscall_hook);
                 # set False on hooks that must also run for Penguin infrastructure.
                 "scope_filter": scope_filter,
+                "exe_filter": (ValueFilter.string_endswith(exe_filter)
+                               if isinstance(exe_filter, str) else exe_filter),
             }
+            if not self._trap and (hook_config["exe_filter"] is not None or any(
+                    getattr(f, "subject", None) for f in (arg_filters or []))):
+                raise NotImplementedError(
+                    "exe_filter and ValueFilter.fd_path need the trap backend")
 
             # Create a unique wrapper handle for this registration
             @functools.wraps(func)
@@ -1126,6 +1199,13 @@ class Syscalls(Plugin):
 
             # Attach original function to wrapper for lookup
             wrapper._original_func = func
+
+            if self._trap:
+                # straight to QEMU: no portal round trip
+                hook_ptr = self._trap.register(hook_config)
+                self._hook_info[hook_ptr] = hook_config
+                self._add_hook(hook_ptr, hook_config, wrapper)
+                return wrapper
 
             # Add to pending hooks and queue interrupt
             self._pending_hooks.append((hook_config, wrapper))
@@ -1136,6 +1216,9 @@ class Syscalls(Plugin):
 
     def _queue_unregister(self, hook_ptr: int):
         """Helper to queue unregister command"""
+        if self._trap:
+            self._trap.unregister(hook_ptr)
+            return
         self._pending_hooks.append(('unregister', hook_ptr))
         plugins.portal.queue_interrupt("syscalls")
 

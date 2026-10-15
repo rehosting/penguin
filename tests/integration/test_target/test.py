@@ -125,7 +125,8 @@ def create_tar_gz_with_binaries(dest_tar_gz, files_dict):
                 tar.add(tmpdir_path / fname, arcname=fname)
 
 
-def run_test(kernel, arch, image, test_file=None, docs_only=False, execution_mode="qemu", name="test_target"):
+def run_test(kernel, arch, image, test_file=None, docs_only=False, execution_mode="qemu", name="test_target",
+             syscalls_backend="igloo"):
     # Create tar.gz with several binary files at the root
     files_dict = {
         "helloworld": b"helloworld\0",
@@ -163,6 +164,9 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False, execution_mod
 
     if docs_only:
         base_config["plugins"]["doc_generator"] = {}
+    if syscalls_backend != "igloo":
+        # the same fixtures with the syscall hooks served another way
+        base_config["plugins"]["syscalls"] = {"backend": syscalls_backend}
 
     if test_file:
         logger.info(f"Running specific test: {test_file}")
@@ -218,7 +222,10 @@ NONDEFAULT_KERNEL_ARCHES = {
 @click.option("--test-file", "-t", default=None, help="Run specific test file from patches/tests/ - no prefix needed (e.g., bash.yaml)")
 @click.option("--docs-only", is_flag=True, help="Only build the docs and leave. Useful for CI.")
 @click.option("--mode", "-m", default="qemu", type=click.Choice(["qemu", "kvm"]))
-def test(kernel, arch, image, name, test_file, docs_only, mode):
+@click.option("--syscalls-backend", default="igloo", type=click.Choice(["igloo", "trap"]),
+              help="Where syscall hooks are served (plugins: syscalls: backend). "
+                   "trap: QEMU's syscall engine; TCG, x86_64 and aarch64 only.")
+def test(kernel, arch, image, name, test_file, docs_only, mode, syscalls_backend):
     if docs_only:
         logger.info("Docs only mode enabled, will only build docs and exit")
         kernel = ['4.10']
@@ -258,6 +265,7 @@ def test(kernel, arch, image, name, test_file, docs_only, mode):
                 docs_only,
                 execution_mode=mode,
                 name=name or "test_target",
+                syscalls_backend=syscalls_backend,
             )
 
 
