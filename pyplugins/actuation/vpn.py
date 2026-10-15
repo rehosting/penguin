@@ -245,18 +245,7 @@ class VPN(Plugin):
             port_maps = env["IGLOO_VPN_PORT_MAPS"]
 
         if port_maps:
-            # port mappings as a comma-separated list tcp:80:192.168.0.1:80
-            for arg in port_maps.split(","):
-                if m := re.search(r"(tcp|udp):(\d+):(.*):(\d+)", arg, re.IGNORECASE):
-                    sock_type = m[1].lower()
-                    host_port = int(m[2])
-                    guest_ip = m[3]
-                    guest_port = int(m[4])
-                    self.seen_ips.add(guest_ip)
-                    self.fixed_maps[(sock_type, guest_ip, guest_port)] = host_port
-                else:
-                    raise ValueError(f"Couldn't parse port map: {arg}")
-            self.logger.info(f"VPN loaded fixed port assingments: {self.fixed_maps}")
+            self._load_fixed_maps(port_maps)
 
         """
         Source IP spoofing. E.g.,
@@ -322,6 +311,30 @@ class VPN(Plugin):
 
         # Whenever NetBinds detects a bind, we'll set up bridges
         plugins.subscribe(plugins.NetBinds, "on_bind", self.on_bind)
+
+    def _load_fixed_maps(self, port_maps: str) -> None:
+        """
+        Parse fixed port mappings (comma-separated <proto>:<host_port>:<guest_ip>:<guest_port>)
+        into self.fixed_maps.
+
+        A mapped concrete IP is also recorded in seen_ips, so a service that
+        binds the wildcard is bridged onto that IP (and its fixed host port)
+        even if nothing binds the IP itself. The wildcard is not a concrete IP:
+        recording it would make on_bind re-bridge a 0.0.0.0 bind onto itself,
+        claiming the same fixed host port twice.
+        """
+        for arg in port_maps.split(","):
+            if m := re.search(r"(tcp|udp):(\d+):(.*):(\d+)", arg, re.IGNORECASE):
+                sock_type = m[1].lower()
+                host_port = int(m[2])
+                guest_ip = m[3]
+                guest_port = int(m[4])
+                if guest_ip != "0.0.0.0":
+                    self.seen_ips.add(guest_ip)
+                self.fixed_maps[(sock_type, guest_ip, guest_port)] = host_port
+            else:
+                raise ValueError(f"Couldn't parse port map: {arg}")
+        self.logger.info(f"VPN loaded fixed port assingments: {self.fixed_maps}")
 
     def launch_host_vpn(self, CID: int, socket_path: str, uds_path: str, log: bool = False, pcap: bool = False) -> None:
         '''
