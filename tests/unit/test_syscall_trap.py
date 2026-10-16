@@ -404,3 +404,14 @@ def test_a_32_bit_tasks_answer(trap, ffi):
     b._abi = trap.ABIS["aarch64"]
     cmd.ret = -0x80ff000
     assert b._answer(cmd) == -0x80ff000
+
+
+def test_isf_without_syscall_metadata_uses_uapi(trap, ffi):
+    """an ISF with types but no __syscall_meta__ (a lifted one): uapi's names"""
+    names = []
+    b = _backend(trap, ffi, arch="x86_64", native="x86_64", compat="i386", big=False,
+                 kffi=SimpleNamespace(symbols={}, get_symbol=lambda n: None,
+                                      offsetof=lambda t, f: 0),
+                 lib=SimpleNamespace(penguin_syscall_set_name=lambda *a: names.append(a)))
+    b._on_boot(ffi.NULL, ffi.NULL)
+    assert b.number("getpid") == 39 and b.number("init_module") == 175 and names

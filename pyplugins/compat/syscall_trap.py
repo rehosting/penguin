@@ -428,8 +428,15 @@ class TrapBackend:
         # core.analysis_scope, as the Scope plugin reads it: on unless "none"
         conf = syscalls.get_arg("conf") or {}
         scope = (conf.get("core") or {}).get("analysis_scope", "firmware")
-        self.lib.penguin_syscall_set_scope(
-            scope is not False and str(scope).strip().lower() != "none")
+        scope_on = scope is not False and str(scope).strip().lower() != "none"
+        if scope_on and (not layout.cur_offset or layout.task_nsproxy < 0 or
+                         layout.nsproxy_uts_ns < 0 or not layout.init_uts_ns):
+            # it could never be decided: hooks with it would never match
+            logger.warning("syscall trap: analysis_scope cannot be decided on this kernel "
+                           "(no current task or UTS namespace in the ISF); hooks see every "
+                           "process")
+            scope_on = False
+        self.lib.penguin_syscall_set_scope(scope_on)
         logger.info("syscall hooks on QEMU's syscall trap (%s)", arch)
 
     # kernel facts, from the kernel's ISF
@@ -512,6 +519,9 @@ class TrapBackend:
                                                   vals[1])
                 nargs[sc] = vals[1]
                 self.numbers[sc] = vals[0]
+        if not nargs:
+            # a lifted ISF with types but no syscall metadata: uapi's names
+            return self._uapi_names()
         self.nargs = nargs
         self._table_numbers(cs)
         self._compat_names(nargs)
