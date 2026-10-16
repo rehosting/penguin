@@ -1054,6 +1054,12 @@ class Syscalls(Plugin):
         """
         Decorator for registering syscall callbacks.
 
+        The hooks that match one call run newest first (every-syscall hooks
+        before named ones), each seeing the arguments and return value the
+        ones before it left; an entry hook that sets skip_syscall ends the
+        entry.  The filters are decided once per event, on the values the
+        call came with.  Both backends dispatch this way.
+
         Parameters
         ----------
         name_or_pattern : str, optional
