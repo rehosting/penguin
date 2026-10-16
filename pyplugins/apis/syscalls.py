@@ -1300,12 +1300,14 @@ class Syscalls(Plugin):
 
     def inject(self, syscall: Union[str, int], *args: int) -> Iterator[Any]:
         """
-        Make the task run a system call now, before its own.
+        Make the task run a system call now, before its own (an entry) or
+        before its own returns (a return).
 
-        For an entry callback on the trap backend: the task enters the kernel
-        with ``syscall(*args)``, comes back to its own call's trap with its
-        registers as they were, and the callback resumes with the return
-        value::
+        On the trap backend the task enters the kernel with
+        ``syscall(*args)``, comes back with its registers as they were (at an
+        entry, to its own call's trap; at a return, to its own call's return,
+        with the value the callback leaves in ``retval``), and the callback
+        resumes with the return value::
 
             pid = yield from plugins.syscalls.inject("getpid")
 
@@ -1333,7 +1335,7 @@ class Syscalls(Plugin):
         Returns
         -------
         The return value (a negative errno on failure), or None if it could
-        not run: not the trap backend, not at an entry, an i386 task, an
+        not run: not the trap backend, a return the kernel restarts, an i386 task, an
         unknown name, or a call that would not come back (exit, fork, clone,
         ..., and execve when the kernel's exec cannot be hooked).
         """

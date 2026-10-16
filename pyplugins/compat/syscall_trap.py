@@ -17,9 +17,9 @@ across it.  Other commands (OSI, kffi, ...) go to igloo's portal when the
 module is there: the trap queues a portal interrupt and has the task make a
 getpid; igloo takes the interrupt on that call's way in and serves the
 command, and the callback has the answer when the task is back at its own
-call.  That needs an entry callback of a native task (as Syscalls.inject
-does); otherwise, or with no module, the command gets the portal's failure,
-None.
+call.  That needs a callback that may inject (Syscalls.inject: an entry,
+or a return the kernel is not restarting, of an ABI QEMU injects into);
+otherwise, or with no module, the command gets the portal's failure, None.
 
 - ``syscall``: the engine's event, with the fields of igloo's
   syscall_event; changes to args, retval and skip_syscall reach the call.
@@ -30,8 +30,10 @@ None.
 - mem's direct reads and writes, during a callback, go to the engine: the
   vCPU's own view, never faulting; a write needs the guest's permission
   (a debug write would reach a read-only or copy-on-write page).
-- An entry callback may yield ``InjectCmd`` (Syscalls.inject): the task
-  makes that system call first, and the callback gets its return value.
+- A callback may yield ``InjectCmd`` (Syscalls.inject): the task makes
+  that system call first, and the callback gets its return value.  At a
+  return the call's own registers and the callback's return value are put
+  back after it.  pt_regs is read when first used: read it before injecting.
 
 TCG; x86_64 and AArch64 guests, with their 32-bit compat ABIs.  Enabled by
 the Syscalls argument ``backend: trap`` (``plugins: syscalls: backend: trap``).
@@ -763,7 +765,7 @@ class TrapBackend:
             self.unsupported.add(("late", op))
             logger.warning("syscall trap: portal command %r not taken by igloo's portal "
                            "(%s); the callback gets None", op,
-                           "not at an entry" if cmd.status != OK else "no interrupt")
+                           "no injecting here" if cmd.status != OK else "no interrupt")
         return None, None
 
     def _answer(self, cmd):

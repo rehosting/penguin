@@ -342,8 +342,9 @@ def test_portal_commands_go_to_igloo(trap, ffi, igloo_ko_isf, monkeypatch):
     assert not b.runs and not b.delegated and not b.portal_q
 
 
-def test_portal_command_at_a_return_fails(trap, ffi, igloo_ko_isf, monkeypatch):
-    """no getpid at a return (the engine refuses it): None, nothing left queued"""
+def test_portal_command_refused_fails(trap, ffi, igloo_ko_isf, monkeypatch):
+    """the engine refuses the getpid (a restarted return, an i386 task): None,
+    nothing left queued"""
     portal, _ = load_module(str(PY / "hyper" / "portal.py"), real_isf=igloo_ko_isf)
     monkeypatch.setattr(trap.plugins, "portal", FakePortal(), raising=False)
     seen = []
