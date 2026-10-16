@@ -125,6 +125,12 @@ class HostOSI(Plugin):
         self._asked.current = bool(task) and task == cur
         return task
 
+    @staticmethod
+    def _fd(fd: int) -> int:
+        """an fd as the kernel takes it: the low 32 bits, signed (a register's
+        -1 is 0xffff_ffff_ffff_ffff)"""
+        return ((int(fd) & 0xffffffff) ^ 0x80000000) - 0x80000000
+
     def _str(self, off: int) -> str:
         return self.ffi.string(self._strs + off).decode("latin-1")
 
@@ -206,7 +212,7 @@ class HostOSI(Plugin):
                 count: Optional[int] = None) -> Generator[Any, Any, Optional[List[SimpleNamespace]]]:
         """open files from @start_fd: fd and d_path() name"""
         task = self._task(pid)
-        n = self.lib.penguin_osi_fds(self._cpu(), task, start_fd, self._fds,
+        n = self.lib.penguin_osi_fds(self._cpu(), task, max(self._fd(start_fd or 0), 0), self._fds,
                                      min(count or MAX_FDS, MAX_FDS), self._strs, STRS) if task else -1
         if n < 0:
             return None
@@ -218,7 +224,8 @@ class HostOSI(Plugin):
     def get_fd_name(self, fd: int, pid: Optional[int] = None) -> Generator[Any, Any, Optional[str]]:
         """one fd's name (AT_FDCWD: the working directory)"""
         task = self._task(pid)
-        n = self.lib.penguin_osi_fd_path(self._cpu(), task, fd, self._strs, STRS) if task else -1
+        n = self.lib.penguin_osi_fd_path(self._cpu(), task, self._fd(fd), self._strs,
+                                         STRS) if task else -1
         return self.ffi.string(self._strs, n).decode("latin-1") if n >= 0 else None
         yield
 

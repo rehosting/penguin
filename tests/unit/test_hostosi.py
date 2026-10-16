@@ -167,6 +167,8 @@ def test_fds_and_names(osi):
     assert [f.fd for f in drive(osi.get_fds(start_fd=1, count=1))] == [3]
     assert drive(osi.get_fd_name(3)) == "socket:[1234]"
     assert drive(osi.get_fd_name(5)) is None
+    assert drive(osi.get_fd_name((1 << 64) - 1)) is None     # mmap's fd -1, as a register
+    assert drive(osi.get_fd_name(3 | 0xffffffff00000000)) == "socket:[1234]"  # the low 32 bits
     assert drive(osi.get_cwd()) == "/www"
     assert drive(osi.get_proc_exe()) == "/usr/sbin/httpd"
 
