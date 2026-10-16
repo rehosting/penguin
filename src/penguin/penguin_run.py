@@ -643,7 +643,9 @@ def _kmod_inject_args(conf: dict, qemu_lib: Path, proj_dir: str) -> list:
     spec = conf["core"]["kmod_inject"]
     kernel = conf["core"]["kernel"]
     arch = conf["core"]["arch"]
-    isf = os.path.realpath(os.path.join(kernel, f"../cosi.{arch}.json.xz"))
+    # cosi files are named like the module (arm64, not aarch64), as kffi does
+    isf = os.path.realpath(os.path.join(
+        kernel, f"../cosi.{arch_registry.kmod_subdir(arch)}.json.xz"))
     hook = _resolve_kernel_address(spec["hook"], isf)
     ko = get_driver_kmod_path(conf)
     if not os.path.isfile(ko):
@@ -655,6 +657,8 @@ def _kmod_inject_args(conf: dict, qemu_lib: Path, proj_dir: str) -> list:
     if not os.path.isfile(plugin):
         raise ValueError(f"kmod_inject: injector plugin not found: {plugin}")
     pargs = f"{plugin},ko={ko},hook={hook:#x}"
+    if spec.get("frame"):
+        pargs += f",frame={spec['frame']}"
     if spec.get("params"):
         # QEMU splits -plugin arguments on commas
         if "," in spec["params"]:

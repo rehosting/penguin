@@ -332,11 +332,14 @@ class Flash(PartialModelMixin, BaseModel):
         ),
     ]
     interface: Annotated[
-        Literal["mtd", "pflash", "sd"],
+        Literal["mtd", "pflash", "sd", "virtio"],
         Field(
             "mtd",
             title="QEMU drive interface",
-            description="The -drive if= the board looks for its flash on.",
+            description=(
+                "The -drive if= the board looks for its flash on. virtio is "
+                "a disk on a virtio-mmio board such as virt."
+            ),
             examples=["mtd", "pflash"],
         ),
     ]
@@ -357,7 +360,8 @@ class KmodInject(PartialModelMixin, BaseModel):
     nothing inside it will insmod the module. Instead a QEMU TCG plugin
     borrows the first user-mode syscall it sees (on Linux, init's), runs
     mmap -> init_module -> munmap in that process, then lets the original
-    syscall continue. The guest image is not modified. 32-bit ARM only.
+    syscall continue. The guest image is not modified. 32-bit ARM and
+    AArch64.
     """
 
     model_config = ConfigDict(title="Hypervisor module injection", extra="forbid")
@@ -367,12 +371,30 @@ class KmodInject(PartialModelMixin, BaseModel):
         Field(
             title="Hook instruction",
             description=(
-                "Kernel virtual address of the instruction in the SWI entry "
-                "where the user registers are saved in the frame and r8 holds "
-                "SPSR. A number, or symbol+offset resolved from the kernel ISF. "
-                "For ARM entry-common.S of 2.6.x this is vector_swi+0x20."
+                "Kernel virtual address of the instruction the injector hooks. "
+                "A number, or symbol+offset resolved from the kernel ISF. "
+                "32-bit ARM: the instruction in the SWI entry where the user "
+                "registers are saved in the frame and r8 holds SPSR "
+                "(entry-common.S of 2.6.x: vector_swi+0x20). AArch64: the "
+                "entry of do_el0_svc (el0_svc_handler on 4.19-5.4), or the "
+                "el0_svc label of the older assembly entry with frame: sp; "
+                "do_el0_svc_compat for a 32-bit userland."
             ),
-            examples=["vector_swi+0x20", "0x80050e00"],
+            examples=["vector_swi+0x20", "0x80050e00", "do_el0_svc"],
+        ),
+    ]
+    frame: Annotated[
+        Optional[Literal["x0", "sp"]],
+        Field(
+            None,
+            title="Frame register (AArch64)",
+            description=(
+                "AArch64 only: the register that holds the syscall's pt_regs "
+                "pointer at the hook. Unset = x0 (the C entry, do_el0_svc); "
+                "sp for the el0_svc label of the assembly entry, where the "
+                "injector also writes the live argument registers."
+            ),
+            examples=["x0", "sp"],
         ),
     ]
     params: Annotated[

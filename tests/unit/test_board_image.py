@@ -9,6 +9,7 @@ from penguin.penguin_config.structure import Core
 from penguin.penguin_run import (
     _board_flash_args,
     _check_board_image_config,
+    _kmod_inject_args,
     _resolve_kernel_address,
 )
 
@@ -91,6 +92,43 @@ def test_resolve_kernel_address(tmp_path):
     assert _resolve_kernel_address("vector_swi", str(isf)) == 0x80050de0
     with pytest.raises(ValueError, match="not in"):
         _resolve_kernel_address("no_such_symbol+4", str(isf))
+
+
+def _kmod_project(tmp_path, arch, cosi, ko, **spec):
+    kdir = tmp_path / "kernels" / "6.13"
+    kdir.mkdir(parents=True)
+    with lzma.open(kdir / cosi, "wt") as f:
+        json.dump({"symbols": {"do_el0_svc": {"address": 0xffff8000800254e8}}}, f)
+    (kdir / ko).write_bytes(b"\x7fELF")
+    plugin = tmp_path / "libkmodinject.so"
+    plugin.write_bytes(b"")
+    conf = _conf(arch=arch, kernel=str(kdir / "Image"),
+                 kmod_inject={"hook": "do_el0_svc", "plugin": str(plugin), **spec})
+    return conf, kdir, plugin
+
+
+def test_kmod_inject_args_aarch64(tmp_path):
+    # cosi and the module are named arm64, not by the config arch
+    conf, kdir, plugin = _kmod_project(tmp_path, "aarch64", "cosi.arm64.json.xz",
+                                       "igloo.ko.arm64")
+    args = _kmod_inject_args(conf, tmp_path / "lib" / "libqemu.so", str(tmp_path))
+    assert args == ["-plugin", f"{plugin},ko={kdir}/igloo.ko.arm64,hook=0xffff8000800254e8"]
+
+
+def test_kmod_inject_args_frame(tmp_path):
+    conf, _, _ = _kmod_project(tmp_path, "aarch64", "cosi.arm64.json.xz",
+                               "igloo.ko.arm64", frame="sp")
+    args = _kmod_inject_args(conf, tmp_path / "lib" / "libqemu.so", str(tmp_path))
+    assert args[1].endswith(",hook=0xffff8000800254e8,frame=sp")
+
+
+def test_schema_kmod_inject_frame():
+    c = Core(version=2, arch="aarch64", kernel="kernels/4.10/zImage.arm64",
+             guest_image="none", machine="virt",
+             flash={"path": "flash/rootfs.ext4", "interface": "virtio"},
+             kmod_inject={"hook": "el0_svc", "frame": "sp"})
+    assert c.kmod_inject.frame == "sp"
+    assert c.flash.interface == "virtio"
 
 
 # ---- snapshots ----
