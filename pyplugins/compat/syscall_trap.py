@@ -443,6 +443,9 @@ class TrapBackend:
     def _off(self, t, field):
         if self.kffi is None:
             return _FIXED_REGS[self.arch].get(field, -1) if t == "struct pt_regs" else -1
+        from compat.isf_trust import trusted
+        if not trusted(t, field):
+            return -1                           # a lifted ISF's untrusted field
         try:
             return int(self.kffi.offsetof(t, field))
         except Exception:

@@ -15,7 +15,11 @@ QEMU once.  64-bit little-endian kernels only (x86_64, aarch64).
 
 
 def _off(isf, t: str, *path: str) -> int:
-    """the offset of a (nested) field, -1 if this kernel has none"""
+    """the offset of a (nested) field, -1 if this kernel has none or a lifted
+    ISF's provenance does not trust it (compat/isf_trust.py)"""
+    from compat.isf_trust import trusted
+    if path and not trusted(t, path[0]):
+        return -1
     try:
         return int(isf.offsetof(f"struct {t}", *path))
     except Exception:
