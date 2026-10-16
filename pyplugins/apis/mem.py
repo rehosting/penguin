@@ -77,7 +77,8 @@ class Mem(Plugin):
         self.libpanda = self.panda.libpanda
         self._read_external = self.libpanda.panda_virtual_memory_read_external
         self._write_external = self.libpanda.panda_virtual_memory_write_external
-        # write_bytes' direct path: the guest's permissions, where QEMU has it
+        # writes with the guest's permissions, where QEMU has them (a refused
+        # write raises; write_bytes then asks the portal)
         self._write_checked = getattr(self.libpanda, "panda_virtual_memory_write_checked", None)
 
         # Pre-calculate constants
@@ -152,7 +153,7 @@ class Mem(Plugin):
                     cpu = self._get_cpu()
                 try:
                     addr_u = addr & self.addr_mask
-                    self._write_direct(cpu, addr_u, data)
+                    self.write_bytes_panda(cpu, addr_u, data)
                     return total_len
                 except ValueError:
                     pass
@@ -177,7 +178,7 @@ class Mem(Plugin):
                 try:
                     addr_u = chunk_addr & self.addr_mask
                     # ffi.new accepts memoryview/buffer protocol
-                    self._write_direct(cpu, addr_u, chunk_view)
+                    self.write_bytes_panda(cpu, addr_u, chunk_view)
                     success = True
                 except ValueError:
                     pass
@@ -188,16 +189,6 @@ class Mem(Plugin):
 
         return total_len
 
-    def _write_direct(self, cpu, addr: int, data) -> None:
-        """write_bytes' direct write: with the guest's permissions where QEMU
-        can check them (ValueError if refused: the portal writes it), else
-        write_bytes_panda's"""
-        if self._write_checked is None:
-            return self.write_bytes_panda(cpu, addr, data)
-        buf = self.ffi.cast("char*", self.ffi.from_buffer(data))
-        if self._write_checked(cpu, addr, buf, len(data)) < 0:
-            raise ValueError(f"Memory write refused at {addr:#x}")
-
     def write_bytes_panda(self, cpu, addr: Union[int, Ptr], data: bytes) -> None:
         '''
         Write a bytearray into memory at the specified physical/virtual address
@@ -206,6 +197,12 @@ class Mem(Plugin):
             addr = addr.address
 
         length = len(data)
+        if self._write_checked is not None:
+            # the guest's permissions for user memory (compat/qemu_compat.py)
+            buf = self.ffi.cast("char*", self.ffi.from_buffer(data))
+            if self._write_checked(cpu, addr, buf, length) < 0:
+                raise ValueError(f"Memory write refused at {addr:#x}")
+            return
         c_buf = self.ffi.from_buffer(data)
         buf_a = self.ffi.cast("char*", c_buf)
         length_a = self.ffi.cast("int", length)

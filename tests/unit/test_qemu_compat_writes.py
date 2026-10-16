@@ -58,6 +58,20 @@ def test_checked_write_under_tcg(qc):
     assert lib.calls[-1] == ("debug", 0x2000, 2, True)
 
 
+def test_kernel_half_and_empty_writes(qc):
+    """the kernel's half keeps the direct write outside a trap callback (from
+    a user-mode hypercall the user permissions would refuse it); nothing to
+    write is written"""
+    lib = FakeLib(allow=False)
+    lp = _libpanda(qc, lib)
+    assert lp.panda_virtual_memory_write_checked(None, 0xffffffffc0277bf8, b"x" * 8, 8) == 0
+    assert lp.panda_virtual_memory_write_checked(None, 0x7fff0000, b"", 0) == 0
+    assert [c[0] for c in lib.calls] == ["debug"]
+    lp.qemu._thread_state.syscall_trap = True
+    assert lp.panda_virtual_memory_write_checked(None, 0xffffffffc0277bf8, b"x" * 8, 8) == -1
+    assert lib.calls[-1][0] == "checked"
+
+
 def test_no_checked_write_under_kvm_or_without_it(qc):
     for lp in (_libpanda(qc, FakeLib(), mode="kvm"), _libpanda(qc, FakeLib(checked=False))):
         assert getattr(lp, "panda_virtual_memory_write_checked", None) is None

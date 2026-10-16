@@ -1141,9 +1141,22 @@ class QemuCompat:
                 bql_unlock()
 
     def _checked_write(self, cpu, addr, ptr, length):
-        """0 if the guest's permissions let all of it be written, else -1"""
-        ok = self.lib.penguin_syscall_write_memory(
-            cpu, int(addr) & ((1 << self.bits) - 1), ptr, int(length))
+        """0 if written, -1 if refused.  User memory with the guest's
+        permissions: never the shared zero page, a read-only file's page
+        cache or another process's copy-on-write page.  The kernel's half
+        (the top bit of the guest word, on every penguin arch) as before:
+        a write there is the host's to make, and from a user-mode hypercall
+        the vCPU's user permissions would refuse it."""
+        a = int(addr) & ((1 << self.bits) - 1)
+        if not length:
+            return 0
+        # in a syscall trap callback QEMU knows the kernel's permissions too
+        if a >> (self.bits - 1) and not getattr(self._thread_state, "syscall_trap", False):
+            vaddr = self._guest_addr(a)
+            size = self.ffi.cast("size_t", int(length))
+            return self._call_with_bql(
+                lambda: self.lib.cpu_memory_rw_debug(cpu, vaddr, ptr, size, True))
+        ok = self.lib.penguin_syscall_write_memory(cpu, a, ptr, int(length))
         return 0 if ok else -1
 
     def _cpu_memory_rw_debug(self, cpu, addr, ptr, length, is_write):
