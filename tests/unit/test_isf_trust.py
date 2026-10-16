@@ -21,7 +21,9 @@ def trust(tmp_path, monkeypatch):
     lift = tmp_path / "provenance.json"
     lift.write_text(json.dumps({"fields": {
         "fs_struct": {"reference-carried": ["root", "pwd"], "target-verified": {"lock": {}}},
-        "vm_area_struct": {"inferred": ["vm_pgoff"]}}}))
+        "vm_area_struct": {"inferred": ["vm_pgoff", "vm_flags"],
+                           "collisions": {"vm_flags": {"offset": 32,
+                                                       "status": "collides-with-verified"}}}}}))
     monkeypatch.setenv("PENGUIN_ISF_PROVENANCE", f"{offsets}:{lift}")
     mod, _ = load_module(str(PY / "compat" / "isf_trust.py"))
     mod._untrusted = None
@@ -33,6 +35,7 @@ def test_untrusted_fields(trust):
     assert not trust.trusted("struct fs_struct", "root") and not trust.trusted("fs_struct", "pwd")
     assert trust.trusted("cred", "euid") and trust.trusted("fs_struct", "lock")
     assert trust.trusted("vm_area_struct", "vm_pgoff")      # inferred
+    assert not trust.trusted("vm_area_struct", "vm_flags")  # inferred, but collides
     assert trust.trusted("task_struct", "pid")              # not named
 
 

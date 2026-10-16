@@ -16,13 +16,15 @@ The provenance comes from ``PENGUIN_ISF_PROVENANCE``: one or more paths
   ``"struct.field"`` to ``{"trusted": bool, ...}``;
 - ``provenance.json`` (the lift): ``fields`` maps a struct to its fields by
   class; ``reference-carried`` is untrusted, ``target-verified`` and
-  ``inferred`` are trusted.
+  ``inferred`` are trusted.  A field in its ``collisions`` (its offset falls
+  inside a verified field) is untrusted whatever its class, as
+  ``offsets.provenance.json`` marks it.
 """
 import json
 import lzma
 import os
 
-UNTRUSTED_CLASSES = {"reference-carried"}
+UNTRUSTED_CLASSES = {"reference-carried", "collisions"}
 
 _untrusted = None
 _source = None
