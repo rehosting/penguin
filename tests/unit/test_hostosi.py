@@ -183,3 +183,21 @@ def test_no_current_task(osi):
     assert drive(osi.get_proc()) is None
     assert drive(osi.get_fds()) is None
     assert drive(osi.get_args()) is None
+
+
+def test_labels(osi):
+    """each answer's rung label: safe-point for the current task at its trap,
+    possibly-torn for another task or the process list, unavailable for None"""
+    from compat.osi_label import labeled
+    args, label = drive(labeled(osi, osi.get_args()))
+    assert args == ["/bin/httpd", "-f"] and label[:2] == ("L0", "safe-point")
+    drive(osi.get_args(pid=20))
+    assert osi.last_label.consistency == "possibly-torn"
+    drive(osi.get_all_procs())
+    assert osi.last_label.consistency == "possibly-torn"
+    assert drive(osi.get_proc(pid=99)) is None and osi.last_label.consistency == "unavailable"
+    osi._smp = 2            # the task's mm may change under a sibling thread
+    drive(osi.get_fds())
+    assert osi.last_label.consistency == "possibly-torn"
+    drive(osi.get_proc())   # its own fields do not
+    assert osi.last_label.consistency == "safe-point"

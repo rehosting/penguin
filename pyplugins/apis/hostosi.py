@@ -35,14 +35,25 @@ mappings such as ``[vdso]``, the x86 gate area ``[vsyscall]``).
 The same walks serve the syscall engine's filters, in C, before any Python
 runs: see ``penguin_sc_hook.exe_filter`` and fd-path argument filters.
 
+Every answer is labelled (compat/osi_label.py): rung L0; safe-point for the
+current task at its trap (with more than one vCPU, only its own fields:
+its mm and files may be shared with threads that keep running),
+possibly-torn for another task or the process list, unavailable for None::
+
+    args = yield from plugins.HostOSI.get_args(pid=20)
+    plugins.HostOSI.last_label      # Label('L0', 'possibly-torn', '...')
+
 Supported: 64-bit little-endian kernels (x86_64, aarch64).
 """
 
 from types import SimpleNamespace
 from typing import Any, Generator, List, Optional
 
+import threading
+
 from penguin import Plugin, plugins
 from compat.osi_layout import set_osi_layout
+from compat.osi_label import Label, SAFE, TORN, UNAVAILABLE, answer, last_label
 
 AT_FDCWD = -100
 STRS = 1 << 18          # name bytes one call can return
@@ -54,6 +65,22 @@ ARGS_MAX = 128 * 1024
 PROC_FIELDS = ("map_count", "start_brk", "brk", "start_stack", "start_code",
                "end_code", "start_data", "end_data", "arg_start", "arg_end",
                "env_start", "env_end", "mmap_base", "task_size")
+
+
+def _judge(scope):
+    """an answer's label: about the task's own fields ("task"), state it may
+    share with other threads ("shared"), or every process ("all")"""
+    def judge(self, value):
+        if value is None:
+            return Label("L0", UNAVAILABLE, "no answer (no current task, not mapped, or the walk failed)")
+        if scope == "all":
+            return Label("L0", TORN, "the process list, walked while tasks may fork or exit")
+        if not getattr(self._asked, "current", False):
+            return Label("L0", TORN, "another task: it may be preempted inside the kernel, mid-update")
+        if scope == "shared" and self._smp > 1:
+            return Label("L0", TORN, "the task's mm or files: threads sharing them may run on another vCPU")
+        return Label("L0", SAFE, "the task, stopped at its system call boundary")
+    return judge
 
 
 class HostOSI(Plugin):
@@ -73,6 +100,16 @@ class HostOSI(Plugin):
         self._vmas = f.new("struct penguin_osi_vma[]", MAX_VMAS)
         self._tasks = f.new("uint64_t[]", MAX_PROCS)
         self._ubuf = f.new("char[]", ARGS_MAX)
+        self._asked = threading.local()         # is the call's task the current one?
+        try:
+            self._smp = int(((self.get_arg("conf") or {}).get("core") or {}).get("smp", 1))
+        except (AttributeError, TypeError, ValueError):
+            self._smp = 1
+
+    @property
+    def last_label(self) -> Label:
+        """the last answer's label, on this thread (compat/osi_label.py)"""
+        return last_label(self)
 
     # --- helpers ---
 
@@ -83,9 +120,10 @@ class HostOSI(Plugin):
         return getattr(self.panda._callback_state(), "task", 0) or 0
 
     def _task(self, pid: Optional[int]) -> int:
-        if pid is None:
-            return self._current()
-        return self.lib.penguin_osi_task(self._cpu(), pid)
+        cur = self._current()
+        task = cur if pid is None else self.lib.penguin_osi_task(self._cpu(), pid)
+        self._asked.current = bool(task) and task == cur
+        return task
 
     def _str(self, off: int) -> str:
         return self.ffi.string(self._strs + off).decode("latin-1")
@@ -118,11 +156,13 @@ class HostOSI(Plugin):
 
     # --- the calls (plugins.osi's) ---
 
+    @answer(_judge("task"))
     def get_proc(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[SimpleNamespace]]:
         """the task's osi_proc fields"""
         return self._record(self._task(pid))
         yield
 
+    @answer(_judge("all"))
     def get_all_procs(self) -> Generator[Any, Any, Optional[List[SimpleNamespace]]]:
         """every process (thread group leader)"""
         n = self.lib.penguin_osi_procs(self._cpu(), self._tasks, MAX_PROCS)
@@ -132,6 +172,7 @@ class HostOSI(Plugin):
                 if r is not None]
         yield
 
+    @answer(_judge("shared"))
     def get_args(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[List[str]]]:
         """the argument vector, from mm->arg_start..arg_end"""
         data = yield from self._area(pid, "arg")
@@ -139,6 +180,7 @@ class HostOSI(Plugin):
             return None
         return data.rstrip(b"\0").decode("latin-1").split("\0")
 
+    @answer(_judge("shared"))
     def get_env(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[dict]]:
         """the environment, from mm->env_start..env_end"""
         data = yield from self._area(pid, "env")
@@ -150,6 +192,7 @@ class HostOSI(Plugin):
             env[k] = v
         return env
 
+    @answer(_judge("shared"))
     def get_proc_name(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[str]]:
         """argv[0]'s base name, or the comm"""
         args = yield from self.get_args(pid)
@@ -158,6 +201,7 @@ class HostOSI(Plugin):
         p = self._record(self._task(pid))
         return p.name if p else None
 
+    @answer(_judge("shared"))
     def get_fds(self, pid: Optional[int] = None, start_fd: int = 0,
                 count: Optional[int] = None) -> Generator[Any, Any, Optional[List[SimpleNamespace]]]:
         """open files from @start_fd: fd and d_path() name"""
@@ -170,6 +214,7 @@ class HostOSI(Plugin):
                 for e in (self._fds[i] for i in range(n))]
         yield
 
+    @answer(_judge("shared"))
     def get_fd_name(self, fd: int, pid: Optional[int] = None) -> Generator[Any, Any, Optional[str]]:
         """one fd's name (AT_FDCWD: the working directory)"""
         task = self._task(pid)
@@ -177,9 +222,11 @@ class HostOSI(Plugin):
         return self.ffi.string(self._strs, n).decode("latin-1") if n >= 0 else None
         yield
 
+    @answer(_judge("shared"))
     def get_cwd(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[str]]:
         return (yield from self.get_fd_name(AT_FDCWD, pid))
 
+    @answer(_judge("shared"))
     def get_proc_exe(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[str]]:
         """mm->exe_file's path"""
         task = self._task(pid)
@@ -187,6 +234,7 @@ class HostOSI(Plugin):
         return self.ffi.string(self._strs, n).decode("latin-1") if n >= 0 else None
         yield
 
+    @answer(_judge("shared"))
     def get_mappings(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[List[SimpleNamespace]]]:
         """the mappings in address order, as /proc/<pid>/maps lists them"""
         task = self._task(pid)

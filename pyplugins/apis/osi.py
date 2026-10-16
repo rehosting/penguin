@@ -46,11 +46,38 @@ from hyper.consts import HYPER_OP as hop
 from hyper.portal import PortalCmd
 from wrappers.generic import Wrapper
 from wrappers.osi_wrap import MappingWrapper, MappingsWrapper
+from compat.osi_label import Label, SAFE, UNAVAILABLE, answer, answered_by, last_label
+import functools
 from typing import List, Dict, Any, Optional, Generator
 
 kffi = plugins.kffi
 CONST_UNKNOWN_STR = "[???]"
 AT_FDCWD = -100
+
+
+def _judge(self, value):
+    """an answer's label (compat/osi_label.py): igloo.ko walks the kernel's
+    structures under the kernel's own locks (rcu, mmap_lock, file_lock)"""
+    if value is None or (isinstance(value, str) and value == CONST_UNKNOWN_STR):
+        return Label("L2", UNAVAILABLE, "igloo.ko gave no answer")
+    return Label("L2", SAFE, "igloo.ko, in the guest kernel under its locks")
+
+
+def _l0(empty):
+    """in a syscall trap callback (Syscalls backend: trap) the call goes to
+    HostOSI (apis/hostosi.py, rung L0): QEMU reads the kernel's structures, at
+    an entry or a return, with no guest round trip; its None is our @empty"""
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(self, *args, **kwargs):
+            h = self._l0_osi()
+            if h is None:
+                return (yield from fn(self, *args, **kwargs))
+            value = yield from getattr(h, fn.__name__)(*args, **kwargs)
+            answered_by(self, h.last_label)
+            return empty if value is None else value
+        return wrapper
+    return deco
 
 
 class OSI(Plugin):
@@ -63,14 +90,39 @@ class OSI(Plugin):
     ----------
     logger : object
         Logger for debug and error messages.
+
+    Every answer is labelled (compat/osi_label.py): rung L2, safe-point, or
+    unavailable for None or "[???]"; ``last_label`` is this thread's last one.
     """
 
+    @property
+    def last_label(self) -> Label:
+        return last_label(self)
+
+    def _l0_osi(self):
+        """HostOSI, when this call runs in a syscall trap callback"""
+        state = getattr(self.panda, "_callback_state", None)
+        if state is None or not getattr(state(), "syscall_trap", False):
+            return None
+        h = self.__dict__.get("_hostosi")
+        if h is None:
+            try:
+                h = plugins["hostosi"]
+            except Exception as e:      # not this kernel's: the portal serves it
+                self.logger.warning(f"HostOSI unavailable ({e}); OSI in trap callbacks uses the portal")
+                h = False
+            self._hostosi = h
+        return h or None
+
+    @answer(_judge)
     def get_cwd(self, pid: Optional[int] = None) -> Generator[Any, None, Optional[str]]:
         """
         Get the current working directory for a process.
         """
         return (yield from self.get_fd_name(AT_FDCWD, pid))
 
+    @answer(_judge)
+    @_l0(None)
     def get_fd_name(
             self, fd: int, pid: Optional[int] = None) -> Generator[Any, None, Optional[str]]:
         """
@@ -102,6 +154,8 @@ class OSI(Plugin):
             return fd_name
         return
 
+    @answer(_judge)
+    @_l0([])
     def get_args(self, pid: Optional[int] = None) -> Generator[Any, None, List[str]]:
         """
         Get the argument list for a process.
@@ -125,6 +179,7 @@ class OSI(Plugin):
         args = decoded.split()
         return [arg for arg in args if arg.isprintable()]
 
+    @answer(_judge)
     def get_proc_name(self, pid: Optional[int] = None) -> Generator[Any, None, str]:
         """
         Get the process name (first argument) for a process.
@@ -145,6 +200,8 @@ class OSI(Plugin):
             return proc_name[0]
         return CONST_UNKNOWN_STR
 
+    @answer(_judge)
+    @_l0({})
     def get_env(self, pid: Optional[int] = None) -> Generator[Any, None, Dict[str, str]]:
         """
         Get the environment variables for a process.
@@ -169,6 +226,8 @@ class OSI(Plugin):
             return env
         return {}
 
+    @answer(_judge)
+    @_l0(None)
     def get_proc(self, pid: Optional[int] = None) -> Generator[Any, None, Optional[Wrapper]]:
         """
         Get detailed process information for a process.
@@ -190,6 +249,8 @@ class OSI(Plugin):
             wrap.name = proc_bytes[pb.name_offset:].decode("latin-1")
             return wrap
 
+    @answer(_judge)
+    @_l0(CONST_UNKNOWN_STR)
     def get_proc_exe(self, pid: Optional[int] = None) -> Generator[Any, None, Optional[str]]:
         """
         Get the full executable path for a process.
@@ -209,6 +270,7 @@ class OSI(Plugin):
             return exe_path_bytes.decode('latin-1', errors='replace')
         return CONST_UNKNOWN_STR
 
+    @answer(_judge)
     def get_mappings(self, pid: Optional[int] = None) -> Generator[Any, None, MappingsWrapper]:
         """
         Get memory mappings for a process.
@@ -331,6 +393,7 @@ class OSI(Plugin):
         self.logger.debug(f"Retrieved a total of {len(all_mappings)} mappings")
         return ret_mappings
 
+    @answer(_judge)
     def get_proc_handles(self) -> Generator[Any, None, List[Wrapper]]:
         """
         Retrieve a list of process handles from the kernel.
@@ -408,6 +471,7 @@ class OSI(Plugin):
         self.logger.debug(f"Retrieved {len(handles)} process handles")
         return handles
 
+    @answer(_judge)
     def get_all_procs(self) -> Generator[Any, None, List[Wrapper]]:
         """
         Retrieve full ``osi_proc`` records for every user process in one
@@ -468,6 +532,8 @@ class OSI(Plugin):
         self.logger.debug(f"get_all_procs retrieved {len(all_procs)} procs")
         return all_procs
 
+    @answer(_judge)
+    @_l0([])
     def get_fds(self, pid: Optional[int] = None, start_fd: int = 0,
                 count: Optional[int] = None) -> Generator[Any, None, List[Wrapper]]:
         """
@@ -604,6 +670,7 @@ class OSI(Plugin):
         # Just return the list of FDs
         return fds
 
+    @answer(_judge)
     def get_mapping_by_addr(self, addr: int) -> Generator[Any, None, Optional[MappingWrapper]]:
         """
         Get the memory mapping containing a specific address.

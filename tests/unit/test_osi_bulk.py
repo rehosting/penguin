@@ -110,3 +110,46 @@ def test_get_all_procs_paginates(tmp_path, igloo_ko_isf):
     # second request advanced skip past the first page
     assert yielded[1].addr == 2
     assert [int(p.pid) for p in procs] == [1, 2, 3]
+
+
+def test_answers_are_labelled_l2(tmp_path, igloo_ko_isf):
+    """igloo.ko's answers carry rung L2: safe-point, or unavailable for None"""
+    lp = _load(tmp_path, igloo_ko_isf)
+    _assert_pinned_driver_has_bulk_op(igloo_ko_isf)
+    buf = struct.pack("<QQ", 1, 1) + _node(1, 0, 100, "init")
+    drive(lp.plugin.get_all_procs(), responses=[buf])
+    assert lp.plugin.last_label[:2] == ("L2", "safe-point")
+    assert drive(lp.plugin.get_proc_exe(), responses=[None]) == "[???]"
+    assert lp.plugin.last_label.consistency == "unavailable"
+
+
+def test_trap_callbacks_ask_hostosi(tmp_path, igloo_ko_isf):
+    """in a syscall trap callback the calls go to HostOSI (L0), its label kept;
+    its None is the portal path's empty answer"""
+    from types import SimpleNamespace
+    from compat.osi_label import Label
+    lp = _load(tmp_path, igloo_ko_isf)
+    osi = lp.plugin
+
+    class L0:
+        last_label = Label("L0", "safe-point", "fake")
+
+        def get_args(self, pid=None):
+            return ["/bin/x", "-y"]
+            yield
+
+        def get_env(self, pid=None):
+            return None
+            yield
+
+        def get_fd_name(self, fd, pid=None):
+            return "/www"
+            yield
+
+    state = SimpleNamespace(syscall_trap=True)
+    osi.panda = SimpleNamespace(_callback_state=lambda: state)
+    osi._hostosi = L0()
+    assert drive(osi.get_args()) == ["/bin/x", "-y"] and osi.last_label.rung == "L0"
+    assert drive(osi.get_env()) == {}
+    assert drive(osi.get_cwd()) == "/www" and osi.last_label.rung == "L0"
+    assert drive(osi.get_proc_name()) == "/bin/x" and osi.last_label.rung == "L0"
