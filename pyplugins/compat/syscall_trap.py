@@ -197,13 +197,14 @@ COMPAT = {
 
 
 class InjectCmd:
-    """A command a callback yields: the task makes system call ``num`` (of
-    the native ABI) with ``args``; the answer is its return value, or None
-    if it could not run (Syscalls.inject)"""
+    """A command a callback yields: the task makes system call ``num`` (a
+    name, or a number of the task's ABI) with ``args``; the answer is its
+    return value, or None if it could not run (Syscalls.inject)"""
     __slots__ = ("num", "args")
 
     def __init__(self, num, args):
-        self.num, self.args = int(num), tuple(int(a) & M64 for a in args)
+        self.num = num if isinstance(num, str) else int(num)
+        self.args = tuple(int(a) & M64 for a in args)
 
     def __repr__(self):
         return f"InjectCmd({self.num}, {self.args})"
@@ -382,6 +383,9 @@ class TrapBackend:
         self.native, self.compat = NATIVE[arch]
         self.big = panda.endianness == "big"
         self.numbers = {}       # native syscall name -> number (at boot)
+        # the compat ABI's (uapi): an AArch32 task's EABI numbers
+        self.compat_numbers = {n: i for i, n in enumerate(COMPAT[self.compat].split())
+                               if n != "-"}
         self.runs = {}          # call id -> the coroutine waiting for its answer
         self.wbufs = {}         # call id -> the bytes it writes, until answered
         self.unsupported = set()
@@ -691,7 +695,15 @@ class TrapBackend:
         """a yielded PortalCmd or InjectCmd as (op, addr, size, data), or
         None if QEMU cannot carry it out"""
         if isinstance(c, InjectCmd):
-            return OP_SYSCALL, c.num, c.args, None
+            num = c.num
+            if isinstance(num, str):
+                # the task's ABI's number: native, or its compat ABI's
+                table = (self.numbers if getattr(self, "_abi", ABIS[self.native])
+                         == ABIS[self.native] else self.compat_numbers)
+                num = table.get(num)
+                if num is None:
+                    return OP_SYSCALL, -1, (), None         # refused: nothing runs
+            return OP_SYSCALL, num, c.args, None
         op = getattr(c, "op", None)
         if getattr(c, "pid", CURRENT_PID) in (CURRENT_PID, None):
             addr = int(getattr(c, "addr", 0) or 0) & M64
@@ -759,6 +771,10 @@ class TrapBackend:
         if cmd.op in (OP_READ, OP_READ_STR) and cmd.status != FAIL:
             return bytes(self.ffi.buffer(cmd.buf, cmd.len)) if cmd.len else b""
         if cmd.op == OP_SYSCALL and cmd.status == OK:
+            if getattr(self, "_abi", None) in (ABIS["arm"], ABIS["i386"]):
+                # a 32-bit task's: its register, unsigned unless an errno
+                r = cmd.ret & 0xffffffff
+                return r - (1 << 32) if r > 0xfffff000 else r
             return cmd.ret
         return None
 
@@ -780,6 +796,7 @@ class TrapBackend:
         state.cpu = cs
         state.syscall_trap = True
         state.task = ev.task                    # for apis/hostosi.py
+        self._abi = ev.abi                      # for InjectCmd's names
         again = None
         try:
             if cmd.op == OP_NONE:

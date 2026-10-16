@@ -1323,22 +1323,21 @@ class Syscalls(Plugin):
         Parameters
         ----------
         syscall : str or int
-            The native ABI's name (as the kernel's syscall metadata names it,
-            e.g. "openat") or number.
+            The name (as the kernel's syscall metadata names it, e.g.
+            "openat"), or a number of the task's ABI.  An AArch32 task on an
+            AArch64 kernel makes EABI calls: its numbers, 32-bit arguments,
+            and its own names where they differ ("mmap2", offset in pages).
         *args : int
             Up to six arguments.
 
         Returns
         -------
         The return value (a negative errno on failure), or None if it could
-        not run: not the trap backend, not at an entry, a 32-bit task, an
+        not run: not the trap backend, not at an entry, an i386 task, an
         unknown name, or a call that would not come back (exit, fork, clone,
         ..., and execve when the kernel's exec cannot be hooked).
         """
         if not self._trap or len(args) > 6:
             return None
-        num = syscall if isinstance(syscall, int) else self._trap.number(syscall)
-        if num is None:
-            return None
         from compat.syscall_trap import InjectCmd
-        return (yield InjectCmd(num, args))
+        return (yield InjectCmd(syscall, args))

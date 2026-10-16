@@ -257,12 +257,27 @@ def test_syscalls_inject(trap, igloo_ko_isf):
     s._trap = None                              # the igloo backend: no injecting
     assert run(s.inject("getpid")) == ("returned", None)
     s._trap = SimpleNamespace(number={"getpid": 39}.get)
-    c, v = run(s.inject("getpid"), 4242)
-    assert (type(c).__name__, c.num, c.args, v) == ("InjectCmd", 39, (), 4242)
+    c, v = run(s.inject("getpid"), 4242)     # the trap numbers it, by the task's ABI
+    assert (type(c).__name__, c.num, c.args, v) == ("InjectCmd", "getpid", (), 4242)
     c, v = run(s.inject(62, 7, -1), 0)
     assert (c.num, c.args) == (62, (7, M64))
-    assert run(s.inject("nosuch")) == ("returned", None)
     assert run(s.inject(1, *range(7))) == ("returned", None)
+
+
+def test_inject_names_by_the_tasks_abi(trap, ffi):
+    """a name is the native number for a native task, the EABI one for an
+    AArch32 task; an unknown name is refused (nothing runs)"""
+    b = _backend(trap, ffi, native="aarch64", compat="arm")
+    b.numbers = {"getpid": 172, "mmap": 222}
+    b.compat_numbers = {n: i for i, n in enumerate(trap.COMPAT["arm"].split()) if n != "-"}
+    b._abi = trap.ABIS["aarch64"]
+    assert b._command(trap.InjectCmd("getpid", ()))[:2] == (trap.OP_SYSCALL, 172)
+    b._abi = trap.ABIS["arm"]
+    assert b._command(trap.InjectCmd("getpid", ()))[:2] == (trap.OP_SYSCALL, 20)
+    assert b._command(trap.InjectCmd("mmap2", ()))[:2] == (trap.OP_SYSCALL, 192)
+    assert b._command(trap.InjectCmd("init_module", ()))[:2] == (trap.OP_SYSCALL, 128)
+    assert b._command(trap.InjectCmd("openat", ()))[:2] == (trap.OP_SYSCALL, 322)
+    assert b._command(trap.InjectCmd("nosuch", ()))[:2] == (trap.OP_SYSCALL, -1)
 
 
 class FakePortal:
@@ -372,3 +387,19 @@ def test_no_isf_uses_uapi_numbers_and_fixed_regs(trap, ffi):
     b._q.pack_into(raw, b._roff["pc"], 0x4000)
     r = f.from_buffer(trap._FIXED_REGS["aarch64"]["ctype"], raw)
     assert r.pc == 0x4000 and len(r.regs) == 31
+
+
+def test_a_32_bit_tasks_answer(trap, ffi):
+    """an injected call's return in an AArch32 task: 32 bits, unsigned
+    (an mmap2 address) unless an errno"""
+    b = _backend(trap, ffi)
+    cmd = ffi.new("struct penguin_sc_cmd *")
+    cmd.op, cmd.status = trap.OP_SYSCALL, trap.OK
+    b._abi = trap.ABIS["arm"]
+    cmd.ret = -0x80ff000                    # 0xf7f01000, sign-extended by the core
+    assert b._answer(cmd) == 0xf7f01000
+    cmd.ret = -14
+    assert b._answer(cmd) == -14
+    b._abi = trap.ABIS["aarch64"]
+    cmd.ret = -0x80ff000
+    assert b._answer(cmd) == -0x80ff000
