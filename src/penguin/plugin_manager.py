@@ -38,6 +38,8 @@ import ast
 import collections
 import os
 import sys
+import threading
+import time
 from os.path import join, isfile, basename, splitext, isdir
 from contextlib import contextmanager
 from penguin import getColoredLogger
@@ -51,6 +53,73 @@ import datetime
 import functools
 
 from pydantic import BaseModel, ConfigDict, ValidationError
+
+# How often a pending shutdown re-checks the registered work (see begin_work).
+SHUTDOWN_POLL_INTERVAL = 0.25
+# How often it re-checks once only running callbacks remain: they are short,
+# and teardown needs a moment between them to seal.
+CALLBACK_SETTLE_INTERVAL = 0.005
+# Upper bound on a graceful shutdown's wait for registered work. Work still
+# running when it expires is logged as stuck; expected work that never started
+# is logged as skipped. core.timeout ignores it and ends the run at once.
+# Per-run override: core.shutdown_watchdog.
+DEFAULT_SHUTDOWN_WATCHDOG = 60.0
+# How long a teardown caller waits for an uninit another thread is already
+# running before giving up on it. Only a backstop: see unload().
+UNLOAD_TEARDOWN_TIMEOUT = 30.0
+
+
+class _Teardown:
+    """One plugin's teardown, so concurrent unloaders agree on its state.
+
+    The first caller to claim a plugin runs its ``uninit``; the rest block
+    until that call *returns*, so a teardown still writing its output is never
+    taken for finished.
+    """
+
+    __slots__ = ("plugin", "owner", "done")
+
+    def __init__(self, plugin: Any, owner: int):
+        # Holding the plugin keeps it alive, so the id() we key on cannot be
+        # recycled onto a different object while the teardown is tracked.
+        self.plugin = plugin
+        self.owner = owner  # thread running uninit, to detect re-entry
+        self.done = threading.Event()
+
+
+class PendingWork:
+    """Work a plugin has committed to finishing before the run may end.
+
+    Returned by :meth:`Plugin.begin_work`. A graceful shutdown waits until
+    every open entry is :meth:`done`. ``expected`` marks work the plugin
+    intends to do but has not started (registered at load, before the event
+    that triggers it); the rest is queued or running.
+    """
+
+    __slots__ = ("owner", "description", "expected", "_release", "_closed")
+
+    def __init__(self, owner: str, description: str, expected: bool,
+                 release: Callable[['PendingWork'], None]):
+        self.owner = owner
+        self.description = description
+        self.expected = expected
+        self._release = release
+        self._closed = False
+
+    @property
+    def is_done(self) -> bool:
+        return self._closed
+
+    def done(self) -> None:
+        """Mark this work complete. Idempotent and thread-safe, so it can go in a ``finally``."""
+        if not self._closed:
+            self._closed = True
+            self._release(self)
+
+    def __str__(self) -> str:
+        kind = " (expected, not started)" if self.expected else ""
+        return f"{self.owner}: {self.description}{kind}"
+
 
 # Forward reference for type annotations
 T = TypeVar('T', bound='Plugin')
@@ -275,6 +344,25 @@ class Plugin:
         default; this is the designed seam, not yet driven by any caller.
         """
         pass
+
+    def request_shutdown(self, reason: str = None) -> None:
+        """Ask for the run to end once all pending work is done.
+
+        Prefer this over ``self.panda.end_analysis()``, which stops the
+        emulator on the spot and cuts off whatever other plugins are doing.
+        See :meth:`IGLOOPluginManager.request_shutdown`.
+        """
+        self.plugins.request_shutdown(self, reason)
+
+    def begin_work(self, description: str, expected: bool = False) -> PendingWork:
+        """Register work a graceful shutdown must wait for; call ``done()`` on the result.
+
+        Register queued work when it is accepted, not when it starts, so time
+        spent in the queue counts. Pass ``expected=True`` at load for work this
+        plugin intends to do but has no trigger for yet. See
+        :meth:`IGLOOPluginManager.begin_work` and docs/pyplugin_architecture.md.
+        """
+        return self.plugins.begin_work(self, description, expected=expected)
 
     @property
     def name(self) -> str:
@@ -986,6 +1074,27 @@ class IGLOOPluginManager:
         self.plugins: Dict[str, Plugin] = {}
         self._plugin_name_map: Dict[str, Plugin] = {}  # Lowercase name -> instance
 
+        # Graceful-shutdown coordination (see request_shutdown).
+        self._shutdown_lock = threading.Lock()
+        self._shutdown_requested = threading.Event()
+        self._shutdown_reason: Optional[str] = None
+        self._shutdown_thread: Optional[threading.Thread] = None
+        # Set by an immediate request: stop waiting for plugins and tear down.
+        self._shutdown_now = threading.Event()
+        self._shutdown_now_reason: Optional[str] = None
+        # Work plugins registered via begin_work, in registration order, and
+        # the state that seals it for teardown. All guarded by _work_lock,
+        # which is never held while calling into a plugin.
+        self._work_lock = threading.Lock()
+        self._pending_work: Dict[PendingWork, None] = {}
+        self._callbacks_in_flight = 0  # subscriber callbacks currently running
+        # Teardown has begun: no subscriber callback starts and begin_work
+        # registers nothing. One flag, so both always change together.
+        self._sealed = False
+        # Teardown bookkeeping: id(plugin) -> _Teardown (see unload).
+        self._unload_lock = threading.Lock()
+        self._teardowns: Dict[int, _Teardown] = {}
+
     def load(self, pluginclasses: Union[Type[T], List[Type[T]], Tuple[str, List[str]]],
              args: Dict[str, Any] = None) -> None:
         """
@@ -1280,14 +1389,98 @@ class IGLOOPluginManager:
             raise ValueError(
                 f"Unload expects a name of a loaded pyplugin or a Plugin instance. Got {pluginclass} with plugin list: {self.plugins}")
 
-        # Call uninit method if it's present
-        if callable(getattr(pluginclass, "uninit", None)):
-            pluginclass.uninit()
+        # Teardown is reachable from several threads at once: a shutdown
+        # request, the emulator's pre_shutdown callback, and run()'s finally
+        # all call unload_all. A second uninit would re-run the first one's
+        # final writes, and returning early while it is still inside uninit
+        # would let the emulator stop with that output half written, so a
+        # caller that loses the claim waits for the winner.
+        key = id(pluginclass)
+        with self._unload_lock:
+            teardown = self._teardowns.get(key)
+            claimed = teardown is None
+            if claimed:
+                teardown = _Teardown(pluginclass, threading.get_ident())
+                self._teardowns[key] = teardown
+
+        if not claimed:
+            if teardown.owner != threading.get_ident():
+                # Bounded: the thread in uninit may need a main loop another
+                # end_analysis already stopped, so waiting forever would be a
+                # deadlock. Giving up re-admits the double-uninit this guards
+                # against, so say so loudly.
+                if not teardown.done.wait(UNLOAD_TEARDOWN_TIMEOUT):
+                    self.logger.warning(
+                        f"Gave up after {UNLOAD_TEARDOWN_TIMEOUT:.0f}s waiting for "
+                        f"{getattr(pluginclass, 'name', pluginclass)}'s teardown on "
+                        "another thread; proceeding. Its final output may be incomplete")
+            # Else: uninit re-entered unload for its own plugin. Waiting here
+            # would be waiting on ourselves.
+            return
+
+        try:
+            if callable(getattr(pluginclass, "uninit", None)):
+                pluginclass.uninit()
+        finally:
+            teardown.done.set()
+
+    def _detach_subscriptions(self) -> None:
+        """Empty every subscriber list ahead of teardown.
+
+        The seal is what stops delivery; this is a second line of defence for
+        anything that reads the lists directly. Iterates snapshots, since a
+        plugin loaded lazily on another thread can add keys meanwhile. The keys
+        stay because :meth:`publish` raises on a missing one.
+        """
+        for events in list(self.plugin_cbs.values()):
+            for event in list(events):
+                events[event] = []
+
+    def call_subscriber(self, cb: Callable, *args: Any, **kwargs: Any) -> Tuple[bool, Any]:
+        """Call one event subscriber, unless teardown has sealed delivery.
+
+        Every dispatcher goes through this so a graceful shutdown knows when no
+        subscriber is running, and seals only then. Work a running subscriber
+        accepts is therefore always waited for. Only the call is counted, not a
+        generator it returns, since the caller may abandon that.
+
+        :return: ``(False, None)`` if not delivered (sealed), else
+            ``(True, result)``.
+        :rtype: Tuple[bool, Any]
+        """
+        with self._work_lock:
+            if self._sealed:
+                return False, None
+            self._callbacks_in_flight += 1
+        try:
+            return True, cb(*args, **kwargs)
+        finally:
+            with self._work_lock:
+                self._callbacks_in_flight -= 1
 
     def unload_all(self) -> None:
         """
         Unload all loaded plugins in reverse order of load time.
+
+        Best-effort: a plugin whose ``uninit`` raises is logged and stepped
+        over so the rest are still torn down and still write their final
+        output. One broken teardown must not cost every other plugin its
+        results.
         """
+        # The guest runs until end_analysis, so seal first: an event landing
+        # mid-sweep would otherwise reach a plugin whose uninit has already
+        # written its final output. This is also what the paths that skip the
+        # graceful wait (pre_shutdown, penguin_run's finally) rely on, and
+        # what tells a graceful wait still running that teardown has begun.
+        with self._work_lock:
+            self._sealed = True
+        try:
+            self._detach_subscriptions()
+        except Exception:
+            # The seal already stops delivery; carry on so every plugin still
+            # gets to write its output.
+            self.logger.exception("Detaching subscriptions failed; continuing teardown")
+
         # unload in reverse order of load time
         plugin_list = {
             k: v for k,
@@ -1296,7 +1489,250 @@ class IGLOOPluginManager:
                 key=lambda x: x[1].load_time)}
         while plugin_list:
             name, cls = plugin_list.popitem()
-            self.unload(cls)
+            try:
+                self.unload(cls)
+            except Exception:
+                self.logger.exception(f"{name} raised while being unloaded; "
+                                      "continuing teardown without it")
+
+    def begin_work(self, plugin: Any, description: str,
+                   expected: bool = False) -> PendingWork:
+        """Register work a graceful shutdown must wait for.
+
+        Opt-in, so plugins that run for the whole session (VPN) never block a
+        shutdown. Only takes ``_work_lock``, which is never held while calling
+        into a plugin, so it is safe from guest callbacks on the main thread.
+
+        Once teardown has sealed the registry, the work is not registered: a
+        warning names it and the returned handle's ``done()`` does nothing.
+        To start follow-up work from work you hold, register the new entry
+        before releasing the old one, so the registry is never empty between.
+
+        :param plugin: Plugin that owns the work, for the log.
+        :type plugin: Plugin
+        :param description: What the work is, e.g. ``"fetch 10.0.0.1:80"``.
+        :type description: str
+        :param expected: Work intended but not started yet (registered at
+            load so a sibling cannot end the run before it gets a chance).
+        :type expected: bool
+
+        :return: Handle whose ``done()`` releases the work.
+        :rtype: PendingWork
+        """
+        owner = getattr(plugin, "name", None) or str(plugin)
+        work = PendingWork(owner, description, expected, self._release_work)
+        with self._work_lock:
+            sealed = self._sealed
+            if not sealed:
+                self._pending_work[work] = None
+        if sealed:
+            # Teardown has already been decided; nothing will wait for this.
+            # The handle still works (done() is a no-op), so callers need no
+            # special case, but the loss is reported rather than silent.
+            self.logger.warning(
+                f"{work} was registered after teardown began; it will not be "
+                "waited for and may be cut off")
+        return work
+
+    def _release_work(self, work: PendingWork) -> None:
+        with self._work_lock:
+            self._pending_work.pop(work, None)
+
+    def pending_work(self) -> List[PendingWork]:
+        """Snapshot of the open work, oldest first."""
+        with self._work_lock:
+            return list(self._pending_work)
+
+    @property
+    def shutdown_pending(self) -> bool:
+        """True once some plugin has asked for the run to end.
+
+        Diagnostic only. A pending shutdown is deliberately not a signal for
+        plugins to wind down (see :meth:`request_shutdown`), so a plugin
+        must not consult this to decide how much work to do.
+        """
+        return self._shutdown_requested.is_set()
+
+    def request_shutdown(self, requester: Any = None, reason: str = None,
+                         watchdog: Optional[float] = None,
+                         immediate: bool = False) -> bool:
+        """Ask for the run to end once all pending work is done. Returns immediately.
+
+        Decides *when* the run may end and nothing else: no plugin is notified
+        or asked to wind down, so one plugin finishing never changes how much
+        work another does.
+
+        A background thread waits for the work registered through
+        :meth:`begin_work`, unloads every plugin so each ``uninit`` writes its
+        output, then stops the emulator. The wait is bounded by
+        ``core.shutdown_watchdog``. The first request wins, but an
+        ``immediate`` one also cuts short a wait already in progress. Safe to
+        call from a guest callback. See docs/pyplugin_architecture.md.
+
+        :param requester: Plugin asking to shut down, for the log.
+        :type requester: Plugin, optional
+        :param reason: Human-readable reason, logged.
+        :type reason: str, optional
+        :param watchdog: Seconds before work still open is overridden. Defaults
+            to ``core.shutdown_watchdog``, else :data:`DEFAULT_SHUTDOWN_WATCHDOG`.
+        :type watchdog: float, optional
+        :param immediate: Tear down now without waiting for pending work, for
+            deadlines such as ``core.timeout`` and SIGUSR1. Takes effect even
+            when a shutdown is already pending.
+        :type immediate: bool
+
+        :return: True if this call started the shutdown, False if one was
+            already pending (an ``immediate`` request still ends its wait).
+        :rtype: bool
+        """
+        name = getattr(requester, "name", None) or str(requester or "unknown")
+        reason = reason or "no reason given"
+
+        # Before the lock: a deadline must land even when it interrupts a
+        # request already holding it, and whichever shutdown thread exists or
+        # is about to stops waiting as soon as this is set.
+        if immediate and not self._shutdown_now.is_set():
+            self._shutdown_now_reason = f"{name}: {reason}"
+            self._shutdown_now.set()
+
+        # Never block for this lock. core's SIGUSR1 handler calls in on the
+        # main thread, the same thread guest callbacks request shutdown
+        # from, so if it interrupts a request already inside the lock,
+        # blocking deadlocks and an RLock would start a second shutdown.
+        # Failing to take it means someone else is already starting one.
+        if not self._shutdown_lock.acquire(blocking=False):
+            self.logger.info(
+                f"{name} requested shutdown ({reason}), but another request is "
+                "already in progress; " + ("ending it now" if immediate else "ignoring"))
+            return False
+
+        try:
+            if self._shutdown_requested.is_set():
+                self.logger.info(
+                    f"{name} requested shutdown ({reason}), but a shutdown is already "
+                    f"pending ({self._shutdown_reason}); "
+                    + ("ending it now" if immediate else "ignoring"))
+                return False
+
+            self._shutdown_requested.set()
+            self._shutdown_reason = reason
+            if watchdog is None:
+                watchdog = self._shutdown_watchdog()
+            if immediate:
+                self.logger.info(f"{name} requested shutdown: {reason}. Ending the run now")
+            else:
+                self.logger.info(
+                    f"{name} requested shutdown: {reason}. The run will end once every "
+                    f"plugin has finished its work (watchdog {watchdog:.0f}s)")
+            self._shutdown_thread = threading.Thread(
+                target=self._run_shutdown, args=(watchdog,),
+                name="penguin-shutdown", daemon=True)
+            self._shutdown_thread.start()
+        finally:
+            self._shutdown_lock.release()
+
+        return True
+
+    def _shutdown_watchdog(self) -> float:
+        """Watchdog for this run, from ``core.shutdown_watchdog`` if set.
+
+        Defaults to :data:`DEFAULT_SHUTDOWN_WATCHDOG`. 0 ends the run at once.
+        """
+        conf = self.get_arg("conf")
+        configured = None
+        if conf is not None and "core" in conf:
+            configured = conf["core"].get("shutdown_watchdog")
+        return DEFAULT_SHUTDOWN_WATCHDOG if configured is None else float(configured)
+
+    def _run_shutdown(self, watchdog: float) -> None:
+        """Body of the shutdown thread: wait for pending work, seal, then tear down.
+
+        Nothing here may skip ``end_analysis``. It is the only thing that ends
+        the run, and with ``_shutdown_requested`` already set no later request
+        would start another shutdown.
+        """
+        try:
+            try:
+                self._report_unfinished(watchdog, *self._wait_and_seal(
+                    time.monotonic() + max(0.0, watchdog)))
+            except Exception:
+                self.logger.exception("Waiting for pending work failed; tearing down now")
+            # Before the emulator stops, so every uninit's final writes land.
+            self.unload_all()
+        except Exception:
+            self.logger.exception("Teardown failed; stopping the emulator anyway")
+        finally:
+            self.panda.end_analysis()
+
+    def _report_unfinished(self, watchdog: float, left: List[PendingWork],
+                           running: int, preempted: bool) -> None:
+        """Log what the wait left behind, at the level it deserves."""
+        if preempted:
+            # Another path (guest poweroff, penguin_run's finally) is already
+            # tearing down; the emulator is stopping, not a plugin stuck.
+            self.logger.info("Teardown already began elsewhere; no longer waiting for pending work")
+            return
+        if running:
+            self.logger.warning(
+                f"Tearing down with {running} event callback(s) still running; "
+                "work they register now will not be waited for")
+        if left and self._shutdown_now.is_set():
+            self.logger.warning(
+                f"Ending the run now ({self._shutdown_now_reason}) with work still "
+                f"pending: {'; '.join(map(str, left))}. Output may be incomplete")
+        elif left:
+            # Expected work that never started is a normal outcome (e.g. no web
+            # service ever bound); work that started and never finished is not.
+            started = [w for w in left if not w.expected]
+            unstarted = [w for w in left if w.expected]
+            if started:
+                self.logger.error(
+                    f"core.shutdown_watchdog ({watchdog:.0f}s) expired with work "
+                    f"still in progress: {'; '.join(map(str, started))}. Treating "
+                    "it as stuck and ending the run; output may be incomplete")
+            if unstarted:
+                self.logger.warning(
+                    f"core.shutdown_watchdog ({watchdog:.0f}s) expired before "
+                    f"expected work started: {'; '.join(map(str, unstarted))}. "
+                    "Ending the run without it")
+
+    def _wait_and_seal(self, deadline: float) -> Tuple[List[PendingWork], int, bool]:
+        """Wait until it is safe to tear down, then seal.
+
+        Safe means no registered work is open *and* no subscriber callback is
+        running, since a running one could still accept work. That check and
+        the seal happen in the same critical section, so nothing can register
+        between them; events flow normally until then. The deadline or an
+        immediate request seals regardless.
+
+        :param deadline: ``time.monotonic()`` value at which to stop waiting.
+        :type deadline: float
+
+        :return: The work still open, the callbacks still running, and
+            whether another teardown path sealed first.
+        :rtype: Tuple[List[PendingWork], int, bool]
+        """
+        announced = set()
+
+        while True:
+            with self._work_lock:
+                left = list(self._pending_work)
+                running = self._callbacks_in_flight
+                if self._sealed:
+                    return left, running, True
+                remaining = deadline - time.monotonic()
+                if ((not left and not running) or remaining <= 0
+                        or self._shutdown_now.is_set()):
+                    self._sealed = True
+                    return left, running, False
+
+            for work in left:
+                if work not in announced:
+                    announced.add(work)
+                    self.logger.info(f"Shutdown is waiting for {work}")
+            interval = SHUTDOWN_POLL_INTERVAL if left else CALLBACK_SETTLE_INTERVAL
+            # Wakes early for an immediate request.
+            self._shutdown_now.wait(min(interval, remaining))
 
     def register(self, plugin: Plugin, event: str,
                  register_notify: Callable[[str, Callable[..., None]], None] = None) -> None:
@@ -1384,7 +1820,11 @@ class IGLOOPluginManager:
             # contains a dot
             if not hasattr(cb, '__self__') and hasattr(cb, '__qualname__') and '.' in cb.__qualname__:
                 cb = resolve_bound_method_from_class(cb, manager=self)
-            cb(*args, **kwargs)
+            # Through the teardown gate: once sealed, the rest of this loop is
+            # skipped, even though it holds the old subscriber list.
+            delivered, _ = self.call_subscriber(cb, *args, **kwargs)
+            if not delivered:
+                return
 
     def portal_publish(self, plugin: Plugin, event: str, *args: Any, **kwargs: Any) -> Iterator:
         """
@@ -1407,7 +1847,9 @@ class IGLOOPluginManager:
         for cb in self.plugin_cbs[plugin][event]:
             if not hasattr(cb, '__self__') and hasattr(cb, '__qualname__') and '.' in cb.__qualname__:
                 cb = resolve_bound_method_from_class(cb, manager=self)
-            result = cb(*args, **kwargs)
+            delivered, result = self.call_subscriber(cb, *args, **kwargs)
+            if not delivered:
+                return
             if isinstance(result, Iterator):
                 yield from result
             # For non-generator callbacks, we don't need to do anything with

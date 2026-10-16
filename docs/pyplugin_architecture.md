@@ -11,6 +11,8 @@ All plugins should inherit from the `Plugin` base class provided by `penguin`. T
 - `self.logger`: A logger instance for the plugin, automatically named for the plugin class.
 - `self.plugins`: Reference to the plugin manager, allowing access to other plugins (e.g., `self.plugins.other_plugin`).
 - `self.name`: The name of the plugin (class name).
+- `self.request_shutdown(reason)`: Ask for the run to end once all pending work is done (see [Ending the run](#ending-the-run)).
+- `self.begin_work(description, expected=False)`: Register work a graceful shutdown must wait for; call `.done()` on the result when it ends (see [Registering pending work](#registering-pending-work)).
 
 The plugin manager will automatically instantiate your plugin and call its `__init__` method. You do not need to handle argument parsing or plugin registration manually.
 
@@ -219,6 +221,137 @@ class ProcessSubscriber(Plugin):
     def process_created(self, *args):
         print(f"New process created with args: {args}")
 ```
+### Ending the run
+
+A plugin often decides the whole run is over: `fetch_web` got its page,
+`run_on_bind` ran its commands, `verifier` saw every test pass. Ending it with
+`self.panda.end_analysis()` stops the emulator on the spot and truncates
+whatever every *other* plugin was in the middle of. `run_on_bind` finishing
+while `fetch_web` is still downloading leaves a half-written artifact behind.
+
+Ask instead:
+
+```python
+self.request_shutdown("fetch_web finished with 192.168.0.1:80")
+```
+
+A request answers exactly one question, *when may the run end?*, and
+nothing else. No plugin is notified, and none is asked to wind down. Every
+other plugin keeps running its normal lifecycle: it still receives events, it
+may still take on work it has not started yet, and it behaves exactly as it
+would have had nobody asked. **One plugin finishing must never change how much
+work another plugin performs.**
+
+The manager services the request on a background thread, so the caller returns
+immediately (it is safe to call from a guest callback). It then:
+
+1. waits until no pending work registered with `begin_work` is open,
+2. unloads everything (so each `uninit` runs and writes its output), and
+3. stops the emulator.
+
+The run waits as long as the work needs. Open work is work the run was meant
+to perform, and cutting it off is the bug this mechanism exists to prevent. The only bounds are the watchdog and the
+deadlines below. The first request wins; later ones are logged and ignored,
+except a deadline, which ends any wait in progress.
+
+### Registering pending work
+
+The manager keeps one registry of pending work. It is opt-in: a plugin that
+registers nothing never holds the run open, which is right for plugins that
+run for the whole session such as `vpn`, `db` or `remotectrl`.
+
+```python
+work = self.begin_work(f"fetch {guest_ip}:{guest_port}")
+...
+work.done()   # idempotent and thread-safe: put it in a finally
+```
+
+There are two kinds of entry:
+
+- **Queued or running work.** Register it when you *accept* it, not when you
+  start it: a bind queued behind a delay is work too. Release it however the
+  work ends, success or failure.
+- **Expected work** (`expected=True`): work the plugin is here to do but has
+  no trigger for yet. Register it at load, before subscribing, so a sibling
+  cannot end the run before the trigger arrives, and release it when your own
+  completion condition is met. An event-driven plugin with no goal of its own
+  (`nmap`) registers no expected work: it cannot know more binds are coming.
+
+| Plugin | Expected work (from load) | Queued or running work |
+|---|---|---|
+| `fetch_web` | "fetch a web page": released by the first successful fetch, or when `shutdown_after_www` / `shutdown_on_failure` stops the plugin | each bind, from queueing until its fetch ends |
+| `run_on_bind` | "commands succeed on a matching bind": released by the first successful attempt; a failed one keeps it open | each endpoint, through its delay and attempt |
+| `nmap` | none | each scan |
+
+`fetch_web_testing` registers nothing: its checks only watch `fetch_web`'s
+output, which `fetch_web`'s own entries already hold the run open for, and
+its `uninit` joins the check threads. Registering them would hold the run for
+the full check timeout on any target `fetch_web` dropped.
+
+A pending shutdown changes nothing for a plugin: it still receives events,
+still accepts work, and registers it as usual. Work registered after the
+request is waited for. When a plugin stops on its own terminal condition,
+release whatever it will now never do (leftover queue entries, its expected
+work) under the same lock that guards accepting new work, so an entry cannot
+be added after the release.
+
+To start follow-up work from work you hold, register the new entry *before*
+calling `done()` on the old one, so the registry is never empty in between.
+
+#### From the last check to teardown
+
+Waiting for an empty registry is not enough by itself: a subscriber already
+running when the registry empties may be about to accept work. So the
+shutdown waits until the registry is empty **and** no subscriber callback is
+running, and in the same critical section seals: from then on no subscriber
+callback starts, and `begin_work` registers nothing. Nothing can register
+between that check and teardown. Events are delivered normally right up to
+the seal, so interventions and analysis plugins keep working while the run
+waits.
+
+Every dispatcher calls subscribers through `plugins.call_subscriber`, which
+does the counting and the gating: `publish`, `portal_publish`, and the Events
+portalcall path. Only the call is counted, not a generator it returns.
+`begin_work` after the seal logs a warning naming the work and returns a
+handle whose `done()` does nothing.
+
+Traffic that keeps the registry permanently busy delays the seal until the
+watchdog: work that arrives late is waited for, by design. The watchdog and
+immediate requests seal regardless; callbacks still running then are named
+in a warning. A teardown begun elsewhere (guest poweroff, `penguin_run`'s
+`finally`) seals as well, and a graceful wait in progress stops on seeing it
+rather than reporting that work as stuck.
+
+### The watchdog
+
+`core.shutdown_watchdog` (default **60s**) bounds the wait. When it expires,
+whatever is still open is overridden and the run ends:
+
+- work that started and never finished is named in an *error*: a wedged
+  plugin, whose output may be incomplete;
+- expected work that never started is named in a *warning*: a normal outcome,
+  e.g. no web service ever bound for `fetch_web` to fetch.
+
+Set `0` to end the run the moment it is requested. Raise it for runs with
+long legitimate work: `run_on_bind` commands may take up to their 120s
+timeout, and `nmap` vuln scans can take minutes.
+
+### Deadlines: `core.timeout` and SIGUSR1
+
+`core.timeout` stops the run. When it expires, core makes an *immediate*
+request (`request_shutdown(..., immediate=True)`): the manager does not wait
+for plugins at all, and if another plugin's request is already waiting, that
+wait ends at once. Teardown still runs, so every `uninit` writes its output
+before the emulator stops; plugins still mid-task are named in a warning and
+their output may be incomplete. SIGUSR1, which `manager.py` sends when a run
+outlives its timeout, does the same.
+
+Ending the emulator outright is still right in two cases. For a fatal error,
+as `live_image` does when the guest fails to build its image, because there is
+no run left for anyone to finish. And where main-loop ordering is the point:
+`snapshot`'s `stop_after_save` relies on `end_analysis` queueing behind the
+savevm it just scheduled, which a background shutdown thread would not do.
+
 ## Init plugins
 
 A second family of pyplugins runs at `penguin init` time (and not during

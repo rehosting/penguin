@@ -1012,7 +1012,8 @@ class LiveImage(Plugin):
             self.logger.error(output)
         except Exception as e:
             self.logger.error(f"Could not read guest log: {e}")
-        # Stop the system
+        # Not request_shutdown: the guest failed to build its image, so there
+        # is no run left for the other plugins to finish.
         self.logger.error("Halting system due to guest error.")
         self.panda.end_analysis()
 
