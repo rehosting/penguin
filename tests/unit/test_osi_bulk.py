@@ -153,3 +153,23 @@ def test_trap_callbacks_ask_hostosi(tmp_path, igloo_ko_isf):
     assert drive(osi.get_env()) == {}
     assert drive(osi.get_cwd()) == "/www" and osi.last_label.rung == "L0"
     assert drive(osi.get_proc_name()) == "/bin/x" and osi.last_label.rung == "L0"
+
+
+def test_fd_name_matches_at_fdcwd_however_it_came(tmp_path, igloo_ko_isf):
+    """igloo.ko returns AT_FDCWD in a 64-bit field; a caller may pass -100 or
+    a register's 0xffffff9c: all are the kernel's int -100"""
+    from types import SimpleNamespace
+    lp = _load(tmp_path, igloo_ko_isf)
+    osi = lp.plugin
+    asked = []
+
+    def get_fds(pid=None, start_fd=0, count=None):
+        asked.append(start_fd)
+        return [SimpleNamespace(fd=0xffffffffffffff9c, name="/www")]
+        yield
+    osi.get_fds = get_fds
+    assert drive(osi.get_cwd()) == "/www"
+    assert drive(osi.get_fd_name(0xffffff9c)) == "/www"
+    assert drive(osi.get_fd_name(0xffffffffffffff9c)) == "/www"
+    assert asked == [-100, -100, -100]
+    assert drive(osi.get_fd_name(3)) is None

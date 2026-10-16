@@ -55,6 +55,11 @@ CONST_UNKNOWN_STR = "[???]"
 AT_FDCWD = -100
 
 
+def _fd32(fd):
+    """@fd as the kernel takes it: the low 32 bits, signed (None stays None)"""
+    return None if fd is None else ((int(fd) & 0xffffffff) ^ 0x80000000) - 0x80000000
+
+
 def _judge(self, value):
     """an answer's label (compat/osi_label.py): igloo.ko walks the kernel's
     structures under the kernel's own locks (rcu, mmap_lock, file_lock)"""
@@ -146,8 +151,12 @@ class OSI(Plugin):
 
         # Try using the get_fds functionality first (more efficient)
         # Only request the single FD we need
+        # the kernel takes an fd as an int: compare the low 32 bits, signed,
+        # so AT_FDCWD matches however it came (-100, a register's
+        # 0xffffff9c, igloo's 64-bit 0xffff_ffff_ffff_ff9c)
+        fd = _fd32(fd)
         fds = yield from self.get_fds(pid=pid, start_fd=fd, count=1)
-        if fds and len(fds) > 0 and getattr(fds[0], 'fd', None) == fd:
+        if fds and len(fds) > 0 and _fd32(getattr(fds[0], 'fd', None)) == fd:
             fd_name = fds[0].name
             self.logger.debug(
                 f"File descriptor name read successfully: {fd_name}")
