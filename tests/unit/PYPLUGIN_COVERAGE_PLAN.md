@@ -260,7 +260,10 @@ Ordered most-valuable first. Percentages are current host coverage.
     number), and the OSI layout filling exactly the C struct on 6.x and 4.x
     kernels; `Syscalls.inject` (the command and its answer, a coroutine across
     injected calls, refusals) and native numbers from `sys_call_table` where
-    the metadata has none. Out of scope here: the engine itself
+    the metadata has none; portal commands QEMU cannot serve going to igloo's
+    portal on an injected getpid (and failing at a return); a kernel with no
+    ISF (uapi numbers from `compat/syscall_numbers.py`, the fixed pt_regs
+    layout). Out of scope here: the engine itself
     (system/penguin-syscalls.c), tested under QEMU in qemu_builder's guest
     harness.
 
@@ -271,6 +274,18 @@ Ordered most-valuable first. Percentages are current host coverage.
     a short read), fds and their names, mappings, and refusing 32-bit kernels.
     Out of scope here: the walks (system/penguin-osi.c), checked under QEMU
     against the guest's own /proc.
+
+13. **`compat/osi_label.py` — rung labels on OSI answers** ✅ done
+    (`test_hostosi.py::test_labels`, `test_osi_bulk.py`): HostOSI's L0 labels
+    (safe-point for the current task at its trap, possibly-torn for another
+    task, the process list or shared state with more than one vCPU,
+    unavailable for None), igloo OSI's L2 labels, and apis/osi.py answering
+    from HostOSI inside trap callbacks with HostOSI's label.
+
+14. **`apis/mem.py` + `compat/qemu_compat.py` — writes with the guest's
+    permissions** ✅ done (`test_qemu_compat_writes.py`): under TCG
+    `write_bytes`' direct write is QEMU's checked one and a refused write goes
+    to the portal; under KVM, or without the checked write, the debug write.
 
 ### Harness capabilities (as landed)
 

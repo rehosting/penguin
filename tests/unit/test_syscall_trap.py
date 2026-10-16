@@ -44,6 +44,7 @@ def test_trap_event_fields(trap, ffi):
 def _backend(trap, ffi, **kw):
     b = trap.TrapBackend.__new__(trap.TrapBackend)
     b.ffi, b.runs, b.wbufs, b.unsupported, b.numbers = ffi, {}, {}, set(), {}
+    b.delegated, b.portal_q, b.portal_handler = {}, [], False
     for k, v in kw.items():
         setattr(b, k, v)
     return b
@@ -262,3 +263,112 @@ def test_syscalls_inject(trap, igloo_ko_isf):
     assert (c.num, c.args) == (62, (7, M64))
     assert run(s.inject("nosuch")) == ("returned", None)
     assert run(s.inject(1, *range(7))) == ("returned", None)
+
+
+class FakePortal:
+    """plugins.portal: the interrupt flag igloo polls, and its handlers"""
+    portal_interrupt = 0xffff0000
+
+    def __init__(self):
+        self.handlers, self.queued = {}, []
+
+    def register_interrupt_handler(self, name, fn):
+        self.handlers[name] = fn
+
+    def queue_interrupt(self, name):
+        self.queued.append(name)
+        return True
+
+    def take(self, answers):
+        """igloo takes the interrupt: the handler's commands, answered"""
+        g, got = self.handlers["syscall_trap"](), []
+        try:
+            c = next(g)
+            while True:
+                got.append(c)
+                c = g.send(answers.pop(0))
+        except StopIteration:
+            pass
+        return got
+
+
+def test_portal_commands_go_to_igloo(trap, ffi, igloo_ko_isf, monkeypatch):
+    """an OSI or kffi command in an entry callback: queued at igloo's portal,
+    carried by an injected getpid, answered when the task is back"""
+    portal, _ = load_module(str(PY / "hyper" / "portal.py"), real_isf=igloo_ko_isf)
+    fp = FakePortal()
+    monkeypatch.setattr(trap.plugins, "portal", fp, raising=False)
+    seen = []
+
+    def callback(sce):
+        seen.append((yield portal.PortalCmd("osi_proc")))
+        seen.append((yield portal.PortalCmd("tramp_generate")))
+
+    state = SimpleNamespace(cpu=None)
+    b = _backend(trap, ffi, s=SimpleNamespace(_trap_event=callback),
+                 panda=SimpleNamespace(_callback_state=lambda: state))
+    b.numbers = {"getpid": 39}
+    ev = ffi.new("struct penguin_sc_event *")
+    cmd = ffi.new("struct penguin_sc_cmd *")
+    ev.call = 4
+    b._on_event(ffi.NULL, ev, cmd, ffi.NULL)
+    assert (cmd.op, cmd.num) == (trap.OP_SYSCALL, 39) and fp.queued == ["syscall_trap"]
+    # the getpid's way in: igloo takes the interrupt and serves the command
+    got = fp.take([b"proc"])
+    assert [c.op for c in got] == [portal.PortalCmd("osi_proc").op]
+    cmd.status, cmd.ret = trap.OK, 12
+    b._on_event(ffi.NULL, ev, cmd, ffi.NULL)
+    assert seen == [b"proc"] and (cmd.op, cmd.num) == (trap.OP_SYSCALL, 39)
+    # the interrupt was not taken: another getpid, then the portal's failure
+    for _ in range(trap.PORTAL_TRIES):
+        cmd.status = trap.OK
+        b._on_event(ffi.NULL, ev, cmd, ffi.NULL)
+    assert seen == [b"proc", None] and cmd.op == trap.OP_NONE
+    assert not b.runs and not b.delegated and not b.portal_q
+
+
+def test_portal_command_at_a_return_fails(trap, ffi, igloo_ko_isf, monkeypatch):
+    """no getpid at a return (the engine refuses it): None, nothing left queued"""
+    portal, _ = load_module(str(PY / "hyper" / "portal.py"), real_isf=igloo_ko_isf)
+    monkeypatch.setattr(trap.plugins, "portal", FakePortal(), raising=False)
+    seen = []
+
+    def callback(sce):
+        seen.append((yield portal.PortalCmd("read_fds")))
+
+    state = SimpleNamespace(cpu=None)
+    b = _backend(trap, ffi, s=SimpleNamespace(_trap_event=callback),
+                 panda=SimpleNamespace(_callback_state=lambda: state))
+    b.numbers = {"getpid": 39}
+    ev = ffi.new("struct penguin_sc_event *")
+    cmd = ffi.new("struct penguin_sc_cmd *")
+    ev.call = 5
+    b._on_event(ffi.NULL, ev, cmd, ffi.NULL)
+    cmd.status = trap.FAIL
+    b._on_event(ffi.NULL, ev, cmd, ffi.NULL)
+    assert seen == [None] and cmd.op == trap.OP_NONE and not b.portal_q
+
+
+def test_no_isf_uses_uapi_numbers_and_fixed_regs(trap, ffi):
+    """a kernel with no ISF: the native names and numbers from uapi, and
+    pt_regs in the arch's fixed layout"""
+    names = []
+    b = _backend(trap, ffi, kffi=None, arch="aarch64", native="aarch64", compat="arm",
+                 big=False, lib=SimpleNamespace(
+                     penguin_syscall_set_name=lambda abi, num, name, n: names.append(
+                         (abi, num, name, n))))
+    b._on_boot(ffi.NULL, ffi.NULL)
+    assert (b.number("init_module"), b.number("mmap"), b.number("getpid")) == (105, 222, 172)
+    assert (trap.ABIS["aarch64"], 105, b"init_module", 3) in names
+    assert any(abi == trap.ABIS["arm"] for abi, *_ in names)    # compat names too
+    assert b._sym("force_sig_fault") == 0 and b._off("struct task_struct", "comm") == -1
+
+    f = cffi.FFI()
+    f.cdef(trap.FIXED_REGS_CDEF + "struct penguin_sc_event { int x; };")
+    b.ffi = f
+    b._regs_layout()
+    assert b._rsize == 336 and b._roff["pc"] == 256 and b._roff["syscallno"] == 280
+    raw = bytearray(b._rsize)
+    b._q.pack_into(raw, b._roff["pc"], 0x4000)
+    r = f.from_buffer(trap._FIXED_REGS["aarch64"]["ctype"], raw)
+    assert r.pc == 0x4000 and len(r.regs) == 31

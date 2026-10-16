@@ -13,7 +13,13 @@ Callbacks are unchanged.  They get (pt_regs, proto, syscall, *args) and may
 be coroutines that yield PortalCmds: QEMU carries out the memory commands
 (HYPER_OP_READ, _READ_STR, _WRITE) itself, and when the task has not mapped
 the memory yet, the task takes the fault and the callback stays suspended
-across it.  Other commands (OSI, ...) get the portal's failure, None.
+across it.  Other commands (OSI, kffi, ...) go to igloo's portal when the
+module is there: the trap queues a portal interrupt and has the task make a
+getpid; igloo takes the interrupt on that call's way in and serves the
+command, and the callback has the answer when the task is back at its own
+call.  That needs an entry callback of a native task (as Syscalls.inject
+does); otherwise, or with no module, the command gets the portal's failure,
+None.
 
 - ``syscall``: the engine's event, with the fields of igloo's
   syscall_event; changes to args, retval and skip_syscall reach the call.
@@ -29,6 +35,13 @@ across it.  Other commands (OSI, ...) get the portal's failure, None.
 
 TCG; x86_64 and AArch64 guests, with their 32-bit compat ABIs.  Enabled by
 the Syscalls argument ``backend: trap`` (``plugins: syscalls: backend: trap``).
+
+With no kernel ISF (``plugins.kffi`` has none: a vendor kernel with no DWARF
+and no kallsyms) the backend still runs: names and numbers from uapi
+(compat/syscall_numbers.py), pt_regs in the arch's fixed layout, and none of
+what needs the kernel's symbols: no fault guard (commands on unmapped memory
+fail), no reaper, no exec hook (execve cannot be injected), no comm, pid or
+scope filters in C, no OSI layout.  Injection works: it needs the numbers.
 """
 
 import re
@@ -42,6 +55,8 @@ from wrappers.ptregs_wrap import get_pt_regs_wrapper
 logger = getColoredLogger("plugins.syscalls.trap")
 
 OP_NONE, OP_READ, OP_READ_STR, OP_WRITE, OP_ABORT, OP_SYSCALL = range(6)
+OP_PORTAL = -1                  # ours: a command for igloo's portal
+PORTAL_TRIES = 3                # getpids that may pass without the interrupt
 OK, PARTIAL, FAIL = range(3)
 ABIS = {"x86_64": 0, "i386": 1, "aarch64": 2, "arm": 3}
 NATIVE = {"x86_64": ("x86_64", "i386"), "aarch64": ("aarch64", "arm")}
@@ -317,6 +332,41 @@ class _LazyPtRegs:
         return repr(self._get())
 
 
+def _kernel_isf():
+    """the kernel's ISF (dwarffi), or None if there is none"""
+    try:
+        return getattr(plugins.kffi, "ffi", None)
+    except Exception:
+        return None
+
+
+# struct pt_regs where no ISF says: the fields the backend fills, at their
+# offsets since 4.x (x86_64) and 3.7 (arm64), and a size that holds every
+# kernel's (the copy is the hook's; fields past these are zero)
+_FIXED_REGS = {
+    "x86_64": dict(r15=0, r14=8, r13=16, r12=24, bp=32, bx=40, r11=48, r10=56, r9=64,
+                   r8=72, ax=80, cx=88, dx=96, si=104, di=112, orig_ax=120, ip=128,
+                   cs=136, flags=144, sp=152, ss=160, size=168),
+    "aarch64": dict(regs=0, sp=248, pc=256, pstate=264, orig_x0=272, syscallno=280,
+                    size=336),
+}
+_FIXED_REGS["x86_64"]["ctype"] = "struct psc_x86_64_pt_regs *"
+_FIXED_REGS["aarch64"]["ctype"] = "struct psc_aarch64_pt_regs *"
+FIXED_REGS_CDEF = """
+struct psc_x86_64_pt_regs {
+    uint64_t r15, r14, r13, r12, bp, bx, r11, r10, r9, r8, ax, cx, dx, si, di,
+             orig_ax, ip, cs, flags, sp, ss;
+};
+struct psc_aarch64_pt_regs {
+    uint64_t regs[31];
+    uint64_t sp, pc, pstate, orig_x0;
+    int32_t syscallno;
+    uint32_t unused2;
+    uint64_t rest[6];
+};
+"""
+
+
 class TrapBackend:
     def __init__(self, syscalls):
         self.s = syscalls
@@ -335,7 +385,16 @@ class TrapBackend:
         self.runs = {}          # call id -> the coroutine waiting for its answer
         self.wbufs = {}         # call id -> the bytes it writes, until answered
         self.unsupported = set()
-        self.kffi = plugins.kffi.ffi
+        self.delegated = {}     # call id -> its command at igloo's portal
+        self.portal_q = []      # those commands, until the portal takes them
+        self.portal_handler = False
+        self.kffi = _kernel_isf()
+        if self.kffi is None:
+            if not getattr(self.ffi, "_psc_fixed_regs", False):
+                self.ffi.cdef(FIXED_REGS_CDEF)
+                self.ffi._psc_fixed_regs = True
+            logger.warning("syscall trap: no kernel ISF; uapi numbers, no guard, reaper, "
+                           "exec hook, OSI layout or comm/pid/scope filters")
         self._cb = self.ffi.callback(
             "void(CPUState *, struct penguin_sc_event *, struct penguin_sc_cmd *, void *)",
             self._on_event, onerror=self._on_error)
@@ -347,7 +406,7 @@ class TrapBackend:
             raise RuntimeError("syscall trap: layout refused")
         # the OSI walks the fd-path and exe filters use
         from compat.osi_layout import set_osi_layout
-        if not set_osi_layout(self.panda, self.kffi):
+        if self.kffi is None or not set_osi_layout(self.panda, self.kffi):
             logger.warning("syscall trap: no OSI layout; fd-path and exe filters never match")
         if not self.lib.set_penguin_syscall_callback(self._cb, self.ffi.NULL):
             raise RuntimeError("syscall trap: QEMU's syscall events have another consumer")
@@ -370,10 +429,14 @@ class TrapBackend:
     # kernel facts, from the kernel's ISF
 
     def _sym(self, name):
+        if self.kffi is None:
+            return 0
         s = self.kffi.get_symbol(name)
         return int(getattr(s, "address", 0) or 0) if s else 0
 
     def _off(self, t, field):
+        if self.kffi is None:
+            return _FIXED_REGS[self.arch].get(field, -1) if t == "struct pt_regs" else -1
         try:
             return int(self.kffi.offsetof(t, field))
         except Exception:
@@ -412,12 +475,15 @@ class TrapBackend:
         self._roff = {n: o("struct pt_regs", n) for n in
                       ("ax", "cx", "r11", "ip", "flags", "orig_ax", "regs", "pc", "pstate",
                        "orig_x0", "syscallno")}
-        self._rsize = self.kffi.sizeof("struct pt_regs")
+        self._rsize = (_FIXED_REGS[self.arch]["size"] if self.kffi is None
+                       else self.kffi.sizeof("struct pt_regs"))
         e = ">" if self.big else "<"
         self._q, self._i = struct.Struct(e + "Q"), struct.Struct(e + "i")
 
     def _on_boot(self, cs, opaque):
         """The first trap: syscall_metadata is numbered by now"""
+        if self.kffi is None:
+            return self._uapi_names()
         buf = self.ffi.new("uint8_t[4]")
         offs = [self._off("struct syscall_metadata", f) for f in ("syscall_nr", "nb_args")]
         nargs = {}
@@ -437,7 +503,23 @@ class TrapBackend:
                                                   vals[1])
                 nargs[sc] = vals[1]
                 self.numbers[sc] = vals[0]
+        self.nargs = nargs
         self._table_numbers(cs)
+        self._compat_names(nargs)
+
+    def _uapi_names(self):
+        """no ISF: the native names, numbers and argument counts from uapi"""
+        from compat.syscall_numbers import native_table
+        nargs = {}
+        for name, (num, n) in native_table(self.arch).items():
+            self.lib.penguin_syscall_set_name(ABIS[self.native], num, name.encode(), n)
+            self.numbers[name] = num
+            nargs[name] = n
+        self.nargs = nargs
+        self._compat_names(nargs)
+        logger.info("syscall trap: %d native numbers from uapi (no ISF)", len(nargs))
+
+    def _compat_names(self, nargs):
         n = 0
         for num, uname in enumerate(COMPAT[self.compat].split()):
             for cand in (uname, re.sub(r"(32|64)$", "", uname), uname.lstrip("_")):
@@ -597,6 +679,8 @@ class TrapBackend:
             self._i.pack_into(b, off["syscallno"], ev.num)
             if not ev.is_enter:
                 q(b, off["regs"], ev.retval & M64)
+        if self.kffi is None:
+            return self.ffi.from_buffer(_FIXED_REGS[self.arch]["ctype"], b)
         return self.kffi.from_buffer("struct pt_regs", b)
 
     def number(self, name):
@@ -618,11 +702,57 @@ class TrapBackend:
             if op == hop.HYPER_OP_WRITE:
                 data = bytes(c.data or b"")
                 return OP_WRITE, addr, len(data), data
+        if op is not None and self._portal_ready():
+            return OP_PORTAL, c, None, None
         if op not in self.unsupported:
             self.unsupported.add(op)
             logger.warning("syscall trap: portal command %r not served; "
                            "the callback gets None", op)
         return None
+
+    def _portal_ready(self):
+        """can a command go to igloo's portal (see the module docstring)?"""
+        portal = getattr(plugins, "portal", None)
+        if portal is None or not getattr(portal, "portal_interrupt", None) \
+                or self.number("getpid") is None:
+            return False
+        if not self.portal_handler:
+            portal.register_interrupt_handler("syscall_trap", self._serve_portal)
+            self.portal_handler = True
+        return True
+
+    def _serve_portal(self):
+        """the portal interrupt's handler: igloo serves the queued commands"""
+        while self.portal_q:
+            slot = self.portal_q.pop(0)
+            slot["value"] = yield slot["cmd"]
+            slot["done"] = True
+
+    def _delegate(self, call, slot):
+        """queue @slot's command at the portal; the task's getpid carries it"""
+        if slot not in self.portal_q:
+            self.portal_q.append(slot)
+        plugins.portal.queue_interrupt("syscall_trap")
+        self.delegated[call] = slot
+        return OP_SYSCALL, self.number("getpid"), (), None
+
+    def _delegated_answer(self, call, slot, cmd):
+        """a delegated command's answer, or another getpid's (op, ...) if
+        the portal has not taken it yet"""
+        if slot.get("done"):
+            return slot.get("value"), None
+        slot["tries"] = slot.get("tries", 0) + 1
+        if cmd.status == OK and slot["tries"] < PORTAL_TRIES:
+            return None, self._delegate(call, slot)
+        if slot in self.portal_q:
+            self.portal_q.remove(slot)
+        op = getattr(slot["cmd"], "op", None)
+        if ("late", op) not in self.unsupported:
+            self.unsupported.add(("late", op))
+            logger.warning("syscall trap: portal command %r not taken by igloo's portal "
+                           "(%s); the callback gets None", op,
+                           "not at an entry" if cmd.status != OK else "no interrupt")
+        return None, None
 
     def _answer(self, cmd):
         """what the portal sends the coroutine (Portal.wrap)"""
@@ -637,6 +767,9 @@ class TrapBackend:
         if cmd.op == OP_ABORT:
             g = self.runs.pop(ev.call, None)
             self.wbufs.pop(ev.call, None)
+            slot = self.delegated.pop(ev.call, None)
+            if slot in self.portal_q:
+                self.portal_q.remove(slot)
             if g is not None:
                 g.close()
             return
@@ -647,6 +780,7 @@ class TrapBackend:
         state.cpu = cs
         state.syscall_trap = True
         state.task = ev.task                    # for apis/hostosi.py
+        again = None
         try:
             if cmd.op == OP_NONE:
                 g = self.s._trap_event(TrapEvent(self.ffi, cs, ev))
@@ -656,11 +790,20 @@ class TrapBackend:
             else:
                 g = self.runs.pop(ev.call)
                 self.wbufs.pop(ev.call, None)
-                val = self._answer(cmd)
+                slot = self.delegated.pop(ev.call, None)
+                if slot is None:
+                    val = self._answer(cmd)
+                else:
+                    val, again = self._delegated_answer(ev.call, slot, cmd)
             try:
-                c = g.send(val)
-                while (k := self._command(c)) is None:
-                    c = g.send(None)
+                if again is not None:
+                    k = again
+                else:
+                    c = g.send(val)
+                    while (k := self._command(c)) is None:
+                        c = g.send(None)
+                    if k[0] == OP_PORTAL:
+                        k = self._delegate(ev.call, {"cmd": k[1]})
             except StopIteration:
                 cmd.op = OP_NONE
                 return
