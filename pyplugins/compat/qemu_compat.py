@@ -638,6 +638,18 @@ class KVMLibPandaMock:
                     return self.qemu._cpu_memory_rw_debug(cpu, addr, ptr, length, False)
                 return self.lib.cpu_memory_rw_debug(cpu, addr, ptr, length, False)
             return wrapper
+        if name == "panda_virtual_memory_write_checked":
+            # a write with the guest's permissions (TCG): mem.write_bytes'
+            # direct path, so a write the guest would refuse goes to the
+            # portal instead of the debug write, which ignores them (the
+            # shared zero page, a read-only file's page cache, another
+            # process's copy-on-write page).  Not there: AttributeError.
+            checked = self.qemu._checked_write if self.qemu is not None else None
+            if checked is None or self.qemu.mode == "kvm" or \
+                    self.qemu._lib_symbol("penguin_syscall_write_memory") is None:
+                raise AttributeError(name)
+            return lambda cpu, addr, buf, length: checked(
+                cpu, addr, self._to_ptr(buf, length), length)
         if name == "panda_virtual_memory_write_external":
             def wrapper(cpu, addr, buf, length):
                 ptr = self._to_ptr(buf, length)
@@ -1127,6 +1139,12 @@ class QemuCompat:
         finally:
             if locked_here:
                 bql_unlock()
+
+    def _checked_write(self, cpu, addr, ptr, length):
+        """0 if the guest's permissions let all of it be written, else -1"""
+        ok = self.lib.penguin_syscall_write_memory(
+            cpu, int(addr) & ((1 << self.bits) - 1), ptr, int(length))
+        return 0 if ok else -1
 
     def _cpu_memory_rw_debug(self, cpu, addr, ptr, length, is_write):
         if getattr(self._thread_state, "syscall_trap", False):

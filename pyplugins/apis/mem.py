@@ -77,6 +77,8 @@ class Mem(Plugin):
         self.libpanda = self.panda.libpanda
         self._read_external = self.libpanda.panda_virtual_memory_read_external
         self._write_external = self.libpanda.panda_virtual_memory_write_external
+        # write_bytes' direct path: the guest's permissions, where QEMU has it
+        self._write_checked = getattr(self.libpanda, "panda_virtual_memory_write_checked", None)
 
         # Pre-calculate constants
         self.addr_mask = 0xFFFFFFFF if self.panda.bits == 32 else 0xFFFFFFFFFFFFFFFF
@@ -150,7 +152,7 @@ class Mem(Plugin):
                     cpu = self._get_cpu()
                 try:
                     addr_u = addr & self.addr_mask
-                    self.write_bytes_panda(cpu, addr_u, data)
+                    self._write_direct(cpu, addr_u, data)
                     return total_len
                 except ValueError:
                     pass
@@ -175,7 +177,7 @@ class Mem(Plugin):
                 try:
                     addr_u = chunk_addr & self.addr_mask
                     # ffi.new accepts memoryview/buffer protocol
-                    self.write_bytes_panda(cpu, addr_u, chunk_view)
+                    self._write_direct(cpu, addr_u, chunk_view)
                     success = True
                 except ValueError:
                     pass
@@ -185,6 +187,16 @@ class Mem(Plugin):
                 yield PortalCmd(hop.HYPER_OP_WRITE, chunk_addr, chunk_len, pid, chunk_view.tobytes())
 
         return total_len
+
+    def _write_direct(self, cpu, addr: int, data) -> None:
+        """write_bytes' direct write: with the guest's permissions where QEMU
+        can check them (ValueError if refused: the portal writes it), else
+        write_bytes_panda's"""
+        if self._write_checked is None:
+            return self.write_bytes_panda(cpu, addr, data)
+        buf = self.ffi.cast("char*", self.ffi.from_buffer(data))
+        if self._write_checked(cpu, addr, buf, len(data)) < 0:
+            raise ValueError(f"Memory write refused at {addr:#x}")
 
     def write_bytes_panda(self, cpu, addr: Union[int, Ptr], data: bytes) -> None:
         '''
