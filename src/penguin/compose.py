@@ -570,7 +570,7 @@ def _run_device(
             timeout=timeout,
             show_output=False,  # each device writes to its own console.log
             verbose=verbose,
-            resolved_kernel=config["core"]["kernel"],
+            resolved_kernel=config["core"].get("kernel"),
             extra_env={
                 "PENGUIN_TELNET_PORT_BASE": endpoints.telnet_port_base,
                 "PENGUIN_TELNET_PORT_RANGE": endpoints.telnet_port_count,

@@ -574,9 +574,14 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
                 )
             config["plugins"][plugin_name] = args
 
-    # Use pre-resolved kernel if provided, otherwise resolve it
+    # Use pre-resolved kernel if provided, otherwise resolve it. A board image
+    # (core.guest_image: none) runs a vendor kernel, so never fall back to one
+    # of penguin's kernels; run_config asks for core.kernel instead.
     if resolved_kernel:
         config["core"]["kernel"] = resolved_kernel
+    elif (config["core"].get("guest_image") == "none"
+          and not config["core"].get("kernel")):
+        config["core"]["kernel"] = None
     else:
         config["core"]["kernel"] = get_kernel(config, proj_dir)
 

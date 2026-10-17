@@ -130,7 +130,7 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
             timeout=timeout,
             show_output=True,
             verbose=verbose,
-            resolved_kernel=config["core"]["kernel"],
+            resolved_kernel=config["core"].get("kernel"),
             extra_env=extra_env,
         )
     except RuntimeError:

@@ -440,6 +440,8 @@ def boot_fingerprint(proj_dir: str, conf: Dict[str, Any]) -> str:
         frozen["flash"] = get_file_hash(flash) if os.path.isfile(flash) else None
         frozen["kernel_cmdline"] = core.get("kernel_cmdline")
         frozen["kmod_inject"] = core.get("kmod_inject")
+        if (core.get("flash") or {}).get("boot"):
+            frozen["flash_boot"] = True     # absent when off: older fingerprints hold
     blob = json.dumps(frozen, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode()).hexdigest()
 

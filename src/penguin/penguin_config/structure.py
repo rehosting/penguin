@@ -351,6 +351,24 @@ class Flash(PartialModelMixin, BaseModel):
             examples=["raw", "qcow2"],
         ),
     ]
+    boot: Annotated[
+        bool,
+        Field(
+            False,
+            title="Boot the kernel from the flash",
+            description=(
+                "Have the board load the kernel from this flash on every "
+                "reset, as its boot loader would, instead of passing "
+                "core.kernel as -kernel. A firmware upgrade the guest writes "
+                "then boots on the next reset. The machine must support it "
+                "(bcm47094-router does, when given no -kernel). core.kernel is "
+                "still required: penguin reads the kernel ISF and igloo.ko "
+                "from beside it, so it should match the kernel in the flash. "
+                "No -append is passed, so core.kernel_cmdline can't be used."
+            ),
+            examples=[False, True],
+        ),
+    ]
 
 
 class KmodInject(PartialModelMixin, BaseModel):

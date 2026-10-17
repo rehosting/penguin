@@ -594,6 +594,15 @@ def _check_board_image_config(conf: dict) -> None:
         raise ValueError(
             "core.snapshot.save_at: readiness waits for penguin's init, which "
             "core.guest_image: none doesn't run; use save_at: manual")
+    if not core.get("kernel"):
+        raise ValueError(
+            "core.guest_image: none needs core.kernel: penguin reads the kernel "
+            "ISF and igloo.ko from beside it. To boot the kernel the flash holds "
+            "instead of passing this one as -kernel, set core.flash.boot: true")
+    if core["flash"].get("boot") and core.get("kernel_cmdline"):
+        raise ValueError(
+            "core.kernel_cmdline: a kernel the board boots from flash "
+            "(core.flash.boot) takes no -append")
 
 
 def _board_flash_path(conf: dict, proj_dir: str) -> str:
@@ -759,8 +768,6 @@ def run_config(
         logger.info("--ignore-saved-config: restoring with the provided config "
                     "rather than the snapshot's saved config")
 
-    pkversion = get_penguin_kernel_version(conf)
-
     if timeout is not None:
         # A --timeout argument overrides the config's core.timeout
         conf["core"]["timeout"] = timeout
@@ -770,6 +777,7 @@ def run_config(
     board_image = conf["core"].get("guest_image", "penguin") == "none"
     if board_image:
         _check_board_image_config(conf)
+    pkversion = get_penguin_kernel_version(conf)
 
     if board_image:
         pass
@@ -807,6 +815,10 @@ def run_config(
 
     if not os.path.isfile(conf["core"]["kernel"]):
         raise ValueError(f"Kernel file invalid: {conf['core']['kernel']}")
+    # core.flash.boot: the board loads the kernel from its flash on every reset
+    # (as its boot loader would); core.kernel then only locates the ISF and
+    # igloo.ko.
+    flash_boot = board_image and conf["core"]["flash"].get("boot", False)
 
     if board_image:
         config_fs = None
@@ -1078,13 +1090,12 @@ def run_config(
             "-drive", drive,
         ]
 
+    # QEMU accepts no -append without -kernel.
+    kernel_args = [] if flash_boot else ["-kernel", conf["core"]["kernel"], "-append", append]
     args = [
         "-M",
         machine_args,
-        "-kernel",
-        conf["core"]["kernel"],
-        "-append",
-        append,
+        *kernel_args,
         # "-device", "virtio-rng-pci",
         *drive_args,
     ]
@@ -1387,7 +1398,9 @@ def run_config(
     # the kernel append args. We put our values at the start of this list
 
     # Find the argument after '-append' in the list and re-render it based on updated env
-    append_idx = panda.panda_args.index("-append") + 1
+    # A flash-booted board has no -kernel and so no -append to render.
+    append_idx = (panda.panda_args.index("-append") + 1
+                  if "-append" in panda.panda_args else None)
 
     # We had some args originally (e.g., rootfs), not from our config, so we
     # need to keep those. render_kernel_append keeps the critical args
@@ -1395,20 +1408,21 @@ def run_config(
     # the firmware-expected env, then the rest of the original append. Penguin's
     # internal knobs are stripped here and delivered over the portal instead
     # (LiveImage serves igloo_env.sh; preinit.sh sources it).
-    if conf["core"].get("kernel_cmdline") or board_image:
-        # Full verbatim override (BYO-rootfs board): keep the configured cmdline
-        # as-is -- do NOT re-render with the /dev/vda + preinit critical args,
-        # since the board sets root=/console=/init= itself.
-        rendered_append = panda.panda_args[append_idx]
-    else:
-        append_parts = panda.panda_args[append_idx].split()
-        rendered_append = render_kernel_append(
-            append_parts, conf["env"], conf["core"].get("kernel_cmdline_append") or ""
-        )
-    # Never let the kernel silently truncate an over-long cmdline (MIPS caps it
-    # at 256B); warn near the limit and fail loudly past it.
-    check_cmdline_size(rendered_append, archend, logger)
-    panda.panda_args[append_idx] = rendered_append
+    if append_idx is not None:
+        if conf["core"].get("kernel_cmdline") or board_image:
+            # Full verbatim override (BYO-rootfs board): keep the configured
+            # cmdline as-is -- do NOT re-render with the /dev/vda + preinit
+            # critical args, since the board sets root=/console=/init= itself.
+            rendered_append = panda.panda_args[append_idx]
+        else:
+            append_parts = panda.panda_args[append_idx].split()
+            rendered_append = render_kernel_append(
+                append_parts, conf["env"], conf["core"].get("kernel_cmdline_append") or ""
+            )
+        # Never let the kernel silently truncate an over-long cmdline (MIPS caps
+        # it at 256B); warn near the limit and fail loudly past it.
+        check_cmdline_size(rendered_append, archend, logger)
+        panda.panda_args[append_idx] = rendered_append
 
     # core.qemu_env: export environment for the in-process QEMU (a board that
     # reads a path via getenv, e.g. the AT91SAM9260 board's AT91_NAND_IMAGE ->
