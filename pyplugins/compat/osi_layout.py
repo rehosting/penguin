@@ -88,6 +88,7 @@ def osi_layout(isf, x86: bool) -> dict:
         dentry_op=o("dentry", "d_op"), dentry_inode=o("dentry", "d_inode"),
         dentry_hash_pprev=_sum(o("dentry", "d_hash"), o("hlist_bl_node", "pprev")),
         inode_ino=o("inode", "i_ino"),
+        dentry_sb=o("dentry", "d_sb"), sb_magic=o("super_block", "s_magic"),
         mount_mnt=o("mount", "mnt"), mount_parent=o("mount", "mnt_parent"),
         mount_mountpoint=o("mount", "mnt_mountpoint"),
         vfsmount_root=o("vfsmount", "mnt_root"),
@@ -129,6 +130,13 @@ def osi_layout(isf, x86: bool) -> dict:
               "start_brk", "brk", "start_stack", "arg_start", "arg_end", "env_start",
               "env_end", "mmap_base", "task_size", "exe_file"):
         lay[f"mm_{f}"] = o("mm_struct", f)
+    # PENGUIN_OSI_DROP=key,...: entries to leave out, as a kernel lifted with
+    # less would (-1 an offset, 0 a symbol), to check the C side's fallbacks
+    import os
+    for k in filter(None, os.environ.get("PENGUIN_OSI_DROP", "").split(",")):
+        if k in lay:
+            lay[k] = 0 if k.startswith(("fn_", "pt_", "kimg_")) or k in (
+                "init_task", "gate_vma", "uts_release", "stack_guard_gap") else -1
     return lay
 
 
