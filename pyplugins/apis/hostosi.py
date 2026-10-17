@@ -67,19 +67,43 @@ PROC_FIELDS = ("map_count", "start_brk", "brk", "start_stack", "start_code",
                "env_start", "env_end", "mmap_base", "task_size")
 
 
-def _judge(scope):
+_TASK = ("task_struct", "cred", "signal_struct")
+_PATH = ("file", "path", "dentry", "qstr", "inode", "mount", "vfsmount", "dentry_operations")
+_MM = _TASK + ("mm_struct",)
+STRUCTS = {
+    "task": _TASK, "all": _TASK, "args": _MM,
+    "fds": _TASK + ("files_struct", "fdtable") + _PATH,
+    "cwd": _TASK + ("fs_struct",) + _PATH,
+    "exe": _MM + _PATH,
+    "maps": _MM + ("vm_area_struct", "vm_operations_struct", "vm_special_mapping",
+                   "maple_tree", "maple_node", "maple_range_64", "maple_arange_64",
+                   "maple_metadata") + _PATH,
+}
+
+
+def _offsets(walks):
+    """the label's offsets: l1-graded if a struct the answer walks has a field
+    only an L1 grade let through (compat/isf_trust.py)"""
+    from compat.isf_trust import graded_used
+    used = {n.split(".", 1)[0] for n in graded_used()}
+    return "l1-graded" if used & set(STRUCTS[walks]) else "isf"
+
+
+def _judge(scope, walks="task"):
     """an answer's label: about the task's own fields ("task"), state it may
-    share with other threads ("shared"), or every process ("all")"""
+    share with other threads ("shared"), or every process ("all"); @walks
+    names the structures it reads (STRUCTS)"""
     def judge(self, value):
         if value is None:
             return Label("L0", UNAVAILABLE, "no answer (no current task, not mapped, or the walk failed)")
+        o = _offsets(walks)
         if scope == "all":
-            return Label("L0", TORN, "the process list, walked while tasks may fork or exit")
+            return Label("L0", TORN, "the process list, walked while tasks may fork or exit", o)
         if not getattr(self._asked, "current", False):
-            return Label("L0", TORN, "another task: it may be preempted inside the kernel, mid-update")
+            return Label("L0", TORN, "another task: it may be preempted inside the kernel, mid-update", o)
         if scope == "shared" and self._smp > 1:
-            return Label("L0", TORN, "the task's mm or files: threads sharing them may run on another vCPU")
-        return Label("L0", SAFE, "the task, stopped at its system call boundary")
+            return Label("L0", TORN, "the task's mm or files: threads sharing them may run on another vCPU", o)
+        return Label("L0", SAFE, "the task, stopped at its system call boundary", o)
     return judge
 
 
@@ -162,13 +186,13 @@ class HostOSI(Plugin):
 
     # --- the calls (plugins.osi's) ---
 
-    @answer(_judge("task"))
+    @answer(_judge("task", "task"))
     def get_proc(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[SimpleNamespace]]:
         """the task's osi_proc fields"""
         return self._record(self._task(pid))
         yield
 
-    @answer(_judge("all"))
+    @answer(_judge("all", "all"))
     def get_all_procs(self) -> Generator[Any, Any, Optional[List[SimpleNamespace]]]:
         """every process (thread group leader)"""
         n = self.lib.penguin_osi_procs(self._cpu(), self._tasks, MAX_PROCS)
@@ -178,7 +202,7 @@ class HostOSI(Plugin):
                 if r is not None]
         yield
 
-    @answer(_judge("shared"))
+    @answer(_judge("shared", "args"))
     def get_args(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[List[str]]]:
         """the argument vector, from mm->arg_start..arg_end"""
         data = yield from self._area(pid, "arg")
@@ -186,7 +210,7 @@ class HostOSI(Plugin):
             return None
         return data.rstrip(b"\0").decode("latin-1").split("\0")
 
-    @answer(_judge("shared"))
+    @answer(_judge("shared", "args"))
     def get_env(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[dict]]:
         """the environment, from mm->env_start..env_end"""
         data = yield from self._area(pid, "env")
@@ -198,7 +222,7 @@ class HostOSI(Plugin):
             env[k] = v
         return env
 
-    @answer(_judge("shared"))
+    @answer(_judge("shared", "args"))
     def get_proc_name(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[str]]:
         """argv[0]'s base name, or the comm"""
         args = yield from self.get_args(pid)
@@ -207,7 +231,7 @@ class HostOSI(Plugin):
         p = self._record(self._task(pid))
         return p.name if p else None
 
-    @answer(_judge("shared"))
+    @answer(_judge("shared", "fds"))
     def get_fds(self, pid: Optional[int] = None, start_fd: int = 0,
                 count: Optional[int] = None) -> Generator[Any, Any, Optional[List[SimpleNamespace]]]:
         """open files from @start_fd: fd and d_path() name"""
@@ -220,7 +244,7 @@ class HostOSI(Plugin):
                 for e in (self._fds[i] for i in range(n))]
         yield
 
-    @answer(_judge("shared"))
+    @answer(_judge("shared", "fds"))
     def get_fd_name(self, fd: int, pid: Optional[int] = None) -> Generator[Any, Any, Optional[str]]:
         """one fd's name (AT_FDCWD: the working directory)"""
         task = self._task(pid)
@@ -229,11 +253,11 @@ class HostOSI(Plugin):
         return self.ffi.string(self._strs, n).decode("latin-1") if n >= 0 else None
         yield
 
-    @answer(_judge("shared"))
+    @answer(_judge("shared", "cwd"))
     def get_cwd(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[str]]:
         return (yield from self.get_fd_name(AT_FDCWD, pid))
 
-    @answer(_judge("shared"))
+    @answer(_judge("shared", "exe"))
     def get_proc_exe(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[str]]:
         """mm->exe_file's path"""
         task = self._task(pid)
@@ -241,7 +265,7 @@ class HostOSI(Plugin):
         return self.ffi.string(self._strs, n).decode("latin-1") if n >= 0 else None
         yield
 
-    @answer(_judge("shared"))
+    @answer(_judge("shared", "maps"))
     def get_mappings(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[List[SimpleNamespace]]]:
         """the mappings in address order, as /proc/<pid>/maps lists them"""
         task = self._task(pid)

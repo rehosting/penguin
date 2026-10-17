@@ -16,14 +16,23 @@ QEMU once.  64-bit little-endian kernels only (x86_64, aarch64).
 
 def _off(isf, t: str, *path: str) -> int:
     """the offset of a (nested) field, -1 if this kernel has none or a lifted
-    ISF's provenance does not trust it (compat/isf_trust.py)"""
-    from compat.isf_trust import trusted
-    if path and not trusted(t, path[0]):
-        return -1
-    try:
-        return int(isf.offsetof(f"struct {t}", *path))
-    except Exception:
-        return -1
+    ISF's provenance does not trust it; an l1-graded field at its graded
+    offset (compat/isf_trust.py)"""
+    from compat.isf_trust import offset
+
+    def isf_off(*p):
+        try:
+            return int(isf.offsetof(f"struct {t}", *p))
+        except Exception:
+            return -1
+    if not path:
+        return isf_off()
+    own = isf_off(path[0])
+    first = offset(t, path[0], own)
+    if first < 0 or len(path) == 1:
+        return first
+    full = isf_off(*path)
+    return -1 if full < 0 or own < 0 else first + (full - own)
 
 
 def _sum(*offs: int) -> int:

@@ -21,6 +21,10 @@ The consistency is one of:
   keep running.
 - ``unavailable``: no answer (None).
 
+And ``offsets``, where an L0 answer's kernel offsets came from: ``isf`` (the
+ISF, trusted as its provenance says), or ``l1-graded`` (some field the answer
+walks was trusted only by an L1 grade, compat/isf_trust.py).
+
 A plugin's last answer's label, on the same thread::
 
     args = yield from plugins.HostOSI.get_args()
@@ -41,6 +45,7 @@ class Label(NamedTuple):
     rung: str
     consistency: str
     why: str
+    offsets: str = "isf"
 
 
 def answer(judge: Callable[[Any, Any], Label]):
