@@ -87,7 +87,10 @@ class KFFI(Plugin):
 
         self.logger.debug(f"Loading ISF file: {self.isf}")
         self.igloo_ko_isf = realpath(join(kernel, f"../igloo.ko.{arch}.json.xz"))
-        self.ffi = DFFI([self.igloo_ko_isf, self.isf])
+        # the kernel's first: dwarffi takes the first ISF that defines a
+        # type, and igloo.ko's copies of the kernel's types are its build
+        # headers' (vanilla, for a module built for a kernel with no source)
+        self.ffi = DFFI([self.isf, self.igloo_ko_isf])
         self._tramp_callbacks = {}
         self._tramp_addresses = {}
         self.tramp_init = False
