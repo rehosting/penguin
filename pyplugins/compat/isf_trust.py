@@ -18,7 +18,10 @@ The provenance comes from ``PENGUIN_ISF_PROVENANCE``: one or more paths
   class; ``reference-carried`` is untrusted, ``target-verified`` and
   ``inferred`` are trusted.  A field in its ``collisions`` (its offset falls
   inside a verified field) is untrusted whatever its class, as
-  ``offsets.provenance.json`` marks it.
+  ``offsets.provenance.json`` marks it.  A field of class ``invariant`` (a
+  record whose layout is the same in every reference build of the data
+  model: a prior from builds, not evidence from the target) is trusted, and
+  answers that walk it say so (``Label.offsets``).
 
 A third kind of file, in ``offsets.provenance.json``'s shape, carries grades
 made apart from the lift (live checks against /proc through
@@ -45,6 +48,8 @@ logger = logging.getLogger("isf_trust")
 _untrusted = None
 _graded = {}
 _accepted = set()
+_invariant = set()
+_invariant_used = set()
 _source = None
 
 
@@ -54,10 +59,10 @@ def _open(path):
 
 def _read(path):
     """(the "struct.field" names @path marks untrusted, {name: offset} of
-    its l1-graded entries)"""
+    its l1-graded entries, the names it classes invariant)"""
     with _open(path) as f:
         d = json.load(f)
-    out, graded = set(), {}
+    out, graded, invariant = set(), {}, set()
     for key, v in (d.get("fields") or {}).items():
         if not isinstance(v, dict):
             continue
@@ -70,7 +75,9 @@ def _read(path):
         for cls, fields in v.items():           # the lift's provenance.json
             if cls in UNTRUSTED_CLASSES:
                 out.update(f"{key}.{name}" for name in fields)
-    return out, graded
+            elif cls == "invariant":
+                invariant.update(f"{key}.{name}" for name in fields)
+    return out, graded, invariant
 
 
 def load(path):
@@ -86,10 +93,13 @@ def untrusted():
     if _untrusted is None or src != _source:
         _untrusted, _graded, _source = set(), {}, src
         _accepted.clear()
+        _invariant.clear()
+        _invariant_used.clear()
         for p in filter(None, src.split(":")):
-            u, g = _read(p)
+            u, g, i = _read(p)
             _untrusted |= u
             _graded.update(g)
+            _invariant.update(i)
     return _untrusted
 
 
@@ -105,6 +115,8 @@ def offset(struct, field, isf_offset):
     l1-graded entry's if not; else -1"""
     name = _name(struct, field)
     if name not in untrusted():
+        if name in _invariant and isf_offset >= 0:
+            _invariant_used.add(name)
         return isf_offset
     if name not in _graded:
         return -1
@@ -127,3 +139,9 @@ def graded_used():
     """the untrusted fields an l1-graded entry let through, so far"""
     untrusted()
     return set(_accepted)
+
+
+def invariant_used():
+    """the fields taken on the strength of class invariant, so far"""
+    untrusted()
+    return set(_invariant_used)

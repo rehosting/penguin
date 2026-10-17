@@ -68,7 +68,8 @@ PROC_FIELDS = ("map_count", "start_brk", "brk", "start_stack", "start_code",
 
 
 _TASK = ("task_struct", "cred", "signal_struct")
-_PATH = ("file", "path", "dentry", "qstr", "inode", "mount", "vfsmount", "dentry_operations")
+_PATH = ("file", "path", "dentry", "qstr", "hlist_bl_node", "inode", "mount", "vfsmount",
+         "dentry_operations")
 _MM = _TASK + ("mm_struct",)
 STRUCTS = {
     "task": _TASK, "all": _TASK, "args": _MM,
@@ -82,11 +83,13 @@ STRUCTS = {
 
 
 def _offsets(walks):
-    """the label's offsets: l1-graded if a struct the answer walks has a field
-    only an L1 grade let through (compat/isf_trust.py)"""
-    from compat.isf_trust import graded_used
-    used = {n.split(".", 1)[0] for n in graded_used()}
-    return "l1-graded" if used & set(STRUCTS[walks]) else "isf"
+    """the label's offsets: "isf", or the other sources a struct the answer
+    walks rests on, "+"-joined ("invariant", "l1-graded"; compat/isf_trust.py)"""
+    from compat.isf_trust import graded_used, invariant_used
+    walked = set(STRUCTS[walks])
+    kinds = [k for k, used in (("invariant", invariant_used()), ("l1-graded", graded_used()))
+             if walked & {n.split(".", 1)[0] for n in used}]
+    return "+".join(kinds) or "isf"
 
 
 def _judge(scope, walks="task"):

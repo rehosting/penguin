@@ -22,8 +22,9 @@ The consistency is one of:
 - ``unavailable``: no answer (None).
 
 And ``offsets``, where an L0 answer's kernel offsets came from: ``isf`` (the
-ISF, trusted as its provenance says), or ``l1-graded`` (some field the answer
-walks was trusted only by an L1 grade, compat/isf_trust.py).
+ISF, trusted as its provenance says), or the other sources it also rests on,
+``+``-joined: ``invariant`` (a field trusted as a layout prior from builds)
+and ``l1-graded`` (a field trusted only by an L1 grade), compat/isf_trust.py.
 
 A plugin's last answer's label, on the same thread::
 

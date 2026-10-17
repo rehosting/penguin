@@ -115,3 +115,27 @@ def test_hostosi_labels_l1_graded_offsets(graded, monkeypatch):
     exec(compile(src[src.index("_TASK = "):src.index("def _judge")], "hostosi", "exec"), ns)
     assert ns["_offsets"]("fds") == "l1-graded"
     assert ns["_offsets"]("args") == "isf"
+
+
+def test_invariant_class_is_trusted_and_labelled(tmp_path, monkeypatch):
+    import sys
+    lift = tmp_path / "provenance.json"
+    lift.write_text(json.dumps({"fields": {
+        "qstr": {"invariant": ["len", "name"]},
+        "fdtable": {"reference-carried": ["fd"]}}}))
+    grade = tmp_path / "grade.provenance.json"
+    grade.write_text(json.dumps({"fields": {
+        "fdtable.fd": {"offset": 8, "trusted": True, "class": "l1-graded"}}}))
+    monkeypatch.setenv("PENGUIN_ISF_PROVENANCE", f"{lift}:{grade}")
+    mod, _ = load_module(str(PY / "compat" / "isf_trust.py"))
+    mod._untrusted = None
+    monkeypatch.setitem(sys.modules, "compat.isf_trust", mod)
+    src = (PY / "apis" / "hostosi.py").read_text()
+    ns = {}
+    exec(compile(src[src.index("_TASK = "):src.index("def _judge")], "hostosi", "exec"), ns)
+    assert ns["_offsets"]("fds") == "isf"                 # nothing taken yet
+    assert mod.offset("qstr", "len", 4) == 4
+    assert mod.invariant_used() == {"qstr.len"}
+    assert ns["_offsets"]("fds") == "invariant" and ns["_offsets"]("args") == "isf"
+    assert mod.offset("fdtable", "fd", 8) == 8
+    assert ns["_offsets"]("fds") == "invariant+l1-graded"
