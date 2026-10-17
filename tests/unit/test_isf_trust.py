@@ -56,6 +56,8 @@ def graded(tmp_path, monkeypatch):
     lift = tmp_path / "provenance.json"
     lift.write_text(json.dumps({"fields": {
         "mm_struct": {"reference-carried": ["map_count", "exe_file", "pgd"]},
+        "cred": {"reference-carried": ["euid"]},
+        "vm_area_struct": {"reference-carried": ["vm_ops"]},
         "fdtable": {"reference-carried": ["fd"]}}}))
     offsets = tmp_path / "offsets.provenance.json"
     offsets.write_text(json.dumps({"fields": {
@@ -64,7 +66,9 @@ def graded(tmp_path, monkeypatch):
     grade.write_text(json.dumps({"fields": {
         "mm_struct.map_count": {"offset": 88, "trusted": True, "class": "l1-graded"},
         "fdtable.fd": {"offset": 8, "trusted": True, "class": "l1-graded"},
-        "fs_struct.root": {"offset": 24, "trusted": True, "class": "l1-graded-in-use"}}}))
+        "fs_struct.root": {"offset": 24, "trusted": True, "class": "l1-graded-in-use"},
+        "cred.euid": {"offset": 20, "trusted": True, "class": "l1-graded+lift"},
+        "vm_area_struct.vm_ops": {"offset": 144, "trusted": True, "class": "l1-consistent"}}}))
     monkeypatch.setenv("PENGUIN_ISF_PROVENANCE", f"{grade}:{lift}:{offsets}")
     mod, _ = load_module(str(PY / "compat" / "isf_trust.py"))
     mod._untrusted = None
@@ -78,7 +82,9 @@ def test_graded_fields_override_and_correct(graded):
     assert graded.offset("mm_struct", "exe_file", 808) == -1
     assert graded.offset("fs_struct", "root", 24) == 24               # not untrusted anyway
     assert graded.offset("task_struct", "pid", 1048) == 1048          # not named
-    assert graded.graded_used() == {"mm_struct.map_count", "fdtable.fd"}
+    assert graded.offset("cred", "euid", 20) == 20                    # l1-graded+lift
+    assert graded.offset("vm_area_struct", "vm_ops", 144) == -1       # l1-consistent: no override
+    assert graded.graded_used() == {"mm_struct.map_count", "fdtable.fd", "cred.euid"}
     assert graded.trusted("mm_struct", "map_count") and not graded.trusted("mm_struct", "pgd")
 
 

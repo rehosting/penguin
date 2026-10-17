@@ -23,7 +23,9 @@ The provenance comes from ``PENGUIN_ISF_PROVENANCE``: one or more paths
 A third kind of file, in ``offsets.provenance.json``'s shape, carries grades
 made apart from the lift (live checks against /proc through
 injected system calls): an entry with ``"class": "l1-graded"`` (or
-``"l1-graded-in-use"``) and ``"trusted": true`` overrides any file's
+``"l1-graded-in-use"``, or ``"l1-graded+lift"``: a grade that narrowed the
+field to candidates and a lift-trusted field that picked one) and
+``"trusted": true`` overrides any file's
 untrusted mark for that field, whatever the order of the files, and its
 ``offset`` is used, replacing the ISF's where they differ (a lifted ISF can
 carry a vanilla value the grade found wrong).  Only graded entries override:
@@ -37,7 +39,7 @@ import lzma
 import os
 
 UNTRUSTED_CLASSES = {"reference-carried", "collisions"}
-GRADED_CLASSES = {"l1-graded", "l1-graded-in-use"}
+GRADED_CLASSES = {"l1-graded", "l1-graded-in-use", "l1-graded+lift"}
 
 logger = logging.getLogger("isf_trust")
 _untrusted = None
