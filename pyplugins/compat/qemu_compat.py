@@ -141,6 +141,7 @@ bool penguin_syscall_set_guard(uint64_t force_sig_fault,
 bool penguin_syscall_set_reaper(uint64_t release_task);
 bool penguin_syscall_set_exec(uint64_t set_task_comm);
 void penguin_syscall_set_scope(bool enabled);
+void penguin_syscall_set_current_source(bool from_cpu);
 uint64_t penguin_syscall_register(const struct penguin_sc_hook *hook);
 bool penguin_syscall_unregister(uint64_t id);
 bool penguin_syscall_read_memory(CPUState *cs, uint64_t addr, void *buf,

@@ -46,6 +46,7 @@ fail), no reaper, no exec hook (execve cannot be injected), no comm, pid or
 scope filters in C, no OSI layout.  Injection works: it needs the numbers.
 """
 
+import os
 import re
 import struct
 from collections.abc import Iterator
@@ -410,6 +411,7 @@ class TrapBackend:
         layout = self._layout()
         if not self.lib.penguin_syscall_set_layout(layout):
             raise RuntimeError("syscall trap: layout refused")
+        cur_cpu = self._current_from_cpu(layout)
         # the OSI walks the fd-path and exe filters use
         from compat.osi_layout import set_osi_layout
         if self.kffi is None or not set_osi_layout(self.panda, self.kffi):
@@ -429,7 +431,7 @@ class TrapBackend:
         conf = syscalls.get_arg("conf") or {}
         scope = (conf.get("core") or {}).get("analysis_scope", "firmware")
         scope_on = scope is not False and str(scope).strip().lower() != "none"
-        if scope_on and (not layout.cur_offset or layout.task_nsproxy < 0 or
+        if scope_on and (not (layout.cur_offset or cur_cpu) or layout.task_nsproxy < 0 or
                          layout.nsproxy_uts_ns < 0 or not layout.init_uts_ns):
             # it could never be decided: hooks with it would never match
             logger.warning("syscall trap: analysis_scope cannot be decided on this kernel "
@@ -457,13 +459,34 @@ class TrapBackend:
             off = -1
         return offset(t, field, off)            # a lifted ISF's untrusted field: -1
 
+    def _current_from_cpu(self, layout):
+        """with no per-CPU current slot (a kernel without __entry_task in its
+        ISF), take an AArch64 kernel's current from SP_EL0, where Linux 4.10+
+        keeps it (CPUState.syscall_current).  PENGUIN_SC_CURRENT=cpu forces it,
+        to check it against the symbol."""
+        if self.arch != "aarch64" or (layout.cur_offset and not self._force_cpu_current()):
+            return False
+        try:
+            self.lib.penguin_syscall_set_current_source(True)
+        except AttributeError:
+            logger.warning("syscall trap: no current task (no __entry_task, and this QEMU "
+                           "cannot take it from SP_EL0)")
+            return False
+        logger.info("syscall trap: the current task from SP_EL0 (%s)",
+                    "PENGUIN_SC_CURRENT=cpu" if self._force_cpu_current() else "no __entry_task")
+        return True
+
+    @staticmethod
+    def _force_cpu_current():
+        return os.environ.get("PENGUIN_SC_CURRENT") == "cpu"
+
     def _layout(self):
         if self.arch == "x86_64":
             hot = self._sym("pcpu_hot")
             cur = hot + self._off("struct pcpu_hot", "current_task") if hot \
                 else self._sym("current_task")
         else:
-            cur = self._sym("__entry_task")
+            cur = 0 if self._force_cpu_current() else self._sym("__entry_task")
         return self.ffi.new("struct penguin_sc_layout *", dict(
             cur_mask=M64 if cur else 0, cur_offset=cur, ptr_size=8,
             task_pid=self._off("struct task_struct", "pid"),
