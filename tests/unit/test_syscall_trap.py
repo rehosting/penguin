@@ -47,6 +47,8 @@ def _backend(trap, ffi, **kw):
     b.delegated, b.portal_q, b.portal_handler = {}, [], False
     for k, v in kw.items():
         setattr(b, k, v)
+    b.__dict__.setdefault("arch", kw.get("native", "x86_64"))
+    b.__dict__.setdefault("word", 4 if b.arch == "arm" else 8)
     return b
 
 
@@ -415,3 +417,72 @@ def test_isf_without_syscall_metadata_uses_uapi(trap, ffi):
                  lib=SimpleNamespace(penguin_syscall_set_name=lambda *a: names.append(a)))
     b._on_boot(ffi.NULL, ffi.NULL)
     assert b.number("getpid") == 39 and b.number("init_module") == 175 and names
+
+
+def test_native_arm_no_isf(trap, ffi):
+    """a 32-bit ARM kernel with no ISF: EABI's numbers as the native ABI's
+    (and an OABI task's), fixed 32-bit pt_regs, current from the stack"""
+    names = []
+    b = _backend(trap, ffi, kffi=None, arch="arm", native="arm", compat=None, big=False,
+                 lib=SimpleNamespace(penguin_syscall_set_name=lambda abi, num, name, n:
+                                     names.append((abi, num, name, n))))
+    b._on_boot(ffi.NULL, ffi.NULL)
+    assert (b.number("getpid"), b.number("mmap2"), b.number("init_module")) == (20, 192, 128)
+    assert b.number("mmap") is None
+    assert (trap.ABIS["arm"], 20, b"getpid", 0) in names
+    assert (trap.ABIS["arm_oabi"], 192, b"mmap2", 6) in names
+
+    f = cffi.FFI()
+    f.cdef(trap.FIXED_REGS_CDEF + """
+        struct penguin_sc_layout { uint64_t cur_mask, cur_offset; uint32_t ptr_size;
+            int32_t task_pid, task_comm, task_start_time, task_nsproxy, nsproxy_uts_ns;
+            uint64_t init_uts_ns; };""")
+    b.ffi = f
+    b._sym = lambda name: 0
+    lay = b._layout()
+    assert (lay.cur_mask, lay.cur_offset, lay.ptr_size) == (0xffffe000, 12, 4)
+    b._regs_layout()
+    assert b._rsize == 72 and b._ngdb == 26
+
+    class Ev:
+        pc, num, is_enter, retval, args = 0x10074, 20, False, 148, [9409, 0, 0, 0, 0, 0]
+
+    def regs(cs, start, n, v):
+        for i in range(n):
+            v[i] = 0x100 + i
+        v[25] = 0x60000010
+        return n
+    b.lib = SimpleNamespace(penguin_syscall_regs=regs)
+    b.ffi.cdef("typedef struct CPUState CPUState;")
+    r = b._regs(None, Ev())
+    assert list(r.uregs[0:2]) == [148, 0x101]          # r0: the return value
+    assert (r.uregs[7], r.uregs[15], r.uregs[16], r.uregs[17]) == (20, 0x10074, 0x60000010,
+                                                                   9409)
+
+
+def test_table_numbers_over_shifted_metadata(trap, ffi):
+    """syscall metadata numbered off sys_call_table (32-bit ARM 4.10): the
+    table's numbers win"""
+    names = []
+    b = _backend(trap, ffi, arch="arm", native="arm", compat=None, big=False,
+                 numbers={"read": 441, "write": 442, "close": 444}, nargs={"read": 3},
+                 lib=SimpleNamespace(
+                     penguin_syscall_set_name=lambda abi, num, name, n: names.append(
+                         (abi, num, name, n)),
+                     penguin_syscall_read_memory=None))
+    words = [0x1000 + 4 * i for i in range(8)] + [0] * 120
+    syms = {"sys_restart_syscall": 0x1000, "sys_exit": 0x1004, "sys_fork": 0x1008,
+            "sys_read": 0x100c, "sys_write": 0x1010, "sys_open": 0x1014, "sys_close": 0x1018,
+            "sys_ni_syscall": 0x101c, "sys_call_table": 0x8000}
+    b.kffi = SimpleNamespace(symbols={k: SimpleNamespace(address=v) for k, v in syms.items()})
+    b._sym = lambda name: syms.get(name, 0)
+
+    def read(cs, addr, buf, n):
+        raw = b"".join(w.to_bytes(4, "little") for w in words)
+        o = addr - 0x8000
+        ffi.memmove(buf, raw[o:o + n].ljust(n, b"\0"), n)
+        return True
+    b.lib.penguin_syscall_read_memory = read
+    b._table_numbers(None)
+    assert (b.number("read"), b.number("write"), b.number("close")) == (3, 4, 6)
+    assert (trap.ABIS["arm"], 3, b"read", 3) in names

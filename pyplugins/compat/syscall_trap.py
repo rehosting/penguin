@@ -61,8 +61,11 @@ OP_NONE, OP_READ, OP_READ_STR, OP_WRITE, OP_ABORT, OP_SYSCALL = range(6)
 OP_PORTAL = -1                  # ours: a command for igloo's portal
 PORTAL_TRIES = 3                # getpids that may pass without the interrupt
 OK, PARTIAL, FAIL = range(3)
-ABIS = {"x86_64": 0, "i386": 1, "aarch64": 2, "arm": 3}
-NATIVE = {"x86_64": ("x86_64", "i386"), "aarch64": ("aarch64", "arm")}
+ABIS = {"x86_64": 0, "i386": 1, "aarch64": 2, "arm": 3, "arm_oabi": 4}
+NATIVE = {"x86_64": ("x86_64", "i386"), "aarch64": ("aarch64", "arm"), "arm": ("arm", None)}
+# a 32-bit ARM kernel (before THREAD_INFO_IN_TASK, 5.18): thread_info at the
+# kernel stack's base, its task at 12 (flags, preempt_count, addr_limit)
+ARM_THREAD_SIZE, ARM_TI_TASK = 8192, 12
 STR_TYPES = range(11, 15)       # SYSCALLS_HC_FILTER_STR_*
 ENOSYS = 38
 CURRENT_PID = 0xffffffff        # hyper.portal's CURRENT_PID_NUM
@@ -353,9 +356,11 @@ _FIXED_REGS = {
                    cs=136, flags=144, sp=152, ss=160, size=168),
     "aarch64": dict(regs=0, sp=248, pc=256, pstate=264, orig_x0=272, syscallno=280,
                     size=336),
+    "arm": dict(uregs=0, size=72),      # long uregs[18]: r0-r15, cpsr, ORIG_r0
 }
 _FIXED_REGS["x86_64"]["ctype"] = "struct psc_x86_64_pt_regs *"
 _FIXED_REGS["aarch64"]["ctype"] = "struct psc_aarch64_pt_regs *"
+_FIXED_REGS["arm"]["ctype"] = "struct psc_arm_pt_regs *"
 FIXED_REGS_CDEF = """
 struct psc_x86_64_pt_regs {
     uint64_t r15, r14, r13, r12, bp, bx, r11, r10, r9, r8, ax, cx, dx, si, di,
@@ -367,6 +372,9 @@ struct psc_aarch64_pt_regs {
     int32_t syscallno;
     uint32_t unused2;
     uint64_t rest[6];
+};
+struct psc_arm_pt_regs {
+    uint32_t uregs[18];
 };
 """
 
@@ -381,14 +389,15 @@ class TrapBackend:
                 not hasattr(self.lib, "set_penguin_syscall_callback")):
             raise RuntimeError(
                 f"syscall trap: needs the penguin QEMU's syscall engine under TCG "
-                f"on x86_64 or aarch64 (mode {getattr(panda, 'mode', None)}, arch {arch})")
+                f"on x86_64, aarch64 or arm (mode {getattr(panda, 'mode', None)}, arch {arch})")
         self.arch = arch
         self.native, self.compat = NATIVE[arch]
         self.big = panda.endianness == "big"
         self.numbers = {}       # native syscall name -> number (at boot)
         # the compat ABI's (uapi): an AArch32 task's EABI numbers
-        self.compat_numbers = {n: i for i, n in enumerate(COMPAT[self.compat].split())
+        self.compat_numbers = {n: i for i, n in enumerate(COMPAT.get(self.compat, "").split())
                                if n != "-"}
+        self.word = 4 if arch == "arm" else 8      # the kernel's pointer size
         self.runs = {}          # call id -> the coroutine waiting for its answer
         self.wbufs = {}         # call id -> the bytes it writes, until answered
         self.unsupported = set()
@@ -485,10 +494,26 @@ class TrapBackend:
             hot = self._sym("pcpu_hot")
             cur = hot + self._off("struct pcpu_hot", "current_task") if hot \
                 else self._sym("current_task")
+        elif self.arch == "arm":
+            return self._layout_arm()
         else:
             cur = 0 if self._force_cpu_current() else self._sym("__entry_task")
+        return self._layout_with(cur_mask=M64 if cur else 0, cur_offset=cur, ptr_size=8)
+
+    def _layout_arm(self):
+        """a 32-bit ARM kernel: current from the event's kernel stack (the
+        trap's percpu is the banked SVC sp): thread_info at its base"""
+        ti_task = self._off("struct thread_info", "task") if self.kffi is not None \
+            else ARM_TI_TASK
+        if ti_task < 0:
+            logger.warning("syscall trap: no thread_info.task (THREAD_INFO_IN_TASK?): "
+                           "no current task")
+        return self._layout_with(cur_mask=(-ARM_THREAD_SIZE & 0xffffffff) if ti_task >= 0 else 0,
+                                 cur_offset=max(ti_task, 0), ptr_size=4)
+
+    def _layout_with(self, **cur):
         return self.ffi.new("struct penguin_sc_layout *", dict(
-            cur_mask=M64 if cur else 0, cur_offset=cur, ptr_size=8,
+            **cur,
             task_pid=self._off("struct task_struct", "pid"),
             task_comm=self._off("struct task_struct", "comm"),
             task_start_time=self._off("struct task_struct", "start_time"),
@@ -505,6 +530,11 @@ class TrapBackend:
                      *(f"r{i}" for i in range(8, 16)), "ip", "flags", "cs", "ss")
             self._rmap = [(i, o("struct pt_regs", n)) for i, n in enumerate(names)]
             self._ngdb = len(names)
+        elif self.arch == "arm":
+            base = o("struct pt_regs", "uregs")
+            # gdb's r0-r15, and cpsr (25)
+            self._rmap = [(i, base + 4 * i) for i in range(16)] + [(25, base + 64)]
+            self._ngdb = 26
         else:
             base = o("struct pt_regs", "regs")
             self._rmap = [(i, base + 8 * i) for i in range(31)]
@@ -512,11 +542,12 @@ class TrapBackend:
             self._ngdb = 34
         self._roff = {n: o("struct pt_regs", n) for n in
                       ("ax", "cx", "r11", "ip", "flags", "orig_ax", "regs", "pc", "pstate",
-                       "orig_x0", "syscallno")}
+                       "orig_x0", "syscallno", "uregs")}
         self._rsize = (_FIXED_REGS[self.arch]["size"] if self.kffi is None
                        else self.kffi.sizeof("struct pt_regs"))
         e = ">" if self.big else "<"
         self._q, self._i = struct.Struct(e + "Q"), struct.Struct(e + "i")
+        self._w = self._q if self.word == 8 else struct.Struct(e + "I")
 
     def _on_boot(self, cs, opaque):
         """The first trap: syscall_metadata is numbered by now"""
@@ -552,7 +583,14 @@ class TrapBackend:
         """no ISF: the native names, numbers and argument counts from uapi"""
         from compat.syscall_numbers import native_table
         nargs = {}
-        for name, (num, n) in native_table(self.arch).items():
+        table = native_table(self.arch)
+        if self.arch == "arm":
+            # EABI's numbers (asm/unistd-eabi.h); argument counts by name from
+            # the generic table, 6 where it has none
+            a64 = native_table("aarch64")
+            table = {n: (i, a64.get(n, (0, 6))[1])
+                     for i, n in enumerate(COMPAT["arm"].split()) if n != "-"}
+        for name, (num, n) in table.items():
             self.lib.penguin_syscall_set_name(ABIS[self.native], num, name.encode(), n)
             self.numbers[name] = num
             nargs[name] = n
@@ -562,6 +600,13 @@ class TrapBackend:
 
     def _compat_names(self, nargs):
         n = 0
+        if self.arch == "arm":
+            # an OABI task's calls, by the EABI numbers (the same but a few
+            # obsolete ones; the kernel's swi immediate gives the number)
+            for name, num in self.numbers.items():
+                self.lib.penguin_syscall_set_name(ABIS["arm_oabi"], num, name.encode(),
+                                                  nargs.get(name, 6))
+            return
         for num, uname in enumerate(COMPAT[self.compat].split()):
             for cand in (uname, re.sub(r"(32|64)$", "", uname), uname.lstrip("_")):
                 if cand in nargs:
@@ -590,13 +635,15 @@ class TrapBackend:
         order = "big" if self.big else "little"
         added, agree, differ = [], 0, []
         num = 0                         # entries read: the table's length at the end
+        w = self.word
+        per = 512 // w
         while num < self._TABLE_MAX:
-            if num % 64 == 0:
-                if not self.lib.penguin_syscall_read_memory(cs, table + num * 8, buf, 512):
+            if num % per == 0:
+                if not self.lib.penguin_syscall_read_memory(cs, table + num * w, buf, 512):
                     break
                 raw = bytes(buf)
-            o = num % 64 * 8
-            names = byaddr.get(int.from_bytes(raw[o:o + 8], order), ())
+            o = num % per * w
+            names = byaddr.get(int.from_bytes(raw[o:o + w], order), ())
             bases = [n[len(p):] for n in names for p in self._TABLE_PREFIXES
                      if n.startswith(p)]
             # past the end: not a syscall function
@@ -613,6 +660,18 @@ class TrapBackend:
                 else:
                     differ.append(f"{base}={self.numbers[base]}/{num}")
             num += 1
+        if len(differ) > agree:
+            # the metadata is numbered off the table (32-bit ARM 4.10: each
+            # +438); the table is what the kernel dispatches by
+            for item in differ:
+                base, nums = item.split("=")
+                num = int(nums.split("/")[1])
+                self.numbers[base] = num
+                self.lib.penguin_syscall_set_name(ABIS[self.native], num, base.encode(),
+                                                  getattr(self, "nargs", {}).get(base, 6))
+            logger.info("syscall trap: %d numbers taken from sys_call_table over the "
+                        "metadata", len(differ))
+            differ = []
         # where the metadata numbers a call too, the two must agree
         (logger.warning if differ else logger.info)(
             "syscall trap: sys_call_table: %d entries, %d numbers added, %d agree "
@@ -698,6 +757,22 @@ class TrapBackend:
         n = self.lib.penguin_syscall_regs(cs, 0, self._ngdb, v)
         b = bytearray(self._rsize)
         q, off = self._q.pack_into, self._roff
+        if self.arch == "arm":
+            w, m = self._w.pack_into, 0xffffffff
+            for g, o in self._rmap:
+                if g < n and o >= 0:
+                    w(b, o, v[g] & m)
+            u = off["uregs"]
+            w(b, u + 4 * 15, ev.pc & m)
+            if not (n > 25 and v[25]):
+                w(b, u + 4 * 16, 0x10)                  # user mode
+            w(b, u + 4 * 17, ev.args[0] & m)            # ORIG_r0
+            w(b, u + 4 * 7, ev.num & m)
+            if not ev.is_enter:
+                w(b, u, ev.retval & m)
+            if self.kffi is None:
+                return self.ffi.from_buffer(_FIXED_REGS[self.arch]["ctype"], b)
+            return self.kffi.from_buffer("struct pt_regs", b)
         for g, o in self._rmap:
             if g < n and o >= 0:
                 q(b, o, v[g])
