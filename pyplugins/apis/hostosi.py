@@ -213,7 +213,11 @@ class HostOSI(Plugin):
         data = yield from self._area(pid, "arg")
         if data is None:
             return None
-        return data.rstrip(b"\0").decode("latin-1").split("\0")
+        # the last argument's terminator only: an empty argument is one too
+        # ("init\0\0" is ["init", ""], as /proc/<pid>/cmdline reads)
+        if data.endswith(b"\0"):
+            data = data[:-1]
+        return data.decode("latin-1").split("\0")
 
     @answer(_judge("shared", "args"))
     def get_env(self, pid: Optional[int] = None) -> Generator[Any, Any, Optional[dict]]:

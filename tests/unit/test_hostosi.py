@@ -155,7 +155,9 @@ def test_args_env_current_through_mem(osi):
 
 def test_args_env_other_through_page_tables(osi):
     """another task's: QEMU's page walk, no faults; short is a failure"""
-    assert drive(osi.get_args(pid=20)) == ["/bin/wkr", "-v"]
+    # the area's 14 bytes, as /proc/<pid>/cmdline shows them: two empty
+    # arguments after -v (only the last terminator is not one)
+    assert drive(osi.get_args(pid=20)) == ["/bin/wkr", "-v", "", ""]
     assert drive(osi.get_env(pid=20)) is None
     assert drive(osi.get_proc_name(pid=20)) == "wkr"
     assert [r[0] for r in osi.lib.reads] == [OTHER] * 3
@@ -205,3 +207,20 @@ def test_labels(osi):
     assert osi.last_label.consistency == "possibly-torn"
     drive(osi.get_proc())   # its own fields do not
     assert osi.last_label.consistency == "safe-point"
+
+
+def test_args_keep_an_empty_last_argument(osi):
+    """only the last terminator goes: "init\\0\\0" is ["init", ""]"""
+    from types import MethodType
+
+    def area(self, pid, which):
+        return b"init\0\0" if which == "arg" else None
+        yield
+    osi._area = MethodType(area, osi)
+    assert drive(osi.get_args()) == ["init", ""]
+
+    def area2(self, pid, which):
+        return b"/bin/httpd\0-f\0"
+        yield
+    osi._area = MethodType(area2, osi)
+    assert drive(osi.get_args()) == ["/bin/httpd", "-f"]
