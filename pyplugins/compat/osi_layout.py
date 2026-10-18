@@ -40,8 +40,11 @@ def _sum(*offs: int) -> int:
 
 
 def _sym(isf, name: str) -> int:
+    """a symbol's address from the ISF, else from the kernel's export table
+    (compat/isf_trust.py), else 0"""
+    from compat.isf_trust import exported
     s = isf.get_symbol(name)
-    return int(getattr(s, "address", 0) or 0) if s else 0
+    return int(getattr(s, "address", 0) or 0) if s else exported(name)
 
 
 def _mount(o) -> dict:

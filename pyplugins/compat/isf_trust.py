@@ -103,6 +103,28 @@ def untrusted():
     return _untrusted
 
 
+_exports = None
+_exports_src = None
+
+
+def exported(name):
+    """@name's address from the kernel's export table (kernel-lift's
+    modabi.json, PENGUIN_ISF_EXPORTS; target evidence: its own __ksymtab),
+    for a symbol a lifted ISF lacks (text kallsyms carry no data symbols,
+    such as init_task); 0 if none"""
+    global _exports, _exports_src
+    src = os.environ.get("PENGUIN_ISF_EXPORTS", "")
+    if _exports is None or src != _exports_src:
+        _exports, _exports_src = {}, src
+        for p in filter(None, src.split(":")):
+            with _open(p) as f:
+                d = json.load(f)
+            for e in d.get("symbols") or []:
+                if isinstance(e, dict) and e.get("name") and e.get("value"):
+                    _exports[e["name"]] = int(e["value"])
+    return _exports.get(name, 0)
+
+
 def _name(struct, field):
     if struct.startswith("struct "):
         struct = struct[len("struct "):]

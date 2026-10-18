@@ -139,3 +139,15 @@ def test_invariant_class_is_trusted_and_labelled(tmp_path, monkeypatch):
     assert ns["_offsets"]("fds") == "invariant" and ns["_offsets"]("args") == "isf"
     assert mod.offset("fdtable", "fd", 8) == 8
     assert ns["_offsets"]("fds") == "invariant+l1-graded"
+
+
+def test_exported_symbols(tmp_path, monkeypatch):
+    """a symbol a lifted ISF lacks, from kernel-lift's export table"""
+    modabi = tmp_path / "modabi.json"
+    modabi.write_text(json.dumps({"symbols": [
+        {"name": "init_task", "value": 2688350000, "crc": None, "table": ""},
+        {"name": "init_uts_ns", "value": 2688352788, "crc": None, "table": "_gpl"}]}))
+    monkeypatch.setenv("PENGUIN_ISF_EXPORTS", str(modabi))
+    mod, _ = load_module(str(PY / "compat" / "isf_trust.py"))
+    assert mod.exported("init_task") == 0xa03cf730
+    assert mod.exported("init_uts_ns") == 0xa03d0214 and mod.exported("nope") == 0

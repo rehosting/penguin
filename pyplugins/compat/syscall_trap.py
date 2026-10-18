@@ -453,10 +453,11 @@ class TrapBackend:
     # kernel facts, from the kernel's ISF
 
     def _sym(self, name):
+        from compat.isf_trust import exported
         if self.kffi is None:
             return 0
         s = self.kffi.get_symbol(name)
-        return int(getattr(s, "address", 0) or 0) if s else 0
+        return int(getattr(s, "address", 0) or 0) if s else exported(name)
 
     def _off(self, t, field):
         if self.kffi is None:
