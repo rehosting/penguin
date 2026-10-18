@@ -10,7 +10,8 @@ guess.
 
 Two users: the syscall engine's fd-path and exe filters (``compat/
 syscall_trap.py``), and HostOSI (``apis/hostosi.py``).  The layout is given to
-QEMU once.  Little-endian kernels: 64-bit (x86_64, aarch64) and 32-bit ARM.
+QEMU once.  Kernels: 64-bit little-endian (x86_64, aarch64), 32-bit ARM,
+and MIPS32 of either endianness.
 """
 
 
@@ -58,7 +59,8 @@ def _mount(o) -> dict:
                 mount_mountpoint=o("vfsmount", "mnt_mountpoint"))
 
 
-def osi_layout(isf, x86: bool, ptr_size: int = 8) -> dict:
+def osi_layout(isf, x86: bool, ptr_size: int = 8, big_endian: bool = False,
+               mips32: bool = False) -> dict:
     """penguin_osi_layout's values for this kernel, from its ISF"""
     def o(t, *path):
         return _off(isf, t, *path)
@@ -146,6 +148,7 @@ def osi_layout(isf, x86: bool, ptr_size: int = 8) -> dict:
               "env_end", "mmap_base", "task_size", "exe_file"):
         lay[f"mm_{f}"] = o("mm_struct", f)
     lay["ptr_size"] = ptr_size
+    lay["big_endian"], lay["mips32"] = int(big_endian), int(mips32)
     # PENGUIN_OSI_DROP=key,...: entries to leave out, as a kernel lifted with
     # less would (-1 an offset, 0 a symbol), to check the C side's fallbacks
     import os
@@ -165,13 +168,15 @@ def set_osi_layout(panda, isf) -> bool:
     big-endian)"""
     if _layout_set:
         return _layout_set[0]
-    arm32 = panda.arch_name in ("arm", "armel") and panda.bits == 32
-    if (panda.bits != 64 and not arm32) or \
-            getattr(panda, "endianness", "little") != "little":
+    big = getattr(panda, "endianness", "little") == "big"
+    arm32 = panda.arch_name in ("arm", "armel") and panda.bits == 32 and not big
+    mips32 = panda.arch_name in ("mips", "mipseb", "mipsel") and panda.bits == 32
+    if not (arm32 or mips32 or (panda.bits == 64 and not big)):
         _layout_set.append(False)
         return False
     lay = panda.ffi.new("struct penguin_osi_layout *",
-                        osi_layout(isf, panda.arch_name == "x86_64", 4 if arm32 else 8))
+                        osi_layout(isf, panda.arch_name == "x86_64",
+                                   4 if arm32 or mips32 else 8, big, mips32))
     ok = bool(panda.lib.penguin_osi_set_layout(lay))
     _layout_set.append(ok)
     return ok

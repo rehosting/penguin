@@ -120,6 +120,8 @@ class HostOSI(Plugin):
         if not set_osi_layout(self.panda, self.isf):
             raise RuntimeError("HostOSI: not a kernel QEMU's walks read (64-bit or 32-bit "
                                "ARM, little-endian), or QEMU refused its layout")
+        # MIPS: QEMU's own reads take the TLB only; the task's tables, always
+        self._walk_current = str(getattr(self.panda, "arch_name", "")).startswith("mips")
         f = self.ffi
         self._proc = f.new("struct penguin_osi_proc *")
         self._strs = f.new("char[]", STRS)
@@ -182,7 +184,7 @@ class HostOSI(Plugin):
         if not lo or hi <= lo:
             return None
         n = min(hi - lo, ARGS_MAX)
-        if task == self._current():
+        if task == self._current() and not self._walk_current:
             return (yield from plugins.mem.read_bytes(lo, n))
         got = self.lib.penguin_osi_user_read(self._cpu(), task, lo, self._ubuf, n)
         return self.ffi.buffer(self._ubuf, got)[:] if got == n else None

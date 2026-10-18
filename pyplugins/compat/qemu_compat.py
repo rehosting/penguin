@@ -198,6 +198,7 @@ struct penguin_osi_layout {
     uint64_t uts_release, stack_guard_gap;
     int32_t dentry_sb, sb_magic;
     int32_t ptr_size;
+    int32_t big_endian, mips32;
 };
 struct penguin_osi_proc {
     uint64_t task, mm, pgd;
