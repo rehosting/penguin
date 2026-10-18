@@ -129,7 +129,9 @@ def osi(hostosi, ffi):
 def test_rejects_other_kernels(hostosi, ffi):
     o = hostosi.HostOSI.__new__(hostosi.HostOSI)
     hostosi.plugins = SimpleNamespace(kffi=SimpleNamespace(ffi=modern_isf()))
-    o.panda = SimpleNamespace(ffi=ffi, lib=FakeLib(ffi), bits=32, endianness="little")
+    # 32-bit ARM is read; another 32-bit kernel is not
+    o.panda = SimpleNamespace(ffi=ffi, lib=FakeLib(ffi), bits=32, endianness="little",
+                              arch_name="mipsel")
     with pytest.raises(RuntimeError):
         o.__init__()
 

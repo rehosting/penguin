@@ -116,10 +116,10 @@ class HostOSI(Plugin):
     def __init__(self) -> None:
         self.lib, self.ffi = self.panda.lib, self.panda.ffi
         self.isf = plugins.kffi.ffi
-        if self.panda.bits != 64 or getattr(self.panda, "endianness", "little") != "little":
-            raise RuntimeError("HostOSI: 64-bit little-endian kernels only")
+        # little-endian kernels: 64-bit, and 32-bit ARM (set_osi_layout says)
         if not set_osi_layout(self.panda, self.isf):
-            raise RuntimeError("HostOSI: QEMU refused the kernel layout")
+            raise RuntimeError("HostOSI: not a kernel QEMU's walks read (64-bit or 32-bit "
+                               "ARM, little-endian), or QEMU refused its layout")
         f = self.ffi
         self._proc = f.new("struct penguin_osi_proc *")
         self._strs = f.new("char[]", STRS)

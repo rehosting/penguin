@@ -10,7 +10,7 @@ guess.
 
 Two users: the syscall engine's fd-path and exe filters (``compat/
 syscall_trap.py``), and HostOSI (``apis/hostosi.py``).  The layout is given to
-QEMU once.  64-bit little-endian kernels only (x86_64, aarch64).
+QEMU once.  Little-endian kernels: 64-bit (x86_64, aarch64) and 32-bit ARM.
 """
 
 
@@ -44,7 +44,18 @@ def _sym(isf, name: str) -> int:
     return int(getattr(s, "address", 0) or 0) if s else 0
 
 
-def osi_layout(isf, x86: bool) -> dict:
+def _mount(o) -> dict:
+    """struct mount's fields; before 3.3 there is none, and vfsmount holds
+    them (a mount is its vfsmount: mnt at 0)"""
+    if o("mount", "mnt") >= 0:
+        return dict(mount_mnt=o("mount", "mnt"), mount_parent=o("mount", "mnt_parent"),
+                    mount_mountpoint=o("mount", "mnt_mountpoint"))
+    return dict(mount_mnt=0 if o("vfsmount", "mnt_parent") >= 0 else -1,
+                mount_parent=o("vfsmount", "mnt_parent"),
+                mount_mountpoint=o("vfsmount", "mnt_mountpoint"))
+
+
+def osi_layout(isf, x86: bool, ptr_size: int = 8) -> dict:
     """penguin_osi_layout's values for this kernel, from its ISF"""
     def o(t, *path):
         return _off(isf, t, *path)
@@ -86,11 +97,12 @@ def osi_layout(isf, x86: bool) -> dict:
         dentry_name_len=_sum(o("dentry", "d_name"), o("qstr", "len")),
         dentry_name_name=_sum(o("dentry", "d_name"), o("qstr", "name")),
         dentry_op=o("dentry", "d_op"), dentry_inode=o("dentry", "d_inode"),
-        dentry_hash_pprev=_sum(o("dentry", "d_hash"), o("hlist_bl_node", "pprev")),
+        # d_hash: an hlist_bl_node since 2.6.38, an hlist_node before
+        dentry_hash_pprev=_sum(o("dentry", "d_hash"),
+                               max(o("hlist_bl_node", "pprev"), o("hlist_node", "pprev"))),
         inode_ino=o("inode", "i_ino"),
         dentry_sb=o("dentry", "d_sb"), sb_magic=o("super_block", "s_magic"),
-        mount_mnt=o("mount", "mnt"), mount_parent=o("mount", "mnt_parent"),
-        mount_mountpoint=o("mount", "mnt_mountpoint"),
+        **_mount(o),
         vfsmount_root=o("vfsmount", "mnt_root"),
         dops_dname=o("dentry_operations", "d_dname"),
         vma_start=o("vm_area_struct", "vm_start"), vma_end=o("vm_area_struct", "vm_end"),
@@ -130,6 +142,7 @@ def osi_layout(isf, x86: bool) -> dict:
               "start_brk", "brk", "start_stack", "arg_start", "arg_end", "env_start",
               "env_end", "mmap_base", "task_size", "exe_file"):
         lay[f"mm_{f}"] = o("mm_struct", f)
+    lay["ptr_size"] = ptr_size
     # PENGUIN_OSI_DROP=key,...: entries to leave out, as a kernel lifted with
     # less would (-1 an offset, 0 a symbol), to check the C side's fallbacks
     import os
@@ -149,11 +162,13 @@ def set_osi_layout(panda, isf) -> bool:
     big-endian)"""
     if _layout_set:
         return _layout_set[0]
-    if panda.bits != 64 or getattr(panda, "endianness", "little") != "little":
+    arm32 = panda.arch_name in ("arm", "armel") and panda.bits == 32
+    if (panda.bits != 64 and not arm32) or \
+            getattr(panda, "endianness", "little") != "little":
         _layout_set.append(False)
         return False
     lay = panda.ffi.new("struct penguin_osi_layout *",
-                        osi_layout(isf, panda.arch_name == "x86_64"))
+                        osi_layout(isf, panda.arch_name == "x86_64", 4 if arm32 else 8))
     ok = bool(panda.lib.penguin_osi_set_layout(lay))
     _layout_set.append(ok)
     return ok

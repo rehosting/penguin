@@ -192,6 +192,7 @@ struct penguin_osi_layout {
     int32_t maple_leaf_64, maple_range_64, maple_arange_64;
     uint64_t uts_release, stack_guard_gap;
     int32_t dentry_sb, sb_magic;
+    int32_t ptr_size;
 };
 struct penguin_osi_proc {
     uint64_t task, mm, pgd;
