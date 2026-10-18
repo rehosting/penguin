@@ -251,3 +251,32 @@ def test_load_config_resolves_kernel_otherwise(tmp_path, monkeypatch):
     assert calls == [1] and cfg["core"]["flash"]["boot"] is True
     cfg, calls = _load_board_cfg(tmp_path / "b", monkeypatch, "")
     assert calls == [1] and cfg["core"]["kernel"] == "/k/6.13/zImage.armel"
+
+
+# ---- kmod_inject on an OABI kernel ----
+
+def test_kmod_inject_args_oabi(tmp_path):
+    conf, kdir, plugin = _kmod_project(tmp_path, "armel", "cosi.armel.json.xz",
+                                       "igloo.ko.armel", abi="oabi", frame_psr=64,
+                                       params="ksyms=sys_call_table@c000f444")
+    args = _kmod_inject_args(conf, tmp_path / "lib" / "libqemu.so", str(tmp_path))
+    assert args[1] == (f"{plugin},ko={kdir}/igloo.ko.armel,hook=0xffff8000800254e8,"
+                       "abi=oabi,frame_psr=64,params=ksyms=sys_call_table@c000f444")
+
+
+def test_kmod_inject_args_eabi_unchanged(tmp_path):
+    # no abi/frame_psr: the plugin gets exactly what it got before
+    conf, kdir, plugin = _kmod_project(tmp_path, "armel", "cosi.armel.json.xz",
+                                       "igloo.ko.armel")
+    args = _kmod_inject_args(conf, tmp_path / "lib" / "libqemu.so", str(tmp_path))
+    assert args == ["-plugin", f"{plugin},ko={kdir}/igloo.ko.armel,hook=0xffff8000800254e8"]
+
+
+def test_schema_kmod_inject_abi():
+    c = Core(version=2, arch="armel", kernel="kernels/3.4.108/Image", guest_image="none",
+             machine="at91-board", flash={"path": "flash/flash.img"},
+             kmod_inject={"hook": "0xc000f3ac", "abi": "oabi"})
+    assert c.kmod_inject.abi == "oabi" and c.kmod_inject.frame_psr is None
+    with pytest.raises(Exception):
+        Core(version=2, arch="armel", guest_image="none", machine="m",
+             flash={"path": "f"}, kmod_inject={"hook": "0x1", "abi": "thumb"})

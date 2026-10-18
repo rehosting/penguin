@@ -393,7 +393,9 @@ class KmodInject(PartialModelMixin, BaseModel):
                 "A number, or symbol+offset resolved from the kernel ISF. "
                 "32-bit ARM: the instruction in the SWI entry where the user "
                 "registers are saved in the frame and r8 holds SPSR "
-                "(entry-common.S of 2.6.x: vector_swi+0x20). AArch64: the "
+                "(entry-common.S of 2.6.x: vector_swi+0x20); with abi: oabi, "
+                "after the number is decoded into r7 (3.4: vector_swi+0x4c). "
+                "AArch64: the "
                 "entry of do_el0_svc (el0_svc_handler on 4.19-5.4), or the "
                 "el0_svc label of the older assembly entry with frame: sp; "
                 "do_el0_svc_compat for a 32-bit userland."
@@ -413,6 +415,33 @@ class KmodInject(PartialModelMixin, BaseModel):
                 "injector also writes the live argument registers."
             ),
             examples=["x0", "sp"],
+        ),
+    ]
+    abi: Annotated[
+        Optional[Literal["eabi", "oabi"]],
+        Field(
+            None,
+            title="Syscall ABI (32-bit ARM)",
+            description=(
+                "32-bit ARM only: the kernel's syscall ABI. Unset = eabi. oabi "
+                "is for a kernel without CONFIG_AEABI, which takes the number "
+                "from the SWI immediate: hook must then be after vector_swi "
+                "decodes it into r7, and the injector reads SPSR from the "
+                "frame (frame_psr) instead of r8."
+            ),
+            examples=["eabi", "oabi"],
+        ),
+    ]
+    frame_psr: Annotated[
+        Optional[int],
+        Field(
+            None,
+            title="Saved CPSR offset (32-bit ARM, oabi)",
+            description=(
+                "With abi: oabi, the offset of the saved CPSR in the pt_regs "
+                "frame (S_PSR). Unset = 64."
+            ),
+            examples=[64],
         ),
     ]
     params: Annotated[

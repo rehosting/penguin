@@ -668,6 +668,10 @@ def _kmod_inject_args(conf: dict, qemu_lib: Path, proj_dir: str) -> list:
     pargs = f"{plugin},ko={ko},hook={hook:#x}"
     if spec.get("frame"):
         pargs += f",frame={spec['frame']}"
+    if spec.get("abi"):
+        pargs += f",abi={spec['abi']}"
+    if spec.get("frame_psr") is not None:
+        pargs += f",frame_psr={spec['frame_psr']}"
     if spec.get("params"):
         # QEMU splits -plugin arguments on commas
         if "," in spec["params"]:

@@ -829,7 +829,7 @@ AArch64.
 |-|-|
 |__Type__|string|
 
-Kernel virtual address of the instruction the injector hooks. A number, or symbol+offset resolved from the kernel ISF. 32-bit ARM: the instruction in the SWI entry where the user registers are saved in the frame and r8 holds SPSR (entry-common.S of 2.6.x: vector_swi+0x20). AArch64: the entry of do_el0_svc (el0_svc_handler on 4.19-5.4), or the el0_svc label of the older assembly entry with frame: sp; do_el0_svc_compat for a 32-bit userland.
+Kernel virtual address of the instruction the injector hooks. A number, or symbol+offset resolved from the kernel ISF. 32-bit ARM: the instruction in the SWI entry where the user registers are saved in the frame and r8 holds SPSR (entry-common.S of 2.6.x: vector_swi+0x20); with abi: oabi, after the number is decoded into r7 (3.4: vector_swi+0x4c). AArch64: the entry of do_el0_svc (el0_svc_handler on 4.19-5.4), or the el0_svc label of the older assembly entry with frame: sp; do_el0_svc_compat for a 32-bit userland.
 
 ```yaml
 vector_swi+0x20
@@ -858,6 +858,36 @@ x0
 
 ```yaml
 sp
+```
+
+#### `core.kmod_inject.abi` Syscall ABI (32-bit ARM)
+
+|||
+|-|-|
+|__Type__|`"eabi"` or `"oabi"` or null|
+|__Default__|`null`|
+
+32-bit ARM only: the kernel's syscall ABI. Unset = eabi. oabi is for a kernel without CONFIG_AEABI, which takes the number from the SWI immediate: hook must then be after vector_swi decodes it into r7, and the injector reads SPSR from the frame (frame_psr) instead of r8.
+
+```yaml
+eabi
+```
+
+```yaml
+oabi
+```
+
+#### `core.kmod_inject.frame_psr` Saved CPSR offset (32-bit ARM, oabi)
+
+|||
+|-|-|
+|__Type__|integer or null|
+|__Default__|`null`|
+
+With abi: oabi, the offset of the saved CPSR in the pt_regs frame (S_PSR). Unset = 64.
+
+```yaml
+64
 ```
 
 #### `core.kmod_inject.params` Module parameters
