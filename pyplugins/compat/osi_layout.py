@@ -141,6 +141,14 @@ def osi_layout(isf, x86: bool, ptr_size: int = 8, big_endian: bool = False,
         lay.update(ids_in_task=1, cred_uid=o("task_struct", "uid"),
                    cred_gid=o("task_struct", "gid"), cred_euid=o("task_struct", "euid"),
                    cred_egid=o("task_struct", "egid"))
+    # before mm_struct.exe_file (2.6.25) /proc/PID/exe is the first VM_EXECUTABLE
+    # VMA's file; only when the ISF has no such field at all (an untrusted one is
+    # unavailable, not a reason to guess: the bit was reused after 3.7)
+    try:
+        isf.offsetof("struct mm_struct", "exe_file")
+        lay["vm_executable"] = 0
+    except Exception:
+        lay["vm_executable"] = 0x1000 if lay["mm_mmap"] >= 0 else 0
     if o("fs_struct", "rootmnt") >= 0:
         lay.update(fs_root_mnt=o("fs_struct", "rootmnt"), fs_root_dentry=o("fs_struct", "root"),
                    fs_pwd_mnt=o("fs_struct", "pwdmnt"), fs_pwd_dentry=o("fs_struct", "pwd"))
@@ -165,7 +173,7 @@ def osi_layout(isf, x86: bool, ptr_size: int = 8, big_endian: bool = False,
     for k in filter(None, os.environ.get("PENGUIN_OSI_DROP", "").split(",")):
         if k in lay:
             lay[k] = 0 if k.startswith(("fn_", "pt_", "kimg_")) or k in (
-                "init_task", "gate_vma", "uts_release", "stack_guard_gap", "ids_in_task") else -1
+                "init_task", "gate_vma", "uts_release", "stack_guard_gap", "ids_in_task", "vm_executable") else -1
     return lay
 
 

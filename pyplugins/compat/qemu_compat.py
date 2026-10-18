@@ -200,6 +200,7 @@ struct penguin_osi_layout {
     int32_t ptr_size;
     int32_t big_endian, mips32;
     int32_t ids_in_task;
+    int32_t vm_executable;
 };
 struct penguin_osi_proc {
     uint64_t task, mm, pgd;

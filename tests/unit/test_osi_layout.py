@@ -76,8 +76,9 @@ def test_layout_before_struct_cred_and_fs_paths(layout):
         0x180, 0x184, 0x190, 0x194)
     assert (lay["fs_root_dentry"], lay["fs_root_mnt"]) == (0x8, 0x14)
     assert (lay["fs_pwd_dentry"], lay["fs_pwd_mnt"]) == (0xc, 0x18)
+    assert lay["mm_exe_file"] == -1 and lay["vm_executable"] == 0x1000
     old = layout.osi_layout(old_isf(), x86=False)
-    assert old["ids_in_task"] == 0 and old["cred_uid"] == 4
+    assert old["ids_in_task"] == 0 and old["cred_uid"] == 4 and old["vm_executable"] == 0
 
 
 def test_nested_field_missing_is_missing(layout):

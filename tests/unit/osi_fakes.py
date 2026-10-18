@@ -87,10 +87,11 @@ def old_isf():
 
 def pre_cred_isf():
     """2.6.21: the ids in task_struct (no struct cred, 2.6.29), fs_struct's
-    root/rootmnt pointers (no struct path in it, 2.6.25)"""
+    root/rootmnt pointers (no struct path in it, 2.6.25), no mm_struct.exe_file
+    (2.6.25)"""
     f = {k: v for k, v in old_isf().fields.items()
          if k[0] != "cred" and k not in {("task_struct", "cred"), ("fs_struct", "root"),
-                                         ("fs_struct", "pwd")}}
+                                         ("fs_struct", "pwd"), ("mm_struct", "exe_file")}}
     f.update({("task_struct", "uid"): 0x180, ("task_struct", "euid"): 0x184,
               ("task_struct", "gid"): 0x190, ("task_struct", "egid"): 0x194,
               ("fs_struct", "root"): 0x8, ("fs_struct", "pwd"): 0xc,
