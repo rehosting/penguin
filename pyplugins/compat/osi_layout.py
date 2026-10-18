@@ -134,6 +134,16 @@ def osi_layout(isf, x86: bool, ptr_size: int = 8, big_endian: bool = False,
         pt_x86=x86,
         kimg_start=s("_text"), kimg_end=s("_end"),
         pt_phys_base=s("phys_base"), pt_kimage_voffset=s("kimage_voffset"))
+    # before 2.6.29 the ids are task_struct's own (no struct cred); before
+    # 2.6.25 fs_struct holds root/rootmnt and pwd/pwdmnt, not struct paths
+    lay["ids_in_task"] = 0
+    if lay["task_cred"] < 0 and o("task_struct", "uid") >= 0:
+        lay.update(ids_in_task=1, cred_uid=o("task_struct", "uid"),
+                   cred_gid=o("task_struct", "gid"), cred_euid=o("task_struct", "euid"),
+                   cred_egid=o("task_struct", "egid"))
+    if o("fs_struct", "rootmnt") >= 0:
+        lay.update(fs_root_mnt=o("fs_struct", "rootmnt"), fs_root_dentry=o("fs_struct", "root"),
+                   fs_pwd_mnt=o("fs_struct", "pwdmnt"), fs_pwd_dentry=o("fs_struct", "pwd"))
     # /proc's rules no structure shows: the release string, the guard gap
     uts = s("init_uts_ns")
     rel = _sum(o("uts_namespace", "name"), o("new_utsname", "release"))
@@ -155,7 +165,7 @@ def osi_layout(isf, x86: bool, ptr_size: int = 8, big_endian: bool = False,
     for k in filter(None, os.environ.get("PENGUIN_OSI_DROP", "").split(",")):
         if k in lay:
             lay[k] = 0 if k.startswith(("fn_", "pt_", "kimg_")) or k in (
-                "init_task", "gate_vma", "uts_release", "stack_guard_gap") else -1
+                "init_task", "gate_vma", "uts_release", "stack_guard_gap", "ids_in_task") else -1
     return lay
 
 

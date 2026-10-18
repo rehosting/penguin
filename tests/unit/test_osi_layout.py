@@ -8,7 +8,7 @@ import cffi
 import pytest
 
 from penguin.testing import load_module
-from osi_fakes import SYMS, modern_isf, old_isf
+from osi_fakes import SYMS, modern_isf, old_isf, pre_cred_isf
 
 PY = Path(__file__).resolve().parents[2] / "pyplugins"
 
@@ -32,7 +32,7 @@ def _fields(ffi, t):
     return {name for name, _ in ffi.typeof(t).fields}
 
 
-@pytest.mark.parametrize("isf", [modern_isf, old_isf])
+@pytest.mark.parametrize("isf", [modern_isf, old_isf, pre_cred_isf])
 def test_layout_fills_exactly_the_c_struct(layout, ffi, isf):
     """every field of struct penguin_osi_layout, and nothing else: one the C
     side has and Python leaves out would read as 0, an offset that is there"""
@@ -65,6 +65,19 @@ def test_layout_old_kernel(layout):
     assert lay["mr64_pivot"] == -1 and lay["mr64_pivots"] == 0
     assert (lay["maple_leaf_64"], lay["maple_arange_64"]) == (-1, -1)
     assert lay["stack_guard_gap"] == 0 and lay["pt_x86"] is False
+
+
+def test_layout_before_struct_cred_and_fs_paths(layout):
+    """2.6.21: the ids are read from the task itself, fs_struct's pointers
+    directly; a kernel with struct cred keeps reading through it"""
+    lay = layout.osi_layout(pre_cred_isf(), x86=False)
+    assert lay["ids_in_task"] == 1 and lay["task_cred"] == -1
+    assert (lay["cred_uid"], lay["cred_euid"], lay["cred_gid"], lay["cred_egid"]) == (
+        0x180, 0x184, 0x190, 0x194)
+    assert (lay["fs_root_dentry"], lay["fs_root_mnt"]) == (0x8, 0x14)
+    assert (lay["fs_pwd_dentry"], lay["fs_pwd_mnt"]) == (0xc, 0x18)
+    old = layout.osi_layout(old_isf(), x86=False)
+    assert old["ids_in_task"] == 0 and old["cred_uid"] == 4
 
 
 def test_nested_field_missing_is_missing(layout):

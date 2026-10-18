@@ -83,3 +83,16 @@ def old_isf():
     f.update({("mm_struct", "mmap"): 0, ("vm_area_struct", "vm_next"): 0x10,
               ("task_struct", "thread_group"): 0x4a0})
     return FakeISF(f, dict(SYMS))
+
+
+def pre_cred_isf():
+    """2.6.21: the ids in task_struct (no struct cred, 2.6.29), fs_struct's
+    root/rootmnt pointers (no struct path in it, 2.6.25)"""
+    f = {k: v for k, v in old_isf().fields.items()
+         if k[0] != "cred" and k not in {("task_struct", "cred"), ("fs_struct", "root"),
+                                         ("fs_struct", "pwd")}}
+    f.update({("task_struct", "uid"): 0x180, ("task_struct", "euid"): 0x184,
+              ("task_struct", "gid"): 0x190, ("task_struct", "egid"): 0x194,
+              ("fs_struct", "root"): 0x8, ("fs_struct", "pwd"): 0xc,
+              ("fs_struct", "rootmnt"): 0x14, ("fs_struct", "pwdmnt"): 0x18})
+    return FakeISF(f, dict(SYMS))
