@@ -215,8 +215,10 @@ class Snapshot(Plugin):
             self._dispatch_lifecycle("on_snapshot", tag)
             plugins.publish(self, "on_snapshot", tag)
             if self.stop_after_save:
-                # The save runs on the main loop; the shutdown request is
-                # honoured after the queued snapshot bottom-half completes.
+                # Not request_shutdown: end_analysis queues on the main loop
+                # behind the savevm scheduled above, so it can't land mid-save.
+                # A graceful request stops the emulator from another thread on
+                # its own timing, and there's no save completion to wait for.
                 self.logger.info("stop_after_save set; ending analysis")
                 self.panda.end_analysis()
         return ok

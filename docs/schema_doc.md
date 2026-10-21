@@ -707,6 +707,27 @@ If set, automatically shut the guest down after this many seconds. Overridden by
 300
 ```
 
+### `core.shutdown_watchdog` Shutdown watchdog (seconds)
+
+|||
+|-|-|
+|__Type__|integer or null|
+|__Default__|`null`|
+
+Maximum graceful-shutdown wait. When a plugin asks to end the run, the run first waits for the pending work plugins registered (queued or running work, and work they expect to do); this bounds that wait. Defaults to 60 when unset. core.timeout is not delayed by this: it ends the run without waiting. When it expires, work in progress is named in an error and expected work that never started in a warning; the run then ends and output may be incomplete. 0 ends the run immediately.
+
+```yaml
+0
+```
+
+```yaml
+30
+```
+
+```yaml
+90
+```
+
 ### `core.graphics` Enable graphics
 
 |||

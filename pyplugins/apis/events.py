@@ -190,7 +190,12 @@ class Events(Plugin):
             for cb in plugins.plugin_cbs[self][self.callbacks[magic]]:
                 if not hasattr(cb, '__self__') and hasattr(cb, '__qualname__') and '.' in cb.__qualname__:
                     cb = resolve_bound_method_from_class(cb)
-                cb_result = cb(*args)
+                # Through the manager's teardown gate, like publish: a shutdown
+                # waits for a subscriber running here, and none starts once
+                # teardown has sealed.
+                delivered, cb_result = plugins.call_subscriber(cb, *args)
+                if not delivered:
+                    break
                 if isinstance(cb_result, Iterator):
                     cb_result = yield from cb_result
                 if isinstance(cb_result, int):

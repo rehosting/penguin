@@ -78,15 +78,25 @@ class FetchWebTest(Plugin):
                 self.results[key] = False
 
     def uninit(self):
-        for t in self._threads:
+        # Checks aren't registered as pending work: they only watch fetch_web's
+        # output, which fetch_web's own work already holds the run open for.
+        # Registering them would hold the run for the full check timeout on
+        # any target fetch_web dropped.
+        with self.lock:
+            threads = list(self._threads)
+        for t in threads:
             t.join(timeout=10)
 
+        # A check that outlived its join may still be writing a result.
+        with self.lock:
+            results = dict(self.results)
+
         with open(join(self.outdir, "fetch_web_test.txt"), 'w') as f:
-            if not self.results:
+            if not results:
                 self.logger.warning("FetchWebTest: no web services detected")
                 f.write("FetchWebTest: no web services detected\n")
 
-            for key, passed in self.results.items():
+            for key, passed in results.items():
                 result = "passed" if passed else "failed"
                 self.logger.info(f"FetchWebTest: {key}: {result}")
                 f.write(f"{key}: {result}\n")

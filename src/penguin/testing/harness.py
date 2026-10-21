@@ -59,7 +59,8 @@ import inspect
 import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from penguin.plugin_manager import Plugin, _exec_plugin_module, _plugin_root_on_path
+from penguin.plugin_manager import (Plugin, PendingWork, _exec_plugin_module,
+                                    _plugin_root_on_path)
 
 
 class RecorderStub:
@@ -452,6 +453,8 @@ class NullManager:
         self.subscriptions: List[Tuple[Any, str, Callable]] = []
         self.registrations: List[Tuple[Any, str, tuple, dict]] = []
         self.published: List[Tuple[Any, str, tuple, dict]] = []
+        self.shutdown_requests: List[Tuple[Any, Optional[str]]] = []
+        self.open_work: List[PendingWork] = []
         self.plugins: Dict[str, Plugin] = {}
         # Syscall-hook registry: @plugins.syscalls.syscall(...) records here so
         # LoadedPlugin.dispatch_syscall can find and drive the generator handler.
@@ -486,6 +489,41 @@ class NullManager:
     # ``__getattr__`` resolves it to a RecorderStub, which supports both that
     # double form and the shorthand ``@plugins.portalcall(magic)`` as an identity
     # decorator (a RecorderStub returns the decorated function unchanged).
+
+    def request_shutdown(self, requester: Any = None, reason: str = None,
+                         watchdog: Optional[float] = None,
+                         immediate: bool = False) -> bool:
+        """Record a graceful-shutdown request as ``(requester, reason)``.
+
+        Recorded rather than serviced, so a test can assert a plugin asked to
+        end the run without standing up a shutdown thread. Mirrors the real
+        manager's first-request-wins return value, and like it, changes
+        nothing about the plugin under test.
+        """
+        first = not self.shutdown_requests
+        self.shutdown_requests.append((requester, reason))
+        return first
+
+    @property
+    def shutdown_pending(self) -> bool:
+        return bool(self.shutdown_requests)
+
+    def begin_work(self, plugin: Any, description: str,
+                   expected: bool = False) -> PendingWork:
+        """Track pending work like the real manager, minus the waiting."""
+        owner = getattr(plugin, "name", None) or str(plugin)
+        work = PendingWork(owner, description, expected, self._release_work)
+        self.open_work.append(work)
+        return work
+
+    def _release_work(self, work: PendingWork) -> None:
+        try:
+            self.open_work.remove(work)
+        except ValueError:
+            pass
+
+    def pending_work(self) -> List[PendingWork]:
+        return list(self.open_work)
 
     def get_plugin_by_name(self, name: str) -> Optional[Any]:
         return self._doubles.get(name) or self._doubles.get(name.lower())
@@ -533,6 +571,16 @@ class LoadedPlugin:
     @property
     def published(self) -> List[Tuple[Any, str, tuple, dict]]:
         return self.manager.published
+
+    @property
+    def shutdown_requests(self) -> List[Tuple[Any, Optional[str]]]:
+        """``(requester, reason)`` for every ``request_shutdown`` the plugin made."""
+        return self.manager.shutdown_requests
+
+    @property
+    def pending_work(self) -> List[str]:
+        """Descriptions of the plugin's open ``begin_work`` entries, oldest first."""
+        return [w.description for w in self.manager.pending_work()]
 
     def dispatch(self, event: str, *args: Any, **kwargs: Any) -> List[Any]:
         """Invoke every handler the plugin subscribed to ``event``.
