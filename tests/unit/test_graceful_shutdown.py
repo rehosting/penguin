@@ -4,8 +4,8 @@ A plugin that has finished its own job ends the whole run, so ending it the
 blunt way (``panda.end_analysis()``) truncates whatever the other plugins were
 still doing -- run_on_bind finishing while fetch_web was mid-download was the
 reported symptom. ``plugins.request_shutdown()`` instead waits until no work
-registered through ``begin_work`` is open, and only then unloads and stops the
-emulator.
+registered through ``begin_work`` is open, and only then stops the emulator;
+plugins are unloaded from ``pre_shutdown`` once its main loop returns.
 
 The contract these pin down (docs/pyplugin_architecture.md):
 
@@ -16,8 +16,10 @@ The contract these pin down (docs/pyplugin_architecture.md):
 * plugins that register nothing never hold the run open;
 * the wait is bounded only by ``core.shutdown_watchdog`` (default 60s),
   which exists for broken plugins and not as a deadline for real work;
-* teardown completes -- every ``uninit`` *returns* -- before the emulator
-  stops, even when several threads tear down at once.
+* plugins are unloaded only after ``end_analysis``, from ``pre_shutdown``,
+  never on the shutdown thread while the guest still runs; every ``uninit``
+  still *returns* before QEMU cleans up, even when several threads tear down
+  at once.
 
 These drive the real ``IGLOOPluginManager`` with stub plugins and a fake panda:
 no PANDA, no guest, no pyplugins. The plugin-side halves (fetch_web's queue
@@ -38,15 +40,22 @@ from penguin.plugin_manager import (
 
 
 class FakePanda:
-    """Records end_analysis calls, and when they happened relative to uninit."""
+    """Records end_analysis calls, and when they happened relative to uninit.
+
+    Like QEMU, ending the analysis makes the main loop return and then runs
+    the ``pre_shutdown`` callback, which penguin_run wires to ``unload_all``.
+    """
 
     def __init__(self, timeline):
         self.timeline = timeline
         self.ended = 0
+        self.pre_shutdown = None
 
     def end_analysis(self):
         self.ended += 1
         self.timeline.append("end_analysis")
+        if self.pre_shutdown is not None:
+            self.pre_shutdown()
 
 
 class Recorder(Plugin):
@@ -262,6 +271,7 @@ def manager():
     mgr = IGLOOPluginManager()
     panda = FakePanda(timeline)
     mgr.initialize(panda, {"timeline": timeline, "conf": None})
+    panda.pre_shutdown = mgr.unload_all  # as penguin_run wires it
 
     def load(*classes):
         mgr.load(list(classes), mgr.args)
@@ -1012,17 +1022,34 @@ def test_an_immediate_request_lands_while_another_holds_the_lock(manager):
 
 # --- teardown -------------------------------------------------------------- #
 
-def test_teardown_completes_before_end_analysis(manager):
-    """Not merely started before: uninit must *return* first, or the emulator
-    stops with that plugin's final writes half done."""
+def test_the_shutdown_thread_does_not_unload_plugins(manager):
+    """Unloading while the guest still runs lets guest hooks, which the seal
+    does not gate, reach plugins whose uninit has already run. The shutdown
+    only stops the emulator; pre_shutdown unloads once its main loop returns."""
+    finished, = manager.load_stubs(Finished)
+    timeline = manager.get_arg("timeline")
+    manager.panda.pre_shutdown = None  # no main loop to return
+
+    manager.request_shutdown(finished, "done")
+    _join_shutdown(manager)
+
+    assert manager.panda.ended == 1
+    assert manager._sealed, "delivery must be sealed before the emulator stops"
+    assert finished.uninit_calls == 0
+    assert "uninit:Finished" not in timeline
+
+
+def test_teardown_follows_end_analysis_and_completes(manager):
+    """Not merely started: once pre_shutdown runs, uninit must *return*
+    before QEMU cleans up, or that plugin's final writes are half done."""
     finished, lingering = manager.load_stubs(Finished, LingeringUninit)
     timeline = manager.get_arg("timeline")
 
     manager.request_shutdown(finished, "done")
     _join_shutdown(manager)
 
+    assert timeline.index("end_analysis") < timeline.index("uninit-start:LingeringUninit")
     assert timeline.index("uninit-start:LingeringUninit") < timeline.index("uninit:LingeringUninit")
-    assert timeline.index("uninit:LingeringUninit") < timeline.index("end_analysis")
 
 
 def test_plugins_are_uninited_exactly_once(manager):

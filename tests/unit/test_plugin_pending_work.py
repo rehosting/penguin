@@ -399,11 +399,16 @@ def test_a_check_on_output_never_produced_does_not_hold_the_run(tmp_path, real_m
 # --- the two together ----------------------------------------------------- #
 
 class _FakePanda:
+    """Like QEMU: ending the analysis runs the ``pre_shutdown`` callback."""
+
     def __init__(self):
         self.ended = 0
+        self.pre_shutdown = None
 
     def end_analysis(self):
         self.ended += 1
+        if self.pre_shutdown is not None:
+            self.pre_shutdown()
 
 
 @pytest.fixture
@@ -418,6 +423,7 @@ def real_manager(monkeypatch):
     panda = _FakePanda()
     manager = IGLOOPluginManager()
     manager.initialize(panda, {"conf": None})
+    panda.pre_shutdown = manager.unload_all  # as penguin_run wires it
     monkeypatch.setattr(NullManager, "begin_work",
                         lambda self, plugin, description, expected=False:
                         manager.begin_work(plugin, description, expected))

@@ -1642,8 +1642,9 @@ class IGLOOPluginManager:
         work another does.
 
         A background thread waits for the work registered through
-        :meth:`begin_work`, unloads every plugin so each ``uninit`` writes its
-        output, then stops the emulator. The wait is bounded by
+        :meth:`begin_work`, then stops the emulator; plugins are unloaded once
+        its main loop has returned, so each ``uninit`` still writes its
+        output. The wait is bounded by
         ``core.shutdown_watchdog``. The first request wins, but an
         ``immediate`` one also cuts short a wait already in progress. Safe to
         call from a guest callback. See docs/pyplugin_architecture.md.
@@ -1655,7 +1656,7 @@ class IGLOOPluginManager:
         :param watchdog: Seconds before work still open is overridden. Defaults
             to ``core.shutdown_watchdog``, else :data:`DEFAULT_SHUTDOWN_WATCHDOG`.
         :type watchdog: float, optional
-        :param immediate: Tear down now without waiting for pending work, for
+        :param immediate: End the run now without waiting for pending work, for
             deadlines such as ``core.timeout`` and SIGUSR1. Takes effect even
             when a shutdown is already pending.
         :type immediate: bool
@@ -1724,22 +1725,26 @@ class IGLOOPluginManager:
         return DEFAULT_SHUTDOWN_WATCHDOG if configured is None else float(configured)
 
     def _run_shutdown(self, watchdog: float) -> None:
-        """Body of the shutdown thread: wait for pending work, seal, then tear down.
+        """Body of the shutdown thread: wait for pending work, seal, then stop the emulator.
+
+        Plugins are not unloaded here. ``end_analysis`` makes QEMU's main loop
+        return, and the ``pre_shutdown`` callback unloads them from there, as
+        for any other way a run ends. Unloading on this thread instead would
+        run each ``uninit`` while the guest is still executing, and guest hooks
+        such as syscall callbacks do not pass through the seal.
 
         Nothing here may skip ``end_analysis``. It is the only thing that ends
         the run, and with ``_shutdown_requested`` already set no later request
         would start another shutdown.
         """
         try:
-            try:
-                self._report_unfinished(watchdog, *self._wait_and_seal(
-                    time.monotonic() + max(0.0, watchdog)))
-            except Exception:
-                self.logger.exception("Waiting for pending work failed; tearing down now")
-            # Before the emulator stops, so every uninit's final writes land.
-            self.unload_all()
+            self._report_unfinished(watchdog, *self._wait_and_seal(
+                time.monotonic() + max(0.0, watchdog)))
         except Exception:
-            self.logger.exception("Teardown failed; stopping the emulator anyway")
+            self.logger.exception("Waiting for pending work failed; stopping the emulator now")
+            # The wait seals on every normal exit; make sure this one does too.
+            with self._work_lock:
+                self._sealed = True
         finally:
             self.panda.end_analysis()
 

@@ -246,8 +246,15 @@ The manager services the request on a background thread, so the caller returns
 immediately (it is safe to call from a guest callback). It then:
 
 1. waits until no pending work registered with `begin_work` is open,
-2. unloads everything (so each `uninit` runs and writes its output), and
-3. stops the emulator.
+2. seals event delivery (see below), and
+3. stops the emulator with `end_analysis`.
+
+Plugins are then unloaded the same way as for any other ending: once QEMU's
+main loop returns, the `pre_shutdown` callback runs `unload_all`, so each
+`uninit` still runs and writes its output. The shutdown thread does not unload
+plugins itself, because the guest is still running until `end_analysis` takes
+effect, and guest hooks such as syscall callbacks are not gated by the seal: a
+hook could otherwise reach a plugin whose `uninit` had already run.
 
 The run waits as long as the work needs. Open work is work the run was meant
 to perform, and cutting it off is the bug this mechanism exists to prevent. The only bounds are the watchdog and the
@@ -305,7 +312,7 @@ running when the registry empties may be about to accept work. So the
 shutdown waits until the registry is empty **and** no subscriber callback is
 running, and in the same critical section seals: from then on no subscriber
 callback starts, and `begin_work` registers nothing. Nothing can register
-between that check and teardown. Events are delivered normally right up to
+between that check and the end of the run. Events are delivered normally right up to
 the seal, so interventions and analysis plugins keep working while the run
 waits.
 
@@ -343,8 +350,8 @@ timeout, and `nmap` vuln scans can take minutes.
 `core.timeout` stops the run. When it expires, core makes an *immediate*
 request (`request_shutdown(..., immediate=True)`): the manager does not wait
 for plugins at all, and if another plugin's request is already waiting, that
-wait ends at once. Teardown still runs, so every `uninit` writes its output
-before the emulator stops; plugins still mid-task are named in a warning and
+wait ends at once. Plugins are still unloaded from `pre_shutdown`, so every
+`uninit` writes its output; plugins still mid-task are named in a warning and
 their output may be incomplete. SIGUSR1, which `manager.py` sends when a run
 outlives its timeout, does the same.
 
