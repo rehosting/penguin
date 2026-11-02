@@ -178,12 +178,23 @@ def test_fetch_web_still_fetches_a_bind_that_arrives_after_the_request(tmp_path)
     queued and fetched exactly as it would have been, and holds the run open
     while it happens."""
     fetched = []
-    lp = load_fetch_web(tmp_path, lambda *a: fetched.append(a[:1]) or True)
+    release = threading.Event()
+
+    def fetch(*args):
+        # Held until the entry is checked: with no fetch delay, an instant
+        # fetch could release it first.
+        release.wait(5)
+        fetched.append(args[:1])
+        return True
+
+    lp = load_fetch_web(tmp_path, fetch)
 
     pending_shutdown(lp)
-    lp.dispatch("on_bind", *BIND)
-
-    assert FETCH_BIND in lp.pending_work, "a queued target was not tracked"
+    try:
+        lp.dispatch("on_bind", *BIND)
+        assert FETCH_BIND in lp.pending_work, "a queued target was not tracked"
+    finally:
+        release.set()
     wait_for(lambda: fetched == [("192.168.0.1",)])
     wait_for(lambda: lp.pending_work == [])
 
