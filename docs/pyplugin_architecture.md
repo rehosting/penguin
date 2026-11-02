@@ -311,7 +311,9 @@ waits.
 
 Every dispatcher calls subscribers through `plugins.call_subscriber`, which
 does the counting and the gating: `publish`, `portal_publish`, and the Events
-portalcall path. Only the call is counted, not a generator it returns.
+portalcall path. A generator subscriber (one that yields across portal
+round-trips, like `shell`'s) stays counted until it finishes, is closed, or
+is dropped, so the seal can't land while one is suspended mid-way.
 `begin_work` after the seal logs a warning naming the work and returns a
 handle whose `done()` does nothing.
 

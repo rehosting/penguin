@@ -23,6 +23,7 @@ These drive the real ``IGLOOPluginManager`` with stub plugins and a fake panda:
 no PANDA, no guest, no pyplugins. The plugin-side halves (fetch_web's queue
 drain, run_on_bind's attempts) are covered in test_plugin_pending_work.py.
 """
+import gc
 import threading
 import time
 
@@ -179,6 +180,22 @@ class BlockingSubscriber(Recorder):
         self.entered.set()
         assert self.release.wait(5), "callback was never released"
         self.work = self.begin_work(f"accepted bind {port}")
+
+
+class GeneratorSubscriber(Recorder):
+    """A subscriber that yields across a portal round-trip before accepting
+    work, like shell's igloo_shell_cb reading guest memory."""
+
+    def __init__(self):
+        super().__init__()
+        self.work = None
+        publisher = self.plugins.get_plugin_by_name("Publisher")
+        self.plugins.subscribe(publisher, "on_bind", self.on_bind)
+
+    def on_bind(self, port):
+        reply = yield f"read guest memory for {port}"
+        self.work = self.begin_work(f"accepted bind {port} after {reply}")
+        return 0
 
 
 class LogRecorder:
@@ -754,6 +771,125 @@ def test_a_subscriber_called_through_call_subscriber_holds_the_seal(manager):
     assert manager.panda.ended == 1
     assert manager.call_subscriber(lambda: None) == (False, None), \
         "a subscriber was called after the seal"
+
+
+def test_a_suspended_generator_subscriber_holds_the_seal(manager):
+    """The review case: a generator subscriber is suspended mid-round-trip
+    with nothing registered. Sealing then would unload plugins under it and
+    reject the work it accepts on resuming, so the shutdown waits for it."""
+    publisher, subscriber = manager.load_stubs(Publisher, GeneratorSubscriber)
+    timeline = manager.get_arg("timeline")
+    manager.logger = LogRecorder()
+
+    dispatch = manager.portal_publish(publisher, "on_bind", 80)
+    assert next(dispatch) == "read guest memory for 80"  # suspended
+
+    manager.request_shutdown(publisher, "done")
+    time.sleep(0.3)
+    assert manager.pending_work() == []
+    assert not manager._sealed, "sealed while a generator subscriber was suspended"
+    assert manager.panda.ended == 0
+
+    with pytest.raises(StopIteration):
+        dispatch.send("the reply")
+    assert [w.description for w in manager.pending_work()] == [
+        "accepted bind 80 after the reply"]
+
+    timeline.append("finished:accepted bind")
+    subscriber.work.done()
+    _join_shutdown(manager)
+
+    assert manager.panda.ended == 1
+    assert timeline.index("finished:accepted bind") < timeline.index("end_analysis")
+    assert not any("after teardown began" in w for w in manager.logger.at("warning"))
+
+
+def _counted_generator(manager, gen_fn):
+    delivered, it = manager.call_subscriber(gen_fn)
+    assert delivered
+    return it
+
+
+def test_a_generator_subscriber_passes_values_through_and_releases_on_return(manager):
+    """The Events portalcall loop drives subscribers with yield from and keeps
+    the int they return; wrapping must not change any of that."""
+    def subscriber():
+        reply = yield "request"
+        return reply * 2
+
+    def dispatcher():
+        result = yield from _counted_generator(manager, subscriber)
+        return result
+
+    gen = dispatcher()
+    assert next(gen) == "request"
+    assert manager._callbacks_in_flight == 1
+    with pytest.raises(StopIteration) as stop:
+        gen.send(21)
+    assert stop.value.value == 42
+    assert manager._callbacks_in_flight == 0
+
+
+def test_a_raising_generator_subscriber_is_released(manager):
+    def subscriber():
+        yield "request"
+        raise RuntimeError("boom in the subscriber")
+
+    it = _counted_generator(manager, subscriber)
+    next(it)
+    with pytest.raises(RuntimeError, match="boom"):
+        next(it)
+    assert manager._callbacks_in_flight == 0
+
+
+@pytest.mark.parametrize("started", [False, True])
+def test_an_abandoned_generator_subscriber_is_released(manager, started):
+    """A dispatcher may drop the iterator, before or after starting it. Either
+    way the count must not stay held until the watchdog."""
+    def subscriber():
+        yield "request"
+        yield "never reached"
+
+    it = _counted_generator(manager, subscriber)
+    if started:
+        next(it)
+    assert manager._callbacks_in_flight == 1
+
+    del it
+    gc.collect()
+    assert manager._callbacks_in_flight == 0
+
+
+def test_closing_a_suspended_dispatch_releases_its_subscriber(manager):
+    """Closing the outer dispatch generator closes the subscriber it is
+    delegating to, through yield from."""
+    publisher, subscriber = manager.load_stubs(Publisher, GeneratorSubscriber)
+
+    dispatch = manager.portal_publish(publisher, "on_bind", 80)
+    next(dispatch)
+    assert manager._callbacks_in_flight == 1
+
+    dispatch.close()
+    assert manager._callbacks_in_flight == 0
+
+
+def test_releasing_while_this_thread_holds_the_lock_does_not_deadlock(manager):
+    """The cyclic GC can run a dropped wrapper's release while this thread is
+    inside a _work_lock critical section."""
+    def subscriber():
+        yield "request"
+
+    it = _counted_generator(manager, subscriber)
+    released = threading.Event()
+
+    def release_under_lock():
+        with manager._work_lock:
+            it.close()
+        released.set()
+
+    threading.Thread(target=release_under_lock, daemon=True).start()
+    assert released.wait(2), "releasing under the held lock deadlocked"
+    assert manager._callbacks_in_flight == 0
 
 
 def test_an_immediate_request_does_not_wait_for_a_running_callback(manager):

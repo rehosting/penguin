@@ -87,6 +87,72 @@ class _Teardown:
         self.done = threading.Event()
 
 
+class _CountedIterator:
+    """A generator subscriber, kept counted as running until it finishes.
+
+    Calling a generator subscriber only creates it. Its body runs later, as
+    the dispatcher advances it across portal round-trips, so the count has to
+    outlive the call.
+
+    The count is released exactly once: when the generator returns or raises,
+    or when it is closed or dropped without finishing. ``yield from`` drives
+    this exactly like the generator it wraps, including ``send``, ``throw``,
+    ``close`` and the return value.
+    """
+
+    __slots__ = ("_it", "_release", "_finished")
+
+    def __init__(self, it: Iterator, release: Callable[[], None]):
+        self._it = it
+        self._release = release
+        self._finished = False
+
+    def _finish(self) -> None:
+        """Release the count, once."""
+        if not self._finished:
+            self._finished = True
+            self._release()
+
+    def __iter__(self) -> '_CountedIterator':
+        return self
+
+    def __next__(self) -> Any:
+        return self.send(None)
+
+    def send(self, value: Any) -> Any:
+        try:
+            if value is None:
+                return next(self._it)
+            return self._it.send(value)
+        except BaseException:  # StopIteration included: it has finished
+            self._finish()
+            raise
+
+    def throw(self, *args: Any) -> Any:
+        throw = getattr(self._it, "throw", None)
+        try:
+            if throw is None:
+                # Old (type, value, tb) form included.
+                raise args[1] if len(args) > 1 and args[1] is not None else args[0]
+            return throw(*args)
+        except BaseException:
+            self._finish()
+            raise
+
+    def close(self) -> None:
+        try:
+            close = getattr(self._it, "close", None)
+            if close is not None:
+                close()
+        finally:
+            self._finish()
+
+    def __del__(self) -> None:
+        # Dropped without finishing. May run from the cyclic GC while this
+        # thread already holds _work_lock, which is why that lock is an RLock.
+        self._finish()
+
+
 class PendingWork:
     """Work a plugin has committed to finishing before the run may end.
 
@@ -1084,8 +1150,10 @@ class IGLOOPluginManager:
         self._shutdown_now_reason: Optional[str] = None
         # Work plugins registered via begin_work, in registration order, and
         # the state that seals it for teardown. All guarded by _work_lock,
-        # which is never held while calling into a plugin.
-        self._work_lock = threading.Lock()
+        # which is never held while calling into a plugin. Reentrant because
+        # an abandoned generator subscriber releases its count from __del__,
+        # which the cyclic GC can run while this thread holds the lock.
+        self._work_lock = threading.RLock()
         self._pending_work: Dict[PendingWork, None] = {}
         self._callbacks_in_flight = 0  # subscriber callbacks currently running
         # Teardown has begun: no subscriber callback starts and begin_work
@@ -1439,24 +1507,35 @@ class IGLOOPluginManager:
     def call_subscriber(self, cb: Callable, *args: Any, **kwargs: Any) -> Tuple[bool, Any]:
         """Call one event subscriber, unless teardown has sealed delivery.
 
-        Every dispatcher goes through this so a graceful shutdown knows when no
-        subscriber is running, and seals only then. Work a running subscriber
-        accepts is therefore always waited for. Only the call is counted, not a
-        generator it returns, since the caller may abandon that.
+        Every dispatcher goes through this, so a graceful shutdown knows when
+        no subscriber is running and seals only then. Work a running
+        subscriber accepts is therefore always waited for.
 
-        :return: ``(False, None)`` if not delivered (sealed), else
-            ``(True, result)``.
-        :rtype: Tuple[bool, Any]
+        A generator subscriber stays counted until it finishes, is closed, or
+        is dropped, since its body only runs as the dispatcher advances it.
+
+        Returns ``(False, None)`` if delivery is sealed, otherwise
+        ``(True, result)``, with an iterator result wrapped so it stays
+        counted.
         """
         with self._work_lock:
             if self._sealed:
                 return False, None
             self._callbacks_in_flight += 1
         try:
-            return True, cb(*args, **kwargs)
-        finally:
-            with self._work_lock:
-                self._callbacks_in_flight -= 1
+            result = cb(*args, **kwargs)
+        except BaseException:
+            self._release_callback()
+            raise
+        if isinstance(result, Iterator):
+            return True, _CountedIterator(result, self._release_callback)
+        self._release_callback()
+        return True, result
+
+    def _release_callback(self) -> None:
+        """Mark one subscriber callback as no longer running."""
+        with self._work_lock:
+            self._callbacks_in_flight -= 1
 
     def unload_all(self) -> None:
         """
