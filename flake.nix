@@ -558,6 +558,7 @@
                 };
                 wrapperSrc = ./penguin;
                 resourcesSrc = ./src/resources;
+                fw2tarSrc = fw2tar.outPath;
               }
               // args
             );
