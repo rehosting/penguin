@@ -3,6 +3,7 @@ from typing import Any, Literal, Optional, Union
 from types import NoneType
 import argparse
 import dataclasses
+import inspect
 from pydantic_core import PydanticUndefined, PydanticUndefinedType
 import yaml
 
@@ -174,7 +175,11 @@ class DocsField:
             except AttributeError:
                 merge_behavior = None
             title = type_.model_config.get("title")
-            description = type_.__doc__
+            # cleandoc: Python 3.13+ strips docstring indentation at compile
+            # time and 3.12 does not, so the raw __doc__ made this output
+            # depend on the interpreter (and indented continuation lines
+            # rendered as Markdown code blocks).
+            description = type_.__doc__ and inspect.cleandoc(type_.__doc__)
             try:
                 default = type_.model_config["default"]
             except KeyError:
