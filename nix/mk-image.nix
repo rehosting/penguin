@@ -252,7 +252,7 @@ let
     # /usr/local/bin/fw2tar_install[.local] so one install drops both host
     # wrappers (fw2tar's runs this image, retagged rehosting/fw2tar). The
     # Dockerfile inherited these from the fw2tar build; the Nix image lost them
-    # until they were added back here (see installerRefs in hostToolCheck).
+    # until they were added back here (hostToolCheck now catches that).
     cp ${fw2tarSrc}/fw2tar                              "$out/usr/local/src/fw2tar_wrapper"
     cp ${fw2tarSrc}/src/resources/fw2tar_install        "$out/usr/local/bin/fw2tar_install"
     cp ${fw2tarSrc}/src/resources/fw2tar_install.local  "$out/usr/local/bin/fw2tar_install.local"
