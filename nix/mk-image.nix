@@ -26,6 +26,11 @@
   docsSrc, # the docs/ tree
   wrapperSrc, # the host ./penguin wrapper script
   resourcesSrc, # src/resources (banner.sh, penguin_install[.local])
+  # The fw2tar source tree, at the same locked revision as extractionBundle.
+  # penguin_install[.local] chain into fw2tar's own installers, which embed
+  # fw2tar's host wrapper; the bundle deliberately omits those container-UX
+  # files, so they are taken from source here.
+  fw2tarSrc,
   tag ? "latest", # image tag (docsImage overrides to "docs")
   # Image creation timestamp, ISO-8601. Required rather than defaulted, so it
   # cannot be silently forgotten and fall back to dockerTools' epoch. flake.nix
@@ -242,6 +247,16 @@ let
     cp ${resourcesSrc}/penguin_install        "$out/usr/local/bin/penguin_install"
     cp ${resourcesSrc}/penguin_install.local  "$out/usr/local/bin/penguin_install.local"
     chmod +x "$out/usr/local/bin/banner.sh" "$out/usr/local/bin/penguin_install" "$out/usr/local/bin/penguin_install.local"
+
+    # fw2tar's host wrapper + installers. penguin_install[.local] runs
+    # /usr/local/bin/fw2tar_install[.local] so one install drops both host
+    # wrappers (fw2tar's runs this image, retagged rehosting/fw2tar). The
+    # Dockerfile inherited these from the fw2tar build; the Nix image lost them
+    # until they were added back here (see installerRefs in hostToolCheck).
+    cp ${fw2tarSrc}/fw2tar                              "$out/usr/local/src/fw2tar_wrapper"
+    cp ${fw2tarSrc}/src/resources/fw2tar_install        "$out/usr/local/bin/fw2tar_install"
+    cp ${fw2tarSrc}/src/resources/fw2tar_install.local  "$out/usr/local/bin/fw2tar_install.local"
+    chmod +x "$out/usr/local/bin/fw2tar_install" "$out/usr/local/bin/fw2tar_install.local"
 
     # penguin source trees penguin discovers at runtime.
     mkdir -p "$out/pyplugins" "$out/docs"
@@ -497,6 +512,29 @@ let
     if [ -n "$missingFiles" ]; then
       echo "error: penguin image is missing required file(s):$missingFiles" >&2
       echo "       see 'overlay' / 'contents' in nix/mk-image.nix." >&2
+      exit 1
+    fi
+
+    # The *_install[.local] scripts are run in the image to emit a host
+    # installer (`docker run rehosting/penguin penguin_install | sudo sh`).
+    # Every absolute /usr/local/{bin,src} path they mention -- a sub-installer
+    # they chain into, a wrapper source they embed -- must exist in the image,
+    # or the user gets "No such file or directory" and a partial install. That
+    # is how fw2tar_install went missing from v3.1.1 to v3.1.22 unnoticed: no
+    # test ran the installer. Scanning every installer present (not a fixed
+    # list) also covers the ones they chain into.
+    missingRefs=""
+    for inst in "${rootEnv}"/usr/local/bin/*_install "${rootEnv}"/usr/local/bin/*_install.local; do
+      [ -e "$inst" ] || continue
+      for ref in $(grep -oE '/usr/local/(bin|src)/[A-Za-z0-9_.-]+' "$inst" | sort -u); do
+        if [ ! -e "${rootEnv}$ref" ]; then
+          missingRefs="$missingRefs $(basename "$inst")->$ref"
+        fi
+      done
+    done
+    if [ -n "$missingRefs" ]; then
+      echo "error: install script(s) reference file(s) missing from the image:$missingRefs" >&2
+      echo "       see 'overlay' in nix/mk-image.nix." >&2
       exit 1
     fi
 
