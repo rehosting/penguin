@@ -129,7 +129,9 @@ jobs:
       - name: Set up Python for config schema
         uses: actions/setup-python@v6
         with:
-          python-version: "3.10.12"
+          # Minor version only: ubuntu-latest is now 26.04, where setup-python
+          # has no 3.10.12 build (only 3.10.20+), which failed the v3.1.23 release.
+          python-version: "3.10"
       - name: Install dependencies for config schema
         run: pip install pydantic pydantic-partial pyyaml yamlcore
       - name: Generate config schema
