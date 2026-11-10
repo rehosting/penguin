@@ -219,6 +219,43 @@ class ProcessSubscriber(Plugin):
     def process_created(self, *args):
         print(f"New process created with args: {args}")
 ```
+
+### Ending the run
+
+When a plugin decides the run is over, it should ask rather than call
+`self.panda.end_analysis()`. That call stops the emulator on the spot, cutting off
+whatever other plugins are still doing: `run_on_bind` finishing while `fetch_web` is
+mid-fetch leaves that fetch incomplete.
+
+```python
+self.request_shutdown("commands succeeded for 10.0.0.1:80")
+```
+
+The request returns immediately (it is safe from a guest callback). A background thread
+waits until no pending work is left, then calls `end_analysis()`. Plugins are unloaded
+from `pre_shutdown` afterwards, as for any other ending. The wait is bounded at 120s
+(`SHUTDOWN_WAIT` in `plugin_manager.py`); work still pending then is named in a warning.
+The first request wins, and later ones are logged and ignored.
+
+A plugin with background work that should not be cut off registers it:
+
+```python
+work = self.begin_work(f"fetch {guest_ip}:{guest_port}")
+try:
+    ...
+finally:
+    work.done()   # idempotent and thread-safe
+```
+
+Registering is opt-in, so plugins that run for the whole session (`vpn`, `db`) never hold
+the run open. Register work when you accept it, not when you start it: a queued job is
+pending too. `fetch_web` registers each bind from queueing until its fetch ends.
+
+This is best-effort. Calling `end_analysis()` directly is still right for deadlines and
+fatal errors (`core.timeout`, SIGUSR1, `live_image`), which end the run at once. If such a
+deadline hits while a request is waiting, the wait stops. Work registered after the wait
+has already found nothing pending is not waited for.
+
 ## Init plugins
 
 A second family of pyplugins runs at `penguin init` time (and not during

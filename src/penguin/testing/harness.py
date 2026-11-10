@@ -59,7 +59,7 @@ import inspect
 import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from penguin.plugin_manager import Plugin, _exec_plugin_module, _plugin_root_on_path
+from penguin.plugin_manager import PendingWork, Plugin, _exec_plugin_module, _plugin_root_on_path
 
 
 class RecorderStub:
@@ -457,6 +457,9 @@ class NullManager:
         # LoadedPlugin.dispatch_syscall can find and drive the generator handler.
         self.syscall_hooks: List[dict] = []
         self.syscalls = _SyscallRegistry(self.syscall_hooks, log)
+        # Recorded by request_shutdown and begin_work.
+        self.shutdown_requests: List[Tuple[Any, str]] = []
+        self.open_work: List[Any] = []
 
     # --- manager surface a plugin's __init__ touches ---------------------- #
     def subscribe(self, publisher: Any, event: str, callback: Callable = None, *a, **k):
@@ -489,6 +492,21 @@ class NullManager:
 
     def get_plugin_by_name(self, name: str) -> Optional[Any]:
         return self._doubles.get(name) or self._doubles.get(name.lower())
+
+    def request_shutdown(self, requester: Any, reason: str) -> bool:
+        """Record the request; nothing is waited for or ended."""
+        self.shutdown_requests.append((requester, reason))
+        return len(self.shutdown_requests) == 1
+
+    def begin_work(self, plugin: Any, description: str) -> Any:
+        """Record the work as open until its ``done()`` is called."""
+        def release(work: Any) -> None:
+            if work in self.open_work:
+                self.open_work.remove(work)
+
+        work = PendingWork(release, getattr(plugin, "name", str(plugin)), description)
+        self.open_work.append(work)
+        return work
 
     def __contains__(self, name: str) -> bool:
         return self.get_plugin_by_name(name) is not None
@@ -533,6 +551,16 @@ class LoadedPlugin:
     @property
     def published(self) -> List[Tuple[Any, str, tuple, dict]]:
         return self.manager.published
+
+    @property
+    def shutdown_requests(self) -> List[Tuple[Any, str]]:
+        """``(requester, reason)`` for each ``request_shutdown`` call."""
+        return self.manager.shutdown_requests
+
+    @property
+    def pending_work(self) -> List[str]:
+        """Descriptions of work registered with ``begin_work`` and not yet done."""
+        return [w.description for w in list(self.manager.open_work)]
 
     def dispatch(self, event: str, *args: Any, **kwargs: Any) -> List[Any]:
         """Invoke every handler the plugin subscribed to ``event``.

@@ -11,6 +11,7 @@ The plugin is responsible for:
 - Enqueuing fetch tasks for HTTP/HTTPS ports (80, 443) and processing them in a worker thread.
 - Fetching web content using wget and logging the response size and entropy.
 - Optionally shutting down the emulation after a successful fetch or after failure, based on arguments.
+- Registering each queued bind as pending work, so a shutdown waits for its fetch.
 
 Arguments
 ---------
@@ -84,8 +85,10 @@ class FetchWeb(Plugin):
         else:
             self.fetch_delay = 20
         self.task_queue = queue.Queue()
-        plugins.subscribe(plugins.VPN, "on_bind", self.fetchweb_on_bind)
+        # Guards shutting_down, so no bind is registered after the worker stops.
+        self._lock = threading.Lock()
         self.shutting_down = False
+        plugins.subscribe(plugins.VPN, "on_bind", self.fetchweb_on_bind)
 
         self.worker_thread = threading.Thread(target=self.worker)
         self.worker_thread.daemon = True
@@ -111,19 +114,48 @@ class FetchWeb(Plugin):
             return
 
         log_file_name = os.path.join(self.outdir, f"web_{guest_ip}_{guest_port}")
-        self.task_queue.put((guest_ip, host_ip, guest_port, host_port, log_file_name))
+        with self._lock:
+            if self.shutting_down:
+                return
+            work = self.begin_work(f"fetch {guest_ip}:{guest_port}")
+            self.task_queue.put((guest_ip, host_ip, guest_port, host_port, log_file_name, work))
+
+    def _stop(self) -> None:
+        """Stop taking binds and release the queued ones."""
+        with self._lock:
+            self.shutting_down = True
+            while True:
+                try:
+                    *_, work = self.task_queue.get_nowait()
+                except queue.Empty:
+                    break
+                work.done()
+                self.task_queue.task_done()
 
     def worker(self) -> None:
         """
         Worker thread that processes fetch tasks from the queue.
+        """
+        try:
+            self._fetch_queued()
+        finally:
+            # Release anything still queued, however the worker ends.
+            self._stop()
+
+    def _fetch_queued(self) -> None:
+        """
+        Fetch queued binds one at a time until the plugin stops.
         """
         success = False  # track if we've had a successful response (for quitting)
         first = False  # track if we've had a task yet
         while not self.shutting_down:
             try:
                 # Wait for a task, sleeping 5s between every check
-                guest_ip, host_ip, guest_port, host_port, log_file_name = self.task_queue.get(timeout=5)
-                success = self.fetch(guest_ip, host_ip, guest_port, host_port, log_file_name)
+                guest_ip, host_ip, guest_port, host_port, log_file_name, work = self.task_queue.get(timeout=5)
+                try:
+                    success = self.fetch(guest_ip, host_ip, guest_port, host_port, log_file_name)
+                finally:
+                    work.done()
                 self.task_queue.task_done()
                 first = True
 
@@ -138,10 +170,10 @@ class FetchWeb(Plugin):
                 continue
 
         if self.shutdown_after_www or self.shutdown_on_failure:
-            self.shutting_down = True
+            self._stop()
             timestamp = f"{(time.time() - self.start_time):.02f}s"
             self.logger.info(f"Shutting down after fetching {guest_ip}:{guest_port} ({timestamp} after boot)")
-            self.panda.end_analysis()
+            self.request_shutdown(f"finished with {guest_ip}:{guest_port}")
 
     def fetch(self, guest_ip: str, host_ip: str, guest_port: int, host_port: int, log_file_name: str) -> bool:
         """

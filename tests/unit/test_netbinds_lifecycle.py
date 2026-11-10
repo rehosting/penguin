@@ -193,19 +193,18 @@ def test_zero_debounce_announces_synchronously(tmp_path, monkeypatch):
 
 def test_shutdown_on_www_fires_only_after_debounce(tmp_path, monkeypatch):
     lp, _mod, clk = _load(tmp_path, monkeypatch, shutdown_on_www=True)
-    ended = []
-    lp.plugin.panda.end_analysis = lambda: ended.append(True)
 
     # Transient www bind must NOT end the run.
     _bind(lp, 80, proc="flaky_httpd")
     _close(lp, 80)
-    assert ended == []
+    assert lp.shutdown_requests == []
 
-    # A www bind that survives the window must end the run.
+    # A www bind that survives the window must end the run, by request so
+    # other plugins' pending work is not cut off.
     _bind(lp, 80, proc="httpd")
     clk.advance(0.3)
     _bind(lp, 9999)  # sweep promotes/announces 80
-    assert ended == [True]
+    assert [reason for _, reason in lp.shutdown_requests] == ["bind on port 80"]
 
 
 def test_transient_rebind_can_still_become_listening(tmp_path, monkeypatch):
