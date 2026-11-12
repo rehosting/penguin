@@ -13,6 +13,9 @@ Features
 - Launches nmap scans (in a separate thread) for each new TCP service, storing results as XML files in the output directory.
 - Supports custom nmap configurations if present.
 - Manages and cleans up subprocesses for running nmap scans.
+- Registers each scan as pending work, so a sibling's shutdown request waits for scans
+  in flight instead of killing them. Nothing is expected up front: nmap cannot know
+  whether more services will bind.
 
 Arguments
 ---------
@@ -71,9 +74,19 @@ class Nmap(Plugin):
         f = self.outdir + f"/nmap_{proto}_{guest_port}_{host_port}.xml"
 
         # Launch a thread to analyze this request
-        t = threading.Thread(target=self.scan_thread, args=(host_ip, guest_port, host_port, f))
+        work = self.begin_work(f"nmap scan of guest port {guest_port} (host {host_ip}:{host_port})")
+        t = threading.Thread(target=self._run_scan, args=(work, host_ip, guest_port, host_port, f))
         t.daemon = True
         t.start()
+
+    def _run_scan(self, work, *args) -> None:
+        """Run :meth:`scan_thread`, releasing its pending-work entry however it ends."""
+        try:
+            self.scan_thread(*args)
+        except Exception:
+            self.logger.exception("nmap scan failed")
+        finally:
+            work.done()
 
     def scan_thread(self, host_ip: str, guest_port: int, host_port: int, log_file_name: str) -> None:
         """

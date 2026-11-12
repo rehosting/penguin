@@ -621,6 +621,16 @@ class Core(PartialModelMixin, BaseModel):
             examples=[60, 300],
         ),
     ]
+    shutdown_watchdog: Annotated[
+        Optional[int],
+        Field(
+            None,
+            title="Shutdown watchdog (seconds)",
+            description="Maximum graceful-shutdown wait. When a plugin asks to end the run, the run first waits for the pending work plugins registered (queued or running work, and work they expect to do); this bounds that wait. Defaults to 60 when unset. core.timeout is not delayed by this: it ends the run without waiting. When it expires, work in progress is named in an error and expected work that never started in a warning; the run then ends and output may be incomplete. 0 ends the run immediately.",
+            ge=0,
+            examples=[0, 30, 90],
+        ),
+    ]
     graphics: Annotated[
         bool,
         Field(

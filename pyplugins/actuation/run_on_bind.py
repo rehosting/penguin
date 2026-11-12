@@ -14,10 +14,24 @@ concurrent `guest_cmd.py` invocations.
 
 An attempt runs every configured command and succeeds if ANY of them does, since configurations
 routinely include commands that only apply to some targets. The first successful attempt is the
-last: the plugin stops accepting endpoints and, if `shutdown_after_cmd` is set, ends the
-analysis. A failed attempt is not terminal -- the next endpoint to bind gets its own try,
+last: the plugin stops accepting endpoints and, if `shutdown_after_cmd` is set, requests
+shutdown. A failed attempt is not terminal: the next endpoint to bind gets its own try,
 uncapped, which keeps a run from wedging when the first endpoint to appear (often a loopback
 bind) isn't the one that works.
+
+Shutdown
+--------
+
+`shutdown_after_cmd` asks the plugin manager to end the run, not `end_analysis`, so a
+sibling mid-download gets to finish. A pending shutdown changes nothing here: endpoints
+keep being queued and attempted until this plugin's own success resolves it.
+
+Pending work (what a sibling's shutdown waits for):
+
+- "commands succeed on a matching bind", expected from load and released by the first
+  successful attempt. A failed attempt keeps it open, since the plugin goes on to try
+  the next endpoint.
+- each queued endpoint, from when it is queued, through its delay, until its attempt ends.
 
 Every command has a hard timeout, and every command's outcome is recorded whether it passed or failed.
 
@@ -96,7 +110,7 @@ Arguments
 - delay (int, optional): Delay in seconds after a bind before running commands. Default: 20.
 - timeout (int, optional): Per-command timeout in seconds. Default: 120. A command that
     exceeds it is killed and counted as a failure.
-- shutdown_after_cmd (bool, optional): If True, end emulation after the first successful run.
+- shutdown_after_cmd (bool, optional): If True, request shutdown after the first successful run.
 
 Plugin Interface
 ----------------
@@ -259,7 +273,7 @@ class RunOnBind(Plugin):
             description="Per-command timeout in seconds. Defaults to 120 when unset. Prevents an unresponsive guest from hanging the run.")
         shutdown_after_cmd: bool = Field(
             default=False,
-            description="If true, end emulation after the first successful command run.")
+            description="If true, request shutdown after the first successful command run. Other plugins get to finish their in-flight work first.")
 
     def __init__(self) -> None:
         """
@@ -298,6 +312,8 @@ class RunOnBind(Plugin):
             self.logger.error("Host commands are configured but the host working directory resolved to '/'. Relative paths will not resolve; use absolute paths in your host commands.")
 
         self._seen_endpoints = set()
+        # Also serializes queueing with the worker stopping, so an endpoint
+        # can't be queued after the worker has released what was left.
         self._lock = threading.Lock()
         self.task_queue = queue.Queue()
         self.shutting_down = False
@@ -311,6 +327,7 @@ class RunOnBind(Plugin):
             f"endpoints={self.endpoints or 'any'}, "
             f"ports={self.port_filter or 'any'}, proto={self.proto_filter}")
 
+        self._goal = self.begin_work("commands succeed on a matching bind", expected=True)
         plugins.subscribe(plugins.VPN, "on_bind", self.on_bind_handler)
 
         self.worker_thread = threading.Thread(target=self.worker, daemon=True)
@@ -352,13 +369,27 @@ class RunOnBind(Plugin):
         guest_endpoint = f"{guest_ip}:{guest_port}"
 
         with self._lock:
+            if self.shutting_down or self.succeeded:
+                return
             if guest_endpoint in self._seen_endpoints:
                 self.logger.debug(f"commands already queued for {guest_endpoint}; skipping")
                 return
             self._seen_endpoints.add(guest_endpoint)
 
-        self.logger.info(f"Bind detected on {guest_endpoint} ({procname}); queueing commands attempt")
-        self.task_queue.put((guest_endpoint, host_ip, host_port, time.time()))
+            self.logger.info(f"Bind detected on {guest_endpoint} ({procname}); queueing commands attempt")
+            # Registered on queueing, so the delay before the attempt counts too.
+            work = self.begin_work(f"commands attempt for {guest_endpoint}")
+            self.task_queue.put((guest_endpoint, host_ip, host_port, time.time(), work))
+
+    def _release_queued(self) -> None:
+        """The run is resolved: release endpoints nothing will attempt now."""
+        with self._lock:
+            while True:
+                try:
+                    *_, work = self.task_queue.get_nowait()
+                except queue.Empty:
+                    break
+                work.done()
 
     def worker(self) -> None:
         """
@@ -369,7 +400,7 @@ class RunOnBind(Plugin):
         """
         while not self.shutting_down and not self.succeeded:
             try:
-                guest_endpoint, host_ip, host_port, queued_at = self.task_queue.get(timeout=5)
+                guest_endpoint, host_ip, host_port, queued_at, work = self.task_queue.get(timeout=5)
             except queue.Empty:
                 continue
 
@@ -379,7 +410,9 @@ class RunOnBind(Plugin):
                 self.logger.warning(f"commands attempt raised: {exc}")
                 self.logger.warning(f"Traceback:\n{traceback.format_exc()}")
             finally:
-                self.task_queue.task_done()
+                work.done()
+
+        self._release_queued()
 
     def _run_attempt(
         self,
@@ -409,12 +442,13 @@ class RunOnBind(Plugin):
 
         if success:
             self.succeeded = True
+            self._goal.done()
             timestamp = f"{(time.time() - self.start_time):.02f}s"
             self.logger.info(f"commands succeeded for {guest_endpoint} ({timestamp} after boot)")
             if self.shutdown_after_cmd:
-                self.logger.info("Shutting down after successful bind commands")
+                self.logger.info("Requesting shutdown after successful bind commands")
                 self.shutting_down = True
-                self.panda.end_analysis()
+                self.request_shutdown(f"run_on_bind commands succeeded for {guest_endpoint}")
             return
 
         self.logger.warning(f"commands failed for {guest_endpoint}; waiting for another endpoint to try")
