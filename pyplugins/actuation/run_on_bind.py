@@ -14,10 +14,10 @@ concurrent `guest_cmd.py` invocations.
 
 An attempt runs every configured command and succeeds if ANY of them does, since configurations
 routinely include commands that only apply to some targets. The first successful attempt is the
-last: the plugin stops accepting endpoints and, if `shutdown_after_cmd` is set, requests a
-shutdown, which ends the run once other plugins' pending work is done. A failed attempt is
-not terminal -- the next endpoint to bind gets its own try, uncapped, which keeps a run from
-wedging when the first endpoint to appear (often a loopback bind) isn't the one that works.
+last: the plugin stops accepting endpoints and, if `shutdown_after_cmd` is set, ends the
+analysis. A failed attempt is not terminal -- the next endpoint to bind gets its own try,
+uncapped, which keeps a run from wedging when the first endpoint to appear (often a loopback
+bind) isn't the one that works.
 
 Every command has a hard timeout, and every command's outcome is recorded whether it passed or failed.
 
@@ -414,7 +414,7 @@ class RunOnBind(Plugin):
             if self.shutdown_after_cmd:
                 self.logger.info("Shutting down after successful bind commands")
                 self.shutting_down = True
-                self.request_shutdown(f"commands succeeded for {guest_endpoint}")
+                self.plugins.request_shutdown(self, f"commands succeeded for {guest_endpoint}")
             return
 
         self.logger.warning(f"commands failed for {guest_endpoint}; waiting for another endpoint to try")

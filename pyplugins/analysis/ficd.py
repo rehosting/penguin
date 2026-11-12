@@ -84,7 +84,7 @@ class FICD(Plugin):
                         f"FICD Ifin reached on exec occuring {self.prev_time - self.init_time} after start")
                     if self.stop_on_if:
                         self.logger.warning("Stopping on Ifin reached...")
-                        self.request_shutdown("Ifin reached")
+                        self.plugins.request_shutdown(self, "Ifin reached")
                 return
 
         if self.ifin_reached:

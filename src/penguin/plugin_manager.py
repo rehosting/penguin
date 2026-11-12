@@ -60,24 +60,14 @@ PluginManagerType = TypeVar('PluginManagerType', bound='IGLOOPluginManager')
 
 # Longest a shutdown request waits for pending work.
 SHUTDOWN_WAIT = 120.0
-SHUTDOWN_POLL_INTERVAL = 0.25
 
 
 class PendingWork:
-    """Work registered with ``begin_work``. ``done()`` releases it; it is idempotent and thread-safe."""
+    """Work registered with ``begin_work``. ``done()`` releases it and is idempotent."""
 
-    def __init__(self, release: Callable[['PendingWork'], None], owner: str,
-                 description: str) -> None:
-        self._release = release
-        self.owner = owner
+    def __init__(self, release: Callable[['PendingWork'], None], description: str) -> None:
+        self.done = lambda: release(self)
         self.description = description
-
-    def done(self) -> None:
-        """Release this work."""
-        self._release(self)
-
-    def __str__(self) -> str:
-        return f"{self.owner}: {self.description}"
 
 
 def resolve_bound_method_from_class(f: Callable, manager: Any = None) -> Callable:
@@ -308,14 +298,6 @@ class Plugin:
         :rtype: str
         """
         return self.__class__.__name__
-
-    def request_shutdown(self, reason: str) -> bool:
-        """Ask for the run to end once pending work is done. Use instead of ``panda.end_analysis()``."""
-        return self.plugins.request_shutdown(self, reason)
-
-    def begin_work(self, description: str) -> PendingWork:
-        """Register work a shutdown request waits for. Call ``done()`` on the handle when it ends."""
-        return self.plugins.begin_work(self, description)
 
     def get_arg(self, arg_name: str) -> Any:
         """
@@ -1016,13 +998,9 @@ class IGLOOPluginManager:
         self.aliases: Dict[str, str] = {}
         self.plugins: Dict[str, Plugin] = {}
         self._plugin_name_map: Dict[str, Plugin] = {}  # Lowercase name -> instance
-
         self._work_lock = threading.Lock()
         self._pending_work: List[PendingWork] = []
-        self._shutdown_requested = False
         self._shutdown_thread: Optional[threading.Thread] = None
-        # Set when teardown starts.
-        self._tearing_down = threading.Event()
 
     def load(self, pluginclasses: Union[Type[T], List[Type[T]], Tuple[str, List[str]]],
              args: Dict[str, Any] = None) -> None:
@@ -1326,8 +1304,6 @@ class IGLOOPluginManager:
         """
         Unload all loaded plugins in reverse order of load time.
         """
-        # Stops a waiting shutdown request.
-        self._tearing_down.set()
         # unload in reverse order of load time
         plugin_list = {
             k: v for k,
@@ -1338,20 +1314,9 @@ class IGLOOPluginManager:
             name, cls = plugin_list.popitem()
             self.unload(cls)
 
-    def begin_work(self, plugin: Any, description: str) -> PendingWork:
-        """Register work a shutdown request waits for.
-
-        Opt-in. Register work when it is accepted (a queued job counts) and
-        call ``done()`` when it ends, however it ends.
-
-        :param plugin: Plugin that owns the work, for the log.
-        :param description: What the work is, e.g. ``"fetch 10.0.0.1:80"``.
-
-        :return: Handle whose ``done()`` releases the work.
-        :rtype: PendingWork
-        """
-        work = PendingWork(self._release_work, getattr(plugin, "name", str(plugin)),
-                           description)
+    def begin_work(self, description: str) -> PendingWork:
+        """Register work a shutdown request waits for. Call ``done()`` on the handle when it ends."""
+        work = PendingWork(self._release_work, description)
         with self._work_lock:
             self._pending_work.append(work)
         return work
@@ -1361,69 +1326,28 @@ class IGLOOPluginManager:
             if work in self._pending_work:
                 self._pending_work.remove(work)
 
-    def pending_work(self) -> List[PendingWork]:
-        """Work registered with :meth:`begin_work` and not yet done."""
-        with self._work_lock:
-            return list(self._pending_work)
+    def request_shutdown(self, requester: Any, reason: str) -> None:
+        """End the run once no pending work is left, waiting at most :data:`SHUTDOWN_WAIT`.
 
-    def request_shutdown(self, requester: Any, reason: str) -> bool:
-        """Ask for the run to end once pending work is done. Returns immediately.
-
-        A background thread waits until no work registered with
-        :meth:`begin_work` is left, up to :data:`SHUTDOWN_WAIT`, then calls
-        ``end_analysis``. It stops waiting if teardown has already started.
-        The first request wins. Safe to call from any thread.
-
-        :param requester: Plugin asking, for the log.
-        :param reason: Why the run should end, for the log.
-
-        :return: True if this call started the shutdown, False if one was
-            already pending.
-        :rtype: bool
+        Use instead of ``panda.end_analysis()``. Returns immediately; the first request wins.
         """
-        name = getattr(requester, "name", None) or str(requester)
         with self._work_lock:
-            if self._shutdown_requested:
-                self.logger.info(
-                    f"{name} requested shutdown ({reason}), but one is already pending")
-                return False
-            self._shutdown_requested = True
-
-        self.logger.info(
-            f"{name} requested shutdown: {reason}. The run will end once pending "
-            f"work is done (at most {SHUTDOWN_WAIT:.0f}s)")
-        self._shutdown_thread = threading.Thread(
-            target=self._run_shutdown, name="penguin-shutdown", daemon=True)
+            if self._shutdown_thread is not None:
+                return
+            self._shutdown_thread = threading.Thread(target=self._run_shutdown, daemon=True)
+        self.logger.info(f"{getattr(requester, 'name', requester)} requested shutdown: {reason}")
         self._shutdown_thread.start()
-        return True
 
     def _run_shutdown(self) -> None:
         """Wait for pending work, then end the run."""
-        try:
-            deadline = time.monotonic() + SHUTDOWN_WAIT
-            announced = set()
-            while not self._tearing_down.is_set():
-                left = self.pending_work()
-                if not left:
-                    break
-                if time.monotonic() >= deadline:
-                    self.logger.warning(
-                        f"Still waiting after {SHUTDOWN_WAIT:.0f}s for: "
-                        f"{'; '.join(map(str, left))}. Ending the run anyway; "
-                        "output may be incomplete")
-                    break
-                for work in left:
-                    if work not in announced:
-                        announced.add(work)
-                        self.logger.info(f"Shutdown is waiting for {work}")
-                self._tearing_down.wait(SHUTDOWN_POLL_INTERVAL)
-        except Exception:
-            self.logger.exception("Waiting for pending work failed; ending the run now")
-
-        if self._tearing_down.is_set():
-            # Already ending (core.timeout, guest poweroff); the emulator may be gone.
-            self.logger.info("The run is already ending; not waiting for pending work")
-            return
+        deadline = time.monotonic() + SHUTDOWN_WAIT
+        if self._pending_work:
+            self.logger.info(f"Shutdown is waiting for: {[w.description for w in self._pending_work]}")
+        while self._pending_work and time.monotonic() < deadline:
+            time.sleep(0.25)
+        if self._pending_work:
+            self.logger.warning(
+                f"Ending the run with work still pending: {[w.description for w in self._pending_work]}")
         self.panda.end_analysis()
 
     def register(self, plugin: Plugin, event: str,

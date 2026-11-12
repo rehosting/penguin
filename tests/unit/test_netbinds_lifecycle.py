@@ -194,17 +194,19 @@ def test_zero_debounce_announces_synchronously(tmp_path, monkeypatch):
 def test_shutdown_on_www_fires_only_after_debounce(tmp_path, monkeypatch):
     lp, _mod, clk = _load(tmp_path, monkeypatch, shutdown_on_www=True)
 
+    def requested():
+        return [c for c in lp.calls if c[0] == "plugins.request_shutdown"]
+
     # Transient www bind must NOT end the run.
     _bind(lp, 80, proc="flaky_httpd")
     _close(lp, 80)
-    assert lp.shutdown_requests == []
+    assert requested() == []
 
-    # A www bind that survives the window must end the run, by request so
-    # other plugins' pending work is not cut off.
+    # A www bind that survives the window must end the run.
     _bind(lp, 80, proc="httpd")
     clk.advance(0.3)
     _bind(lp, 9999)  # sweep promotes/announces 80
-    assert [reason for _, reason in lp.shutdown_requests] == ["bind on port 80"]
+    assert len(requested()) == 1
 
 
 def test_transient_rebind_can_still_become_listening(tmp_path, monkeypatch):

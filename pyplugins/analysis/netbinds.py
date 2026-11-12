@@ -491,7 +491,7 @@ class NetBinds(Plugin):
             # service comes up.
             if port == 80 and self.shutdown_on_www:
                 self.logger.info("Shutting down emulation due to bind on port 80")
-                self.request_shutdown("bind on port 80")
+                self.plugins.request_shutdown(self, "bind on port 80")
 
     def record_open(self, now, time_delta, procname, ipvn, sock_type, ip, port, pid) -> None:
         """
