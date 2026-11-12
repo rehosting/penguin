@@ -414,7 +414,7 @@ class RunOnBind(Plugin):
             if self.shutdown_after_cmd:
                 self.logger.info("Shutting down after successful bind commands")
                 self.shutting_down = True
-                self.panda.end_analysis()
+                self.plugins.request_shutdown(self, f"commands succeeded for {guest_endpoint}")
             return
 
         self.logger.warning(f"commands failed for {guest_endpoint}; waiting for another endpoint to try")

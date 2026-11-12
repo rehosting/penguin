@@ -219,6 +219,14 @@ class ProcessSubscriber(Plugin):
     def process_created(self, *args):
         print(f"New process created with args: {args}")
 ```
+
+### Ending the run
+
+To end the run, call `self.plugins.request_shutdown(self, reason)` instead of `self.panda.end_analysis()`,
+which stops the emulator at once and cuts off other plugins' work. The request waits, up to 120s, until no
+work registered with `self.plugins.begin_work(description)` is left. Call `done()` on the returned handle
+when that work ends. `fetch_web` registers each bind until its fetch completes.
+
 ## Init plugins
 
 A second family of pyplugins runs at `penguin init` time (and not during
