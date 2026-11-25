@@ -107,6 +107,16 @@ def test_vsock_connect_script_executes_guest_cmd_not_telnet():
         "telnet must appear only as a hint comment, never as the executed command"
 
 
+def test_vsock_connect_script_advertises_scp_on_the_ssh_door():
+    # scp/sftp ride the SSH front door, so the hint appears with it (using
+    # scp's -P for a non-default port) and disappears when there is no SSH door.
+    s = _render_connect_script_vsock("test_target", 2323, 2222)
+    assert "#   scp -P 2222 FILE root@" in s
+    assert "#   scp FILE root@" in _render_connect_script_vsock("test_target", 23, 22)
+    assert "scp" not in _render_connect_script_vsock("test_target", 2323, None)
+    assert not any("scp" in ln for ln in _active_lines(s))
+
+
 def test_write_connect_script_picks_vsock_variant(tmp_path):
     _write_connect_script(str(tmp_path), "c", 2323, True, True, backend="vsock")
     s = (tmp_path / "connect.sh").read_text()
