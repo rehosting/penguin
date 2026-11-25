@@ -14,16 +14,23 @@ so the run exercises the full path end-to-end over real vsock:
 That also gives the (new) Rust guest agent's pty path a real-vsock workout in
 CI, which the exec-only ``test_target`` runs never reach.
 
-On success (both doors round-trip a marker) it writes a marker file the
-``verifier`` plugin checks; the run ends when the condition passes.
+The SSH door also serves scp/sftp, terminated in the gateway and carried to the
+agent's ``fs`` verb, so the probe copies a file into the guest and back out over
+both protocols (SFTP and legacy scp) and checks the guest's own checksum of it.
+
+On success (both doors round-trip a marker and the file survives the round
+trips) it writes a marker file the ``verifier`` plugin checks; the run ends when
+the condition passes.
 
 The gateways bind their standard privileged ports (telnet 23, ssh 22) as the
 non-root container user, so a green run also confirms NET_BIND_SERVICE is
 effective and the SSH gateway's asyncssh import path works on the image.
 """
 import asyncio
+import hashlib
 import os
 import socket
+import tempfile
 import threading
 import time
 
@@ -40,6 +47,10 @@ MARKER_NAME = "frontdoor_result"
 TELNET_MARK = "TELNET_MARK_42"
 SSH_MARK = "SSH_MARK_42"
 SSH_ERR = "SSH_ERR_LINE"
+# File-transfer payload: several SFTP/agent chunks (32 KiB each), not a multiple
+# of one, and every byte value so nothing in the path can be text-mangling it.
+XFER_PAYLOAD = bytes(range(256)) * 1200 + b"frontdoor"
+XFER_DIR = "/frontdoor_xfer"
 
 
 class FrontdoorProbe(Plugin):
@@ -120,12 +131,69 @@ class FrontdoorProbe(Plugin):
             pty_ok = SSH_MARK in out
             return exec_ok and pty_ok
 
-    def _ssh_try(self, port):
+    # -- scp / sftp ------------------------------------------------------- #
+    async def _scp_once(self, port):
+        """One file-transfer attempt over the SSH door: SFTP up, guest-side
+        checksum, SFTP down, then the same file through legacy scp (`scp -t` /
+        `scp -f`) both ways. Returns True only if every copy is byte-identical."""
+        import asyncssh
+
+        want = hashlib.md5(XFER_PAYLOAD).hexdigest()
+        async with asyncssh.connect(
+            "127.0.0.1", port=port, username="root", known_hosts=None,
+            client_keys=[], password="", preferred_auth=["none", "password"],
+        ) as conn, conn.start_sftp_client() as sftp:
+            with tempfile.TemporaryDirectory() as tmp:
+                src = os.path.join(tmp, "src.bin")
+                with open(src, "wb") as f:
+                    f.write(XFER_PAYLOAD)
+
+                if not await sftp.exists(XFER_DIR):
+                    await sftp.mkdir(XFER_DIR)
+                await asyncio.wait_for(sftp.put(src, f"{XFER_DIR}/sftp.bin"), timeout=60)
+                # The guest's own view of the file, through the shell door: the
+                # bytes really landed in the guest filesystem, intact.
+                r = await asyncio.wait_for(
+                    conn.run(f"/igloo/utils/busybox md5sum {XFER_DIR}/sftp.bin"), timeout=15
+                )
+                guest_ok = want in (r.stdout or "")
+                await asyncio.wait_for(
+                    sftp.get(f"{XFER_DIR}/sftp.bin", os.path.join(tmp, "sftp.back")), timeout=60
+                )
+
+                await asyncio.wait_for(
+                    asyncssh.scp(src, (conn, f"{XFER_DIR}/scp.bin")), timeout=60
+                )
+                await asyncio.wait_for(
+                    asyncssh.scp((conn, f"{XFER_DIR}/scp.bin"), os.path.join(tmp, "scp.back")),
+                    timeout=60,
+                )
+
+                def same(name):
+                    with open(os.path.join(tmp, name), "rb") as f:
+                        return f.read() == XFER_PAYLOAD
+
+                back_ok = same("sftp.back") and same("scp.back")
+                if not (guest_ok and back_ok):
+                    self.logger.error(
+                        "scp/sftp mismatch: guest_ok=%s back_ok=%s", guest_ok, back_ok
+                    )
+                return guest_ok and back_ok
+
+    def _ssh_try(self, port, once=None):
         loop = asyncio.new_event_loop()
         try:
             os.environ.setdefault("USER", "root")  # asyncssh client username fallback
-            return loop.run_until_complete(self._ssh_once(port))
-        except Exception:  # noqa: BLE001
+            # One bound on the whole attempt (connect included), so a hang in
+            # any step cannot outlive the probe's deadline by much.
+            return loop.run_until_complete(
+                asyncio.wait_for((once or self._ssh_once)(port), timeout=90)
+            )
+        except Exception as e:  # noqa: BLE001
+            # Shell attempts fail routinely while the guest boots; a transfer is
+            # only tried once the shell works, so its failure is worth a line.
+            if once is not None:
+                self.logger.warning("scp/sftp attempt failed: %r", e)
             return False
         finally:
             loop.close()
@@ -140,8 +208,8 @@ class FrontdoorProbe(Plugin):
         # guest agent is up (post-boot), so retry the whole round-trip until both
         # pass or we give up. Guest boot under emulation is slow -> generous.
         deadline = time.time() + 240
-        telnet_ok = ssh_ok = False
-        while time.time() < deadline and not (telnet_ok and ssh_ok):
+        telnet_ok = ssh_ok = scp_ok = False
+        while time.time() < deadline and not (telnet_ok and ssh_ok and scp_ok):
             if not telnet_ok:
                 telnet_ok = self._telnet_once(telnet_port)
                 if telnet_ok:
@@ -150,15 +218,21 @@ class FrontdoorProbe(Plugin):
                 ssh_ok = self._ssh_try(ssh_port)
                 if ssh_ok:
                     self.logger.info("ssh front door: PASS")
-            if not (telnet_ok and ssh_ok):
+            # File transfer rides the SSH door, so only once the shell works.
+            if ssh_ok and not scp_ok:
+                scp_ok = self._ssh_try(ssh_port, self._scp_once)
+                if scp_ok:
+                    self.logger.info("scp/sftp over the ssh front door: PASS")
+            if not (telnet_ok and ssh_ok and scp_ok):
                 time.sleep(3)
 
-        if telnet_ok and ssh_ok:
+        if telnet_ok and ssh_ok and scp_ok:
             marker = os.path.join(self.outdir, MARKER_NAME)
             with open(marker, "w") as f:
-                f.write("telnet-ok ssh-ok frontdoor-ok")
+                f.write("telnet-ok ssh-ok scp-ok frontdoor-ok")
             self.logger.info("front doors passed; wrote marker %s", marker)
         else:
             self.logger.error(
-                "front door probe failed: telnet_ok=%s ssh_ok=%s", telnet_ok, ssh_ok
+                "front door probe failed: telnet_ok=%s ssh_ok=%s scp_ok=%s",
+                telnet_ok, ssh_ok, scp_ok,
             )

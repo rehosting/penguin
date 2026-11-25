@@ -368,6 +368,11 @@ exec "$ENGINE" exec -i "$CONTAINER" python3 "$GUEST_CMD" "$@"
     if ssh_port is not None:
         sport = "" if ssh_port == 22 else f" -p {ssh_port}"
         hint.append(f"#   ssh root@{host}{sport}")
+        # The SSH door also serves scp/sftp (terminated host-side like the
+        # shell; the guest needs no scp or sftp-server of its own).
+        pport = "" if ssh_port == 22 else f" -P {ssh_port}"
+        hint.append(f"#   scp{pport} FILE root@{host}:/tmp/     (copy in; "
+                    "swap the arguments to copy out; sftp works too)")
     if not container_ip:
         hint.append("#   (container IP is in runtime.yaml; or from the host: "
                     f"'<engine> exec -it {cname} telnet localhost {telnet_port}')")

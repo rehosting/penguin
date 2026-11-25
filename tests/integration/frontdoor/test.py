@@ -5,7 +5,9 @@ Drives the vsock root-shell console's front doors through a real ``penguin run``
 (init -> run), the same way qmp_hook does for the QMP hook. A project-local
 ``frontdoor_probe`` plugin connects to both doors from a host thread and, if an
 interactive command round-trips over each, writes a marker the ``verifier``
-plugin checks; the test asserts the marker.
+plugin checks; the test asserts the marker. The probe also copies a file into
+the guest and back out through the SSH door (SFTP and legacy scp), which covers
+the gateway's file-transfer path and the guest agent's ``fs`` verb.
 
 Because the doors are host-side (arch-independent) it runs once on x86_64 like
 the compose / qmp_hook tests rather than across the arch matrix. A green run
@@ -97,10 +99,19 @@ def run_test(arch, image):
             logger.error("--- console.log tail ---")
             for line in console.read_text(errors="replace").splitlines()[-60:]:
                 logger.error(line)
+        # The probe's own verdict (which door failed, and why) is in the run
+        # output, not in the results directory.
+        log = TEST_DIR / "test_log.txt"
+        if log.exists():
+            logger.error("--- probe lines from %s ---", log.name)
+            for line in log.read_text(errors="replace").splitlines():
+                if "frontdoor_probe" in line or "front door" in line:
+                    logger.error(line)
         raise AssertionError(f"front door marker not written: {marker}")
     contents = marker.read_text()
-    if "frontdoor-ok" not in contents:
-        raise AssertionError(f"front door marker unexpected contents: {contents!r}")
+    for want in ("telnet-ok", "ssh-ok", "scp-ok", "frontdoor-ok"):
+        if want not in contents:
+            raise AssertionError(f"front door marker lacks {want!r}: {contents!r}")
 
     logger.info("front door integration test PASSED")
 

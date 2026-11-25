@@ -536,7 +536,8 @@ jobs:
     # doors from a host thread, which also exercises the Rust guest agent's
     # open-pty path over real vsock (the exec-only run_tests never reach it) and
     # confirms the gateways bind their privileged standard ports and that the SSH
-    # gateway's asyncssh import works on the image.
+    # gateway's asyncssh import works on the image. It also round-trips a file
+    # through the SSH door over SFTP and legacy scp.
     needs: [changes, build_container]
     runs-on: rehosting-arc
     if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
