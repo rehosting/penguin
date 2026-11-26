@@ -585,6 +585,100 @@ class Core(PartialModelMixin, BaseModel):
             examples=["nokaslr mem=256M", "igloo_debug=1"],
         ),
     ]
+    machine: Annotated[
+        Optional[str],
+        Field(
+            None,
+            title="QEMU machine override",
+            description=(
+                "Override the per-arch default QEMU machine (from the arch "
+                "registry). Set this to boot a faithful vendor board instead of "
+                "the donor-kernel 'virt' machine, e.g. 'at91sam9260'. When set, "
+                "penguin skips the virt-only tuning and, unless "
+                "core.disk_transport says otherwise, attaches no rootfs drive "
+                "(the board boots its own storage); pair with core.rootfs_format "
+                "+ core.kernel_cmdline for a bring-your-own-rootfs boot. Unset "
+                "(default) = the arch registry's machine, unchanged."
+            ),
+            examples=["at91sam9260"],
+        ),
+    ]
+    disk_transport: Annotated[
+        Optional[Literal["auto", "none"]],
+        Field(
+            None,
+            title="Root disk transport",
+            description=(
+                "How the rootfs disk is attached. 'auto' (the default when "
+                "core.machine is unset) keeps the per-arch virtio-blk drive; "
+                "'none' attaches no drive, for a board that boots its own rootfs "
+                "(NAND/JFFS2/etc.). When core.machine is set, this defaults to "
+                "'none'."
+            ),
+            examples=["auto", "none"],
+        ),
+    ]
+    rootfs_format: Annotated[
+        Optional[Literal["qcow_ext4", "jffs2"]],
+        Field(
+            None,
+            title="Root filesystem image format",
+            description=(
+                "Format penguin writes the assembled rootfs (firmware + igloo "
+                "overlay + preinit) into. Unset/'qcow_ext4' (default) = today's "
+                "ext4-in-qcow on /dev/vda, unchanged. 'jffs2' repacks the SAME "
+                "assembled tree into a JFFS2 image (mkfs.jffs2) for a NAND board "
+                "to mount as its own rootfs -- preinit and the whole penguin "
+                "userspace ride along. Board picks the image up via core.qemu_env "
+                "(e.g. AT91_NAND_IMAGE). Extensible to ubifs/squashfs."
+            ),
+            examples=["qcow_ext4", "jffs2"],
+        ),
+    ]
+    rootfs_format_opts: Annotated[
+        Optional[Dict[str, str]],
+        Field(
+            None,
+            title="Root filesystem repack options",
+            description=(
+                "Per-format knobs for core.rootfs_format. For 'jffs2': "
+                "'eraseblock' (e.g. '0x4000'), 'pagesize', 'endian' (le/be), and "
+                "'extra' (verbatim mkfs.jffs2 flags). Unset = per-format defaults."
+            ),
+            examples=[{"eraseblock": "0x4000", "endian": "le"}],
+        ),
+    ]
+    kernel_cmdline: Annotated[
+        Optional[str],
+        Field(
+            None,
+            title="Full kernel command line override",
+            description=(
+                "Replace the entire -append verbatim. Bypasses penguin's default "
+                "root=/dev/vda + console replacement -- for a board that boots a "
+                "vendor rootfs from its own storage (set root=, console= "
+                "yourself; keep init=/igloo/boot/preinit to retain the penguin "
+                "userspace). Unset (default) = penguin's constructed append."
+            ),
+            examples=[
+                "mem=64M console=ttyS0,115200 root=/dev/mtdblock4 rootfstype=jffs2 rw init=/igloo/boot/preinit"
+            ],
+        ),
+    ]
+    qemu_env: Annotated[
+        Optional[Dict[str, str]],
+        Field(
+            None,
+            title="Extra environment for the QEMU process",
+            description=(
+                "Environment variables exported for the in-process QEMU before "
+                "it runs. For a board that reads a path from getenv (e.g. the "
+                "AT91SAM9260 board's AT91_NAND_IMAGE, pointing at the repacked "
+                "rootfs). Unset (default) = no extra environment."
+            ),
+            examples=[{"AT91_NAND_IMAGE": "/projects/tierA/rootfs.jffs2"}],
+        ),
+    ]
     mem: Annotated[
         Optional[str],
         Field(
