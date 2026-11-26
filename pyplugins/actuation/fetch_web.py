@@ -10,7 +10,22 @@ The plugin is responsible for:
 - Subscribing to VPN 'on_bind' events to detect new web services exposed to the host.
 - Enqueuing fetch tasks for HTTP/HTTPS ports (80, 443) and processing them in a worker thread.
 - Fetching web content using wget and logging the response size and entropy.
-- Optionally shutting down the emulation after a successful fetch or after failure, based on arguments.
+- Optionally requesting shutdown of the emulation after a successful fetch or after failure, based on arguments.
+
+Shutdown
+--------
+
+Shutdown is requested through the plugin manager, not ``end_analysis``, so a sibling
+mid-task gets to finish. A pending shutdown changes nothing here: binds keep being
+queued and fetched until this plugin's own ``shutdown_after_www`` /
+``shutdown_on_failure`` settings say stop.
+
+Pending work (what a sibling's shutdown waits for):
+
+- "fetch a web page", expected from load, so a sibling cannot end the run before a
+  web service has even bound. Released by the first successful fetch, or when this
+  plugin stops on its own terminal condition.
+- each queued bind, from when it is queued until its fetch ends.
 
 Arguments
 ---------
@@ -42,6 +57,9 @@ import time
 from typing import Optional
 from pydantic import Field
 from penguin import plugins, Plugin, PluginArgs
+
+
+QUEUE_POLL_INTERVAL = 5
 
 
 def calculate_entropy(buffer: bytes) -> float:
@@ -84,8 +102,12 @@ class FetchWeb(Plugin):
         else:
             self.fetch_delay = 20
         self.task_queue = queue.Queue()
-        plugins.subscribe(plugins.VPN, "on_bind", self.fetchweb_on_bind)
         self.shutting_down = False
+        # Guards shutting_down against fetchweb_on_bind, so a bind cannot be
+        # queued after the worker has stopped and released what was queued.
+        self._lock = threading.Lock()
+        self._goal = self.begin_work("fetch a web page", expected=True)
+        plugins.subscribe(plugins.VPN, "on_bind", self.fetchweb_on_bind)
 
         self.worker_thread = threading.Thread(target=self.worker)
         self.worker_thread.daemon = True
@@ -107,11 +129,30 @@ class FetchWeb(Plugin):
         """
         There was a bind - if it's a web port (80, 443), enqueue the task for fetching the page.
         """
-        if self.shutting_down or proto != "tcp" or guest_port not in [80, 443]:
+        if proto != "tcp" or guest_port not in [80, 443]:
             return
 
         log_file_name = os.path.join(self.outdir, f"web_{guest_ip}_{guest_port}")
-        self.task_queue.put((guest_ip, host_ip, guest_port, host_port, log_file_name))
+        with self._lock:
+            if self.shutting_down:
+                return
+            # Registered on queueing, not when the worker gets to it, so the
+            # wait in between counts as work too.
+            work = self.begin_work(f"fetch {guest_ip}:{guest_port}")
+            self.task_queue.put((guest_ip, host_ip, guest_port, host_port, log_file_name, work))
+
+    def _stop(self) -> None:
+        """Our own terminal condition: take no more binds and release what is
+        left. Leftover targets are dropped, as they always were."""
+        with self._lock:
+            self.shutting_down = True
+            while True:
+                try:
+                    *_, work = self.task_queue.get_nowait()
+                except queue.Empty:
+                    break
+                work.done()
+        self._goal.done()
 
     def worker(self) -> None:
         """
@@ -119,17 +160,10 @@ class FetchWeb(Plugin):
         """
         success = False  # track if we've had a successful response (for quitting)
         first = False  # track if we've had a task yet
+        last_target = None  # most recent target fetched, for the shutdown log
         while not self.shutting_down:
             try:
-                # Wait for a task, sleeping 5s between every check
-                guest_ip, host_ip, guest_port, host_port, log_file_name = self.task_queue.get(timeout=5)
-                success = self.fetch(guest_ip, host_ip, guest_port, host_port, log_file_name)
-                self.task_queue.task_done()
-                first = True
-
-                if success and self.shutdown_after_www:
-                    break
-
+                task = self.task_queue.get(timeout=QUEUE_POLL_INTERVAL)
             except queue.Empty:
                 if first and self.shutdown_on_failure:
                     self.logger.info("No responsive servers found.")
@@ -137,11 +171,28 @@ class FetchWeb(Plugin):
                 # Continue checking for new tasks until we shut down
                 continue
 
+            guest_ip, host_ip, guest_port, host_port, log_file_name, work = task
+            last_target = f"{guest_ip}:{guest_port}"
+            try:
+                success = self.fetch(guest_ip, host_ip, guest_port, host_port, log_file_name)
+            except Exception as exc:  # one bad target must not end the worker
+                self.logger.warning(f"Fetching {last_target} raised: {exc}")
+                success = False
+            finally:
+                work.done()
+            first = True
+
+            if success:
+                self._goal.done()
+                if self.shutdown_after_www:
+                    break
+
+        self._stop()
         if self.shutdown_after_www or self.shutdown_on_failure:
-            self.shutting_down = True
             timestamp = f"{(time.time() - self.start_time):.02f}s"
-            self.logger.info(f"Shutting down after fetching {guest_ip}:{guest_port} ({timestamp} after boot)")
-            self.panda.end_analysis()
+            target = last_target or "no responsive service"
+            self.logger.info(f"Requesting shutdown after fetching {target} ({timestamp} after boot)")
+            self.request_shutdown(f"fetch_web finished with {target}")
 
     def fetch(self, guest_ip: str, host_ip: str, guest_port: int, host_port: int, log_file_name: str) -> bool:
         """

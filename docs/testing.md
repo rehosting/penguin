@@ -59,6 +59,15 @@ assert "httpd" in (tmp_path / "netbinds.csv").read_text()
   that event (class-body `@plugins.subscribe` handlers are bound to the
   instance for you). `lp.subscriptions` / `lp.published` expose what the plugin
   wired up and emitted.
+- **`lp.shutdown_requests`** lists the `(requester, reason)` of every
+  `self.request_shutdown(...)` the plugin made. The null manager records them
+  rather than running a real shutdown, so a test can assert a plugin asked to
+  end the run, and that it didn't reach for `panda.end_analysis()` instead
+  (that would show up in `lp.calls`). `plugins.shutdown_pending` reads back
+  from the same list.
+- **`lp.pending_work`** lists the descriptions of the plugin's open
+  `self.begin_work(...)` entries, oldest first (`lp.manager.pending_work()`
+  returns the entries themselves). Nothing waits on them; assert on them.
 - **`lp.finalize()`** runs the plugin's `uninit()` — many plugins flush their
   final output file there.
 - **`call_init=False`** stops construction after `__preinit__` (skips

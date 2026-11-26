@@ -490,8 +490,8 @@ class NetBinds(Plugin):
             # transient www bind should not end the run before the real
             # service comes up.
             if port == 80 and self.shutdown_on_www:
-                self.logger.info("Shutting down emulation due to bind on port 80")
-                self.panda.end_analysis()
+                self.logger.info("Requesting shutdown due to bind on port 80")
+                self.request_shutdown(f"netbinds saw a www bind on port {port}")
 
     def record_open(self, now, time_delta, procname, ipvn, sock_type, ip, port, pid) -> None:
         """

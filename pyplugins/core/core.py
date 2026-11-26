@@ -7,7 +7,7 @@ and core logic for the penguin emulation environment. It is responsible for:
 
 - Validating required arguments at initialization.
 - Writing configuration and loaded plugin information to the output directory.
-- Handling SIGUSR1 for graceful shutdown of emulation.
+- Handling SIGUSR1 by ending emulation immediately (plugins are still unloaded so their output is written).
 - Creating a `.ran` file in the output directory after a non-crash shutdown.
 - Optionally enforcing a timeout for emulation and shutting down after the specified period.
 - Setting up environment variables for features like root shell, graphics, shared directory, strace, ltrace, and forced WWW.
@@ -299,12 +299,11 @@ class Core(Plugin):
 
         open(os.path.join(self.outdir, ".ran"), "w").close()
 
-        # Unload all plugins explicitly before ending analysis
-        # to ensure our uninit methods are called
-        plugins.unload_all()
-        time.sleep(1)
-
-        self.panda.end_analysis()
+        # A deadline: don't wait for work in progress, and cut short any wait
+        # another plugin started. Teardown still runs, so every uninit writes
+        # its output.
+        plugins.request_shutdown(self, f"core timeout of {timeout}s expired",
+                                 immediate=True)
 
     def graceful_shutdown(self, sig: int, frame) -> None:
         """
@@ -316,8 +315,9 @@ class Core(Plugin):
         """
         self.logger.info("Caught SIGUSR1 - gracefully shutdown emulation")
         open(os.path.join(self.outdir, ".ran"), "w").close()
-        plugins.unload_all()
-        self.panda.end_analysis()
+        # manager.py sends this when a run outlives its timeout, so it must
+        # end the run rather than join a wait already in progress.
+        plugins.request_shutdown(self, "SIGUSR1", immediate=True)
 
     def uninit(self) -> None:
         """
