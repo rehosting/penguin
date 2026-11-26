@@ -158,16 +158,41 @@ class OSI(Plugin):
         -------
         Dict[str, str]
             Dictionary of environment variables (empty if not found).
+
+        Notes
+        -----
+        Only the *first* ``=`` separates name from value. An unbounded
+        ``split("=")`` used to be used here, which made this method raise
+        ``ValueError`` on any entry whose value contains ``=`` --
+        ``LS_COLORS=rs=0:di=01;34`` (present in nearly every interactive
+        environment) or a base64 value ending in ``==``. An entry with no ``=``
+        at all raised too. Both are legal contents of a guest's environ block,
+        so neither may be an error: a nameless entry is skipped and everything
+        else is kept verbatim.
         """
         self.logger.debug("get_process_env called")
         proc_env = yield PortalCmd(hop.HYPER_OP_READ_PROCENV, pid=pid)
-        if proc_env:
-            args = [i.decode("latin-1").split("=")
-                    for i in proc_env.split(b"\0") if i]
-            env = {k: v for k, v in args}
-            self.logger.debug(f"Proc env read successfully: {env}")
-            return env
-        return {}
+        if not proc_env:
+            return {}
+        env: Dict[str, str] = {}
+        skipped = 0
+        for entry in proc_env.split(b"\0"):
+            if not entry:
+                continue
+            name, sep, value = entry.decode("latin-1").partition("=")
+            if not sep:
+                # A bare name with no '='. putenv() can produce one, and the
+                # kernel copies environ verbatim, so this is malformed-but-real
+                # rather than impossible. Drop it; do not let it abort the walk.
+                skipped += 1
+                continue
+            env[name] = value
+        if skipped:
+            self.logger.debug(
+                f"Proc env: skipped {skipped} entr{'y' if skipped == 1 else 'ies'} "
+                "with no '=' separator")
+        self.logger.debug(f"Proc env read successfully: {env}")
+        return env
 
     def get_proc(self, pid: Optional[int] = None) -> Generator[Any, None, Optional[Wrapper]]:
         """
@@ -537,6 +562,7 @@ class OSI(Plugin):
             fd_size = kffi.sizeof("osi_fd_entry")
 
             # Process each FD entry
+            fds_before_batch = len(fds)
             for i in range(batch_count):
                 if offset + fd_size > total_size:
                     self.logger.error(
@@ -584,10 +610,33 @@ class OSI(Plugin):
             self.logger.debug(
                 f"Retrieved {batch_count} file descriptors in this batch, total now: {len(fds)}")
 
-            # Update current_fd for next iteration (pagination)
-            # We need to update by batch_count, not the total accumulated fds
-            # Otherwise we might skip entries or go into an infinite loop
-            current_fd += batch_count
+            # Advance the cursor past the highest fd this batch actually
+            # reported.
+            #
+            # `current_fd` is an fd *number* -- handle_op_read_fds resumes its
+            # walk at `start_fd` and skips anything below it. It is NOT an
+            # index, so advancing it by the batch count (as this used to do) is
+            # only correct when the fd table is dense. For a sparse table --
+            # any process that has closed fds, or holds stdio plus a block of
+            # high fds -- the next request restarts inside the window just
+            # read, so entries come back duplicated while the fds past the
+            # batch are never requested at all.
+            #
+            # The driver walks fds in ascending order, so the last fd decoded
+            # is the high-water mark and +1 is the exact resume point. (The
+            # driver also reports where it stopped in `header.addr`, but
+            # portal.py discards that for HYPER_RESP_READ_OK, and resuming one
+            # past the last fd we saw needs no ABI change to get right.)
+            batch_high = max((f.fd for f in fds[fds_before_batch:]), default=None)
+            if batch_high is None:
+                # The batch claimed entries but none decoded, so there is no
+                # high-water mark and no safe way to advance. Stop rather than
+                # re-request the same window forever.
+                self.logger.error(
+                    f"get_fds: batch of {batch_count} decoded no entries at "
+                    f"start_fd={current_fd}; stopping to avoid re-reading it")
+                break
+            current_fd = batch_high + 1
 
             # Break if we've got all available FDs from kernel
             if len(fds) >= total_count:

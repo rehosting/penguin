@@ -78,6 +78,7 @@ patches:
   - ./patches/tests/signal_interception.yaml
   - ./patches/tests/crashes.yaml
   - ./patches/tests/netbinds-announce.yaml
+  - ./patches/tests/vfs_read.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
 

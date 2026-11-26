@@ -133,13 +133,13 @@
     "igloo-driver": {
       "flake": false,
       "locked": {
-        "narHash": "sha256-BIqNrEbjrUFsa7ZUmPzhjznjXsSfW4e2DiVqvP8Lw+I=",
+        "narHash": "sha256-DpQt9FBcbBb2m9BQL138hv+AsBoNgNOutzDp3bgkJvM=",
         "type": "tarball",
-        "url": "https://github.com/rehosting/igloo_driver/releases/download/v0.0.97/igloo_driver.tar.gz"
+        "url": "https://github.com/rehosting/igloo_driver/releases/download/v0.0.99/igloo_driver.tar.gz"
       },
       "original": {
         "type": "tarball",
-        "url": "https://github.com/rehosting/igloo_driver/releases/download/v0.0.97/igloo_driver.tar.gz"
+        "url": "https://github.com/rehosting/igloo_driver/releases/download/v0.0.99/igloo_driver.tar.gz"
       }
     },
     "igloo_driver": {
