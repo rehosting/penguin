@@ -49,12 +49,25 @@ import importlib
 import inspect
 import datetime
 import functools
+import threading
+import time
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 # Forward reference for type annotations
 T = TypeVar('T', bound='Plugin')
 PluginManagerType = TypeVar('PluginManagerType', bound='IGLOOPluginManager')
+
+# Longest a shutdown request waits for pending work.
+SHUTDOWN_WAIT = 120.0
+
+
+class PendingWork:
+    """Work registered with ``begin_work``. ``done()`` releases it and is idempotent."""
+
+    def __init__(self, release: Callable[['PendingWork'], None], description: str) -> None:
+        self.done = lambda: release(self)
+        self.description = description
 
 
 def resolve_bound_method_from_class(f: Callable, manager: Any = None) -> Callable:
@@ -985,6 +998,9 @@ class IGLOOPluginManager:
         self.aliases: Dict[str, str] = {}
         self.plugins: Dict[str, Plugin] = {}
         self._plugin_name_map: Dict[str, Plugin] = {}  # Lowercase name -> instance
+        self._work_lock = threading.Lock()
+        self._pending_work: List[PendingWork] = []
+        self._shutdown_thread: Optional[threading.Thread] = None
 
     def load(self, pluginclasses: Union[Type[T], List[Type[T]], Tuple[str, List[str]]],
              args: Dict[str, Any] = None) -> None:
@@ -1297,6 +1313,42 @@ class IGLOOPluginManager:
         while plugin_list:
             name, cls = plugin_list.popitem()
             self.unload(cls)
+
+    def begin_work(self, description: str) -> PendingWork:
+        """Register work a shutdown request waits for. Call ``done()`` on the handle when it ends."""
+        work = PendingWork(self._release_work, description)
+        with self._work_lock:
+            self._pending_work.append(work)
+        return work
+
+    def _release_work(self, work: PendingWork) -> None:
+        with self._work_lock:
+            if work in self._pending_work:
+                self._pending_work.remove(work)
+
+    def request_shutdown(self, requester: Any, reason: str) -> None:
+        """End the run once no pending work is left, waiting at most :data:`SHUTDOWN_WAIT`.
+
+        Use instead of ``panda.end_analysis()``. Returns immediately; the first request wins.
+        """
+        with self._work_lock:
+            if self._shutdown_thread is not None:
+                return
+            self._shutdown_thread = threading.Thread(target=self._run_shutdown, daemon=True)
+        self.logger.info(f"{getattr(requester, 'name', requester)} requested shutdown: {reason}")
+        self._shutdown_thread.start()
+
+    def _run_shutdown(self) -> None:
+        """Wait for pending work, then end the run."""
+        deadline = time.monotonic() + SHUTDOWN_WAIT
+        if self._pending_work:
+            self.logger.info(f"Shutdown is waiting for: {[w.description for w in self._pending_work]}")
+        while self._pending_work and time.monotonic() < deadline:
+            time.sleep(0.25)
+        if self._pending_work:
+            self.logger.warning(
+                f"Ending the run with work still pending: {[w.description for w in self._pending_work]}")
+        self.panda.end_analysis()
 
     def register(self, plugin: Plugin, event: str,
                  register_notify: Callable[[str, Callable[..., None]], None] = None) -> None:

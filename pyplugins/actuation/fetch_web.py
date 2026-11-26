@@ -111,7 +111,8 @@ class FetchWeb(Plugin):
             return
 
         log_file_name = os.path.join(self.outdir, f"web_{guest_ip}_{guest_port}")
-        self.task_queue.put((guest_ip, host_ip, guest_port, host_port, log_file_name))
+        work = self.plugins.begin_work(f"fetch {guest_ip}:{guest_port}")
+        self.task_queue.put((guest_ip, host_ip, guest_port, host_port, log_file_name, work))
 
     def worker(self) -> None:
         """
@@ -122,8 +123,9 @@ class FetchWeb(Plugin):
         while not self.shutting_down:
             try:
                 # Wait for a task, sleeping 5s between every check
-                guest_ip, host_ip, guest_port, host_port, log_file_name = self.task_queue.get(timeout=5)
+                guest_ip, host_ip, guest_port, host_port, log_file_name, work = self.task_queue.get(timeout=5)
                 success = self.fetch(guest_ip, host_ip, guest_port, host_port, log_file_name)
+                work.done()
                 self.task_queue.task_done()
                 first = True
 
@@ -139,9 +141,11 @@ class FetchWeb(Plugin):
 
         if self.shutdown_after_www or self.shutdown_on_failure:
             self.shutting_down = True
+            while not self.task_queue.empty():  # release binds that will not be fetched now
+                self.task_queue.get_nowait()[-1].done()
             timestamp = f"{(time.time() - self.start_time):.02f}s"
             self.logger.info(f"Shutting down after fetching {guest_ip}:{guest_port} ({timestamp} after boot)")
-            self.panda.end_analysis()
+            self.plugins.request_shutdown(self, f"finished with {guest_ip}:{guest_port}")
 
     def fetch(self, guest_ip: str, host_ip: str, guest_port: int, host_port: int, log_file_name: str) -> bool:
         """

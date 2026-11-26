@@ -78,7 +78,7 @@ class Verifier(Plugin):
             if self._all_passed(results):
                 self.logger.info("Verifier: ALL tests passed")
                 self.shutdown_event.set()
-                self.panda.end_analysis()
+                self.plugins.request_shutdown(self, "all tests passed")
                 return
             else:
                 self.logger.debug(
