@@ -381,6 +381,110 @@ class Processes(Plugin):
         return {"processes": flat, "tree": _build_tree(records)}
 
     # ------------------------------------------------------------------ #
+    # Slice 2: fds / resources / socket peers (live; portal generators)
+    # ------------------------------------------------------------------ #
+    def fds(self, pid: Optional[int] = None) -> Generator[Any, None, List[Dict[str, Any]]]:
+        """Open file descriptors for ``pid``, classified.
+
+        Each record is ``{fd, path, kind, inode}``; ``kind`` is
+        ``socket``/``pipe``/``anon``/``file``. Paths come from the driver's
+        ``d_path`` render (identical to ``/proc/<pid>/fd``), so socket and pipe
+        fds carry their inode in the path text and it is parsed out here --
+        that inode is the join key for :meth:`peers`.
+
+        NOTE on cost: the driver's read_fds op returns ONE fd per portal
+        round-trip, so this is O(fds) exits for a single process. Fine
+        interactively; the bulk op that fixes it is Phase-2 work (roadmap 11).
+        """
+        entries = yield from plugins.OSI.get_fds(pid)
+        return [_classify_fd(getattr(e, "fd", 0), getattr(e, "name", "") or "")
+                for e in (entries or [])]
+
+    def _fds_by_pid(self, pids: List[int]
+                    ) -> Generator[Any, None, Dict[int, List[Dict[str, Any]]]]:
+        """``{pid: [fd record]}`` for each pid, skipping ones that vanish.
+
+        A process can exit between the walk and its fd read; that is expected
+        churn, not an error, so it is dropped from the result rather than
+        raising.
+        """
+        out: Dict[int, List[Dict[str, Any]]] = {}
+        for pid in pids:
+            try:
+                recs = yield from self.fds(pid)
+            except Exception as e:  # pragma: no cover - guest-side raciness
+                self.logger.debug(f"processes: fds({pid}) failed: {e}")
+                continue
+            if recs:
+                out[pid] = recs
+        return out
+
+    def resources(self) -> Generator[Any, None, Dict[str, Any]]:
+        """System-wide "who holds what", most-shared first.
+
+        Returns ``{"resources": [{kind, key, holders: [{pid, fd}],
+        holder_count}]}``. Keyed by inode for socket/pipe fds and by path
+        otherwise, so the same pipe held by two processes is one resource.
+        """
+        records = yield from self._live_records()
+        fds_by_pid = yield from self._fds_by_pid(sorted(records))
+        return {"resources": _build_resource_index(fds_by_pid)}
+
+    def _socket_table(self) -> Generator[Any, None, Dict[int, Dict[str, Any]]]:
+        """``{socket inode: endpoint}`` from the guest's own /proc/net tables.
+
+        The driver's fd listing gives pid -> socket inode but no addresses (see
+        ``struct osi_fd_entry`` -- fd + name only), so the endpoints have to come
+        from somewhere. /proc/net/{tcp,tcp6,udp,udp6,unix} publish exactly the
+        inode -> endpoint mapping needed, and reading them costs nothing new: it
+        is the same portal file read any other plugin uses. A table that is
+        absent (no IPv6, no procfs yet) is skipped, not fatal.
+        """
+        table: Dict[int, Dict[str, Any]] = {}
+        for path, proto in (("/proc/net/tcp", "tcp"), ("/proc/net/tcp6", "tcp6"),
+                            ("/proc/net/udp", "udp"), ("/proc/net/udp6", "udp6")):
+            try:
+                data = yield from plugins.fs.read_file(path, size=65536)
+            except Exception:
+                continue
+            if data:
+                table.update(_parse_proc_net(
+                    data.decode("latin-1", "replace"), proto))
+        try:
+            data = yield from plugins.fs.read_file("/proc/net/unix", size=65536)
+        except Exception:
+            data = None
+        if data:
+            table.update(_parse_proc_net_unix(data.decode("latin-1", "replace")))
+        return table
+
+    def peers(self) -> Generator[Any, None, Dict[str, Any]]:
+        """The socket peer graph: which process is talking to which.
+
+        Returns ``{"sockets": [...], "edges": [...], "unresolved": n}``. An
+        edge is ``connected`` when one socket's local endpoint is another's
+        remote endpoint (the two ends of one in-guest conversation) or
+        ``shared`` when two processes hold the same socket inode (fork, or an
+        accept()ed fd passed to a worker). ``unresolved`` counts socket fds with
+        no /proc/net row, so a sparse graph reads as sparse rather than empty.
+
+        This is the composition slice 1 deliberately left out: the tree says who
+        exists, this says what they depend on.
+        """
+        records = yield from self._live_records()
+        fds_by_pid = yield from self._fds_by_pid(sorted(records))
+        sockets = yield from self._socket_table()
+        graph = _build_peer_graph(fds_by_pid, sockets)
+        # Name the endpoints so a caller does not have to re-join against tree().
+        names = {pid: records[pid]["name"] for pid in records}
+        for s in graph["sockets"]:
+            s["name"] = names.get(s["pid"], "")
+        for e in graph["edges"]:
+            e["a_name"] = names.get(e["a"], "")
+            e["b_name"] = names.get(e["b"], "")
+        return graph
+
+    # ------------------------------------------------------------------ #
     # Derived artifact (materialized from the DB at teardown)
     # ------------------------------------------------------------------ #
     def _write_map_file(self, procs: Dict[ProcKey, Dict[str, Any]]) -> None:
@@ -606,3 +710,224 @@ def _render_cache_tree(procs: Dict[ProcKey, Dict[str, Any]]) -> str:
     for i, root in enumerate(roots):
         walk(root, "", i == len(roots) - 1, True, frozenset())
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------- #
+# Slice 2: fd / resource / socket-peer composition (pure helpers)
+# ---------------------------------------------------------------------- #
+# The driver renders every fd with d_path() on file->f_path (portal_osi.c,
+# handle_op_read_fds), exactly like /proc/<pid>/fd. So non-file objects arrive
+# in their kernel textual form -- ``socket:[12345]``, ``pipe:[678]``,
+# ``anon_inode:[eventfd]`` -- and the number in the brackets IS the inode. That
+# is what makes the peer graph possible without any driver change: the fd
+# listing gives pid -> socket inode, and the guest's own /proc/net/* tables give
+# socket inode -> endpoints. Cross-matching the two joins processes to each
+# other through the sockets they hold.
+_BRACKET_KINDS = {"socket": "socket", "pipe": "pipe"}
+
+
+def _classify_fd(fd: int, path: str) -> Dict[str, Any]:
+    """One fd record: ``{fd, path, kind, inode}``.
+
+    ``kind`` is ``socket`` / ``pipe`` / ``anon`` / ``file``; ``inode`` is the
+    bracketed inode for socket and pipe fds (the only kinds that carry one in
+    d_path form) and 0 otherwise.
+    """
+    path = path or ""
+    kind, inode = "file", 0
+    head, _, rest = path.partition(":")
+    if head in _BRACKET_KINDS and rest.startswith("[") and rest.endswith("]"):
+        body = rest[1:-1]
+        if body.isdigit():
+            kind, inode = _BRACKET_KINDS[head], int(body)
+    elif head == "anon_inode":
+        kind = "anon"
+    return {"fd": int(fd), "path": path, "kind": kind, "inode": inode}
+
+
+def _hex_endpoint(token: str) -> Tuple[str, int]:
+    """``"0100007F:1F90"`` -> ``("127.0.0.1", 8080)``.
+
+    /proc/net/{tcp,udp} print the address as a little-endian hex word (v4) or
+    four of them (v6), and the port as big-endian hex. Returns ``("", 0)`` on
+    anything unparseable rather than raising -- a malformed line must not take
+    out the whole graph.
+    """
+    addr_hex, _, port_hex = token.partition(":")
+    try:
+        port = int(port_hex, 16)
+    except ValueError:
+        return ("", 0)
+    try:
+        if len(addr_hex) == 8:            # IPv4, LE word
+            v = int(addr_hex, 16)
+            addr = ".".join(str((v >> (8 * i)) & 0xFF) for i in range(4))
+        elif len(addr_hex) == 32:         # IPv6, four LE words
+            words = [addr_hex[i:i + 8] for i in range(0, 32, 8)]
+            groups = []
+            for w in words:
+                v = int(w, 16)
+                be = bytes((v >> (8 * i)) & 0xFF for i in range(4))
+                groups += [f"{be[0]:02x}{be[1]:02x}", f"{be[2]:02x}{be[3]:02x}"]
+            addr = ":".join(groups)
+        else:
+            return ("", port)
+    except ValueError:
+        return ("", port)
+    return (addr, port)
+
+
+# /proc/net/tcp state field (hex) -> name. Only the ones worth reporting.
+_TCP_STATES = {1: "ESTABLISHED", 2: "SYN_SENT", 3: "SYN_RECV", 4: "FIN_WAIT1",
+               5: "FIN_WAIT2", 6: "TIME_WAIT", 7: "CLOSE", 8: "CLOSE_WAIT",
+               9: "LAST_ACK", 10: "LISTEN", 11: "CLOSING"}
+
+
+def _parse_proc_net(text: str, proto: str) -> Dict[int, Dict[str, Any]]:
+    """Parse /proc/net/{tcp,tcp6,udp,udp6} -> ``{inode: endpoint record}``.
+
+    Columns are stable across the kernels penguin runs: ``sl local_address
+    rem_address st ... inode``, header line first, inode at index 9.
+    """
+    out: Dict[int, Dict[str, Any]] = {}
+    for line in (text or "").splitlines()[1:]:
+        f = line.split()
+        if len(f) < 10:
+            continue
+        try:
+            inode = int(f[9])
+            state = int(f[3], 16)
+        except ValueError:
+            continue
+        if not inode:
+            continue           # unbound / no socket inode -> nothing to join on
+        laddr, lport = _hex_endpoint(f[1])
+        raddr, rport = _hex_endpoint(f[2])
+        out[inode] = {"inode": inode, "proto": proto,
+                      "local": {"addr": laddr, "port": lport},
+                      "remote": {"addr": raddr, "port": rport},
+                      "state": _TCP_STATES.get(state, str(state))}
+    return out
+
+
+def _parse_proc_net_unix(text: str) -> Dict[int, Dict[str, Any]]:
+    """Parse /proc/net/unix -> ``{inode: {proto, path, state}}``.
+
+    Columns: ``Num RefCount Protocol Flags Type St Inode Path`` (Path absent for
+    unnamed sockets). Note /proc/net/unix does NOT publish the peer pointer, so
+    unix pairing can only be inferred from a shared path -- see
+    ``_build_peer_graph``, which labels those edges differently for that reason.
+    """
+    out: Dict[int, Dict[str, Any]] = {}
+    for line in (text or "").splitlines()[1:]:
+        f = line.split()
+        if len(f) < 7:
+            continue
+        try:
+            inode = int(f[6])
+        except ValueError:
+            continue
+        if not inode:
+            continue
+        out[inode] = {"inode": inode, "proto": "unix",
+                      "path": f[7] if len(f) > 7 else "",
+                      "state": f[5]}
+    return out
+
+
+def _build_resource_index(fds_by_pid: Dict[int, List[Dict[str, Any]]]
+                          ) -> List[Dict[str, Any]]:
+    """Invert ``{pid: [fd record]}`` into a holder index, most-held first.
+
+    The key is the inode for socket/pipe fds (so two processes holding the same
+    pipe collapse to one resource even though the fd numbers differ) and the
+    path for everything else.
+    """
+    holders: Dict[Tuple[str, Any], List[Dict[str, Any]]] = defaultdict(list)
+    kinds: Dict[Tuple[str, Any], str] = {}
+    for pid in sorted(fds_by_pid):
+        for rec in fds_by_pid[pid]:
+            key = ((rec["kind"], rec["inode"]) if rec["inode"]
+                   else (rec["kind"], rec["path"]))
+            holders[key].append({"pid": pid, "fd": rec["fd"]})
+            kinds[key] = rec["kind"]
+    out = []
+    for key, hs in holders.items():
+        out.append({"kind": kinds[key], "key": key[1], "holders": hs,
+                    "holder_count": len(hs)})
+    out.sort(key=lambda r: (-r["holder_count"], str(r["kind"]), str(r["key"])))
+    return out
+
+
+def _build_peer_graph(fds_by_pid: Dict[int, List[Dict[str, Any]]],
+                      sockets: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
+    """Join pid->socket-inode against inode->endpoint into a peer graph.
+
+    Returns ``{"sockets": [...], "edges": [...], "unresolved": n}``:
+
+    * ``sockets`` -- every socket fd we could resolve to an endpoint, annotated
+      with its holder (pid, fd).
+    * ``edges``   -- ``{a, b, via, kind}`` process pairs. ``kind`` is
+      ``connected`` when one socket's *local* endpoint equals another's
+      *remote* endpoint (a genuine in-guest connection: the two ends of the
+      same conversation, e.g. a client talking to a local daemon), or
+      ``shared`` when two processes hold the *same* socket inode (post-fork
+      sharing / an accept()ed fd handed to a worker).
+    * ``unresolved`` -- socket fds with no /proc/net row (kernel sockets, or a
+      table we did not read). Reported, never silently dropped, so a thin graph
+      is visibly thin rather than looking like "no connections exist".
+    """
+    holder: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
+    for pid in sorted(fds_by_pid):
+        for rec in fds_by_pid[pid]:
+            if rec["kind"] == "socket" and rec["inode"]:
+                holder[rec["inode"]].append({"pid": pid, "fd": rec["fd"]})
+
+    resolved, unresolved = [], 0
+    for inode in sorted(holder):
+        ep = sockets.get(inode)
+        if ep is None:
+            unresolved += len(holder[inode])
+            continue
+        for h in holder[inode]:
+            resolved.append({**ep, "pid": h["pid"], "fd": h["fd"]})
+
+    edges = []
+    # Same inode in two processes -> a shared socket (fork / handed-off accept).
+    for inode in sorted(holder):
+        hs = holder[inode]
+        for i in range(len(hs)):
+            for j in range(i + 1, len(hs)):
+                if hs[i]["pid"] != hs[j]["pid"]:
+                    edges.append({"a": hs[i]["pid"], "b": hs[j]["pid"],
+                                  "via": inode, "kind": "shared"})
+    # local(A) == remote(B) -> the two ends of one connection, both in-guest.
+
+    def _key(e):
+        return (e["addr"], e["port"])
+    by_local = defaultdict(list)
+    for s in resolved:
+        # A LISTEN socket is deliberately NOT indexed: its local endpoint also
+        # equals the client's remote endpoint, so indexing it would pair the
+        # client with the listener as well as with the accepted socket -- two
+        # edges for one conversation, the second of them wrong (the listener is
+        # not the far end of anything). Only endpoints of an actual connection
+        # are candidates.
+        if s.get("local", {}).get("port") and s.get("state") != "LISTEN":
+            by_local[_key(s["local"])].append(s)
+    seen = set()
+    for s in resolved:
+        rem = s.get("remote", {})
+        if not rem.get("port"):
+            continue
+        for peer in by_local.get(_key(rem), []):
+            if peer["pid"] == s["pid"] and peer["inode"] == s["inode"]:
+                continue
+            pair = tuple(sorted((s["inode"], peer["inode"])))
+            if pair in seen:
+                continue
+            seen.add(pair)
+            edges.append({"a": s["pid"], "b": peer["pid"],
+                          "via": f"{rem['addr']}:{rem['port']}",
+                          "kind": "connected"})
+    return {"sockets": resolved, "edges": edges, "unresolved": unresolved}

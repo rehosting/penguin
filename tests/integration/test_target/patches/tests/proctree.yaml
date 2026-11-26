@@ -1,0 +1,17 @@
+plugins:
+  DB: {}
+  Execs: {}
+  processes:
+    enabled: true
+    write_map: true
+  proctree_verify:
+    enabled: true
+    settle_seconds: 2
+    max_wait_seconds: 8
+    scan_cap: 256
+  verifier:
+    conditions:
+      proctree_model_matches_proc:
+        type: file_contains
+        file: proctree_verify.txt
+        string: PROCTREE_VERIFY=PASS
